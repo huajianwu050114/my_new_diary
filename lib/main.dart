@@ -12,6 +12,7 @@ import 'diary_view_page.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'home_page.dart';
 import 'theme_provider.dart'; // <-- 1. 导入新的 ThemeProvider
+import 'user_provider.dart';
 
 
 void main() async {
@@ -24,6 +25,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (context) => DiaryService()),
         ChangeNotifierProvider(create: (context) => ThemeProvider()),
+        ChangeNotifierProvider(create: (context) => UserProvider()),
       ],
       child: const MyApp(),
     ),

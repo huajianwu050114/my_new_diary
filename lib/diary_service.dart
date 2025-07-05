@@ -164,4 +164,81 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
     }).toList();
     return entriesWithImages.take(limit).toList();
   }
+
+  Future<List<DiaryEntry>> getTrashEntries() async {
+    final trashDir = await _trashDir;
+    final List<DiaryEntry> entries = [];
+
+    if (!await trashDir.exists()) {
+      return [];
+    }
+
+    await for (var entity in trashDir.list()) {
+      if (entity is File && entity.path.endsWith('.json')) {
+        try {
+          final jsonString = await entity.readAsString();
+          final map = jsonDecode(jsonString);
+          entries.add(DiaryEntry.fromMap(map, entity.path));
+        } catch (e) {
+          print("解析回收站文件失败: ${entity.path}, 错误: $e");
+        }
+      }
+    }
+    // 按创建时间排序，让最新的显示在最前面
+    entries.sort((a, b) => b.creationTime.compareTo(a.creationTime));
+    return entries;
+  }
+
+  /// 2. 从回收站恢复一篇日记
+  Future<void> restoreFromTrash(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) return;
+
+    final entry = DiaryEntry.fromMap(jsonDecode(await file.readAsString()), filePath);
+    final diariesDir = await _diariesDir;
+
+    // 根据日记的原始日期，确定它应该被放回哪个年/月文件夹
+    final year = entry.date.year.toString();
+    final month = entry.date.month.toString().padLeft(2, '0');
+    final monthDir = Directory(p.join(diariesDir.path, year, month));
+
+    if (!await monthDir.exists()) {
+      await monthDir.create(recursive: true);
+    }
+
+    final newPath = p.join(monthDir.path, p.basename(filePath));
+    await file.rename(newPath);
+    notifyListeners(); // 通知UI刷新
+  }
+
+  /// 3. 永久删除一篇日记
+  Future<void> deletePermanently(String filePath) async {
+    final file = File(filePath);
+    if (await file.exists()) {
+      await file.delete();
+    }
+    notifyListeners(); // 通知UI刷新
+  }
+  Future<List<DiaryEntry>> searchEntries(String keyword) async {
+    // 如果关键词为空，直接返回空列表
+    if (keyword.isEmpty) {
+      return [];
+    }
+
+    // 先获取所有日记
+    final allEntries = await getAllEntriesSorted();
+    final List<DiaryEntry> results = [];
+
+    // 将关键词转为小写，以便进行不区分大小写的搜索
+    final lowerCaseKeyword = keyword.toLowerCase();
+
+    for (var entry in allEntries) {
+      // 如果日记的文本内容（也转为小写）包含关键词，则加入到结果列表中
+      if (entry.text.toLowerCase().contains(lowerCaseKeyword)) {
+        results.add(entry);
+      }
+    }
+
+    return results;
+  }
 }
