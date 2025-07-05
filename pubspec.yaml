@@ -39,6 +39,7 @@ dependencies:
   flutter_slidable: ^3.0.0 # 用来实现滑动菜单
   http: ^1.1.0
   carousel_slider: ^5.1.1
+  provider: ^6.0.0 # 添加这一行
 
   # The following adds the Cupertino Icons fonts to your application.
   # Use with the CupertinoIcons class for iOS style icons.
