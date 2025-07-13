@@ -7,7 +7,7 @@ class ThemeProvider extends ChangeNotifier {
 
   ThemeMode get themeMode => _themeMode;
 
-  // 在这里直接定义两套颜色列表
+  // We will now have only ONE set of gradients for light mode
   final List<List<Color>> _lightGradients = const [
     [Color(0xffff9a9e), Color(0xfffad0c4)],
     [Color(0xffa18cd1), Color(0xfffbc2eb)],
@@ -15,8 +15,12 @@ class ThemeProvider extends ChangeNotifier {
     [Color(0xfffccb90), Color(0xffd57eeb)],
     [Color(0xffa6c0fe), Color(0xfff68084)],
     [Color(0xfff6d365), Color(0xfffda085)],
+    // Added colors from the previous festival list for more variety
+    [Color(0xff667eea), Color(0xff764ba2)],
+    [Color(0xff89f7fe), Color(0xff66a6ff)],
   ];
 
+  // And ONE set for dark mode
   final List<List<Color>> _darkGradients = const [
     [Color(0xFF2E3192), Color(0xFF1BFFFF)],
     [Color(0xFF673AB7), Color(0xFF512DA8)],
@@ -24,10 +28,15 @@ class ThemeProvider extends ChangeNotifier {
     [Color(0xFF4527A0), Color(0xFF7E57C2)],
     [Color(0xFF006064), Color(0xFF0097A7)],
     [Color(0xFF1A237E), Color(0xFF303F9F)],
+    // Added colors from the previous festival list for more variety
+    [Color(0xff09203f), Color(0xff537895)],
+    [Color(0xff2c3e50), Color(0xff4ca1af)],
   ];
 
-  // 提供一个 getter，根据当前模式返回正确的颜色列表
+  // This single getter will now provide colors for ALL cards
   List<List<Color>> get cardGradientColors => isDarkMode ? _darkGradients : _lightGradients;
+
+  // We no longer need a separate festivalGradientColors getter
 
   bool get isDarkMode {
     if (_themeMode == ThemeMode.system) {

@@ -32,7 +32,7 @@ dependencies:
     sdk: flutter
 
   table_calendar: ^3.0.9
-  intl: ^0.18.1
+  intl: ^0.20.0
   path_provider: ^2.0.11 # 用于获取应用的安全数据存储路径
   path: ^1.8.2
   image_picker: ^1.0.0
@@ -41,6 +41,19 @@ dependencies:
   carousel_slider: ^5.1.1
   provider: ^6.0.0 # 添加这一行
   shared_preferences: ^2.2.3
+  #html_editor_enhanced: ^2.5.1
+  flutter_svg: ^2.0.10+1
+  fl_chart: ^0.68.0
+  word_cloud: ^1.0.1
+  local_auth: ^2.2.0
+  pdf: ^3.10.8         # <--- VVV 用于创建PDF的核心库     # <--- VVV 辅助库，用于保存和打印PDF
+  #share_plus: ^9.0.0
+  file_picker: ^8.0.3
+  geolocator: ^12.0.0 # <--- VVV Add this line
+  geocoding: ^3.0.0
+  flutter_local_notifications: ^17.1.2 # 添加这一行
+  timezone: ^0.9.3
+  flutter_heatmap_calendar: ^1.0.5
 
 
   # The following adds the Cupertino Icons fonts to your application.
@@ -68,6 +81,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/fonts/
   fonts:
     - family: MiSans  # 1. 我们给这个字体家族起个名字，叫 MiSans
       fonts:

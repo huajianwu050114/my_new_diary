@@ -2,9 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>我们需要您的位置来为日记添加地理标签。</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>我们需要您的位置来为日记添加地理标签。</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
+	<key>NSFaceIDUsageDescription</key>
+    <string>需要您的授权以快速、安全地访问您的私密日记。</string>
 	<string>My New Diary</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>

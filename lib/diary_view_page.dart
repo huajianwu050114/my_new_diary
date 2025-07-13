@@ -15,7 +15,9 @@ class DiaryViewPage extends StatefulWidget {
 }
 
 class _DiaryViewPageState extends State<DiaryViewPage> {
-  // 删除日记的逻辑
+  // VVV 1. 添加状态来追踪当前图片页码 VVV
+  int _currentPage = 0;
+
   void _deleteDiary() async {
     final bool? confirmDelete = await showDialog<bool>(
       context: context,
@@ -47,36 +49,100 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     }
   }
 
+  // VVV 2. 构建图片浏览器 VVV
+  Widget _buildImageViewer() {
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: Stack(
+        children: [
+          // 可滑动的 PageView
+          PageView.builder(
+            itemCount: widget.entry.imagePaths.length,
+            onPageChanged: (index) {
+              setState(() {
+                _currentPage = index;
+              });
+            },
+            itemBuilder: (context, index) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(15.0),
+                  child: Image.file(
+                    File(widget.entry.imagePaths[index]),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => _buildImageErrorPlaceholder(),
+                  ),
+                ),
+              );
+            },
+          ),
+          // 底部的页码指示器
+          if (widget.entry.imagePaths.length > 1)
+            Positioned(
+              bottom: 16,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(widget.entry.imagePaths.length, (index) {
+                  return Container(
+                    width: 8,
+                    height: 8,
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _currentPage == index
+                          ? Colors.white
+                          : Colors.white.withOpacity(0.4),
+                    ),
+                  );
+                }),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
-    // 判断是否存在有效图片路径
-    final bool hasImage = entry.imagePath != null && entry.imagePath!.isNotEmpty;
+    // VVV 3. 更新判断逻辑 VVV
+    final bool hasImages = entry.imagePaths.isNotEmpty;
 
     return Scaffold(
-      // 仅在有图片时，才将内容延伸至AppBar后方
-      extendBodyBehindAppBar: hasImage,
+      extendBodyBehindAppBar: hasImages,
       appBar: AppBar(
-        title: Text(DateFormat('yyyy年M月d日', 'zh_CN').format(entry.date)),
-        // 如果有图片，AppBar背景透明；否则使用主题默认色
+        title: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(DateFormat('yyyy年M月d日', 'zh_CN').format(entry.date)),
+            Text(
+              '${DateFormat('HH:mm').format(entry.creationTime)}',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
         backgroundColor:
-        hasImage ? Colors.transparent : Theme.of(context).appBarTheme.backgroundColor,
+        hasImages ? Colors.transparent : Theme.of(context).appBarTheme.backgroundColor,
         elevation: 0,
-        // 如果有图片，为标题和图标添加阴影以保证可见性
-        titleTextStyle: hasImage
+        titleTextStyle: hasImages
             ? TextStyle(
           color: Colors.white,
           fontSize: 20,
           fontFamily: 'MiSans',
           shadows: [Shadow(color: Colors.black.withOpacity(0.5), blurRadius: 4)],
-        )
-            : null,
-        iconTheme: hasImage
+        ) : null,
+        iconTheme: hasImages
             ? IconThemeData(
           color: Colors.white,
           shadows: [Shadow(color: Colors.black.withOpacity(0.5), blurRadius: 4)],
-        )
-            : null,
+        ) : null,
         actions: [
           IconButton(
             icon: const Icon(Icons.delete_outline),
@@ -85,36 +151,26 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         ],
       ),
       body: ListView(
-        // 如果没有图片，则使用默认的padding；否则从顶部开始布局
-        padding: hasImage ? EdgeInsets.zero : const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.only(bottom: 24.0), // Add some padding to the bottom
         children: [
-          // 如果内容延伸到AppBar后，添加一个占位SizedBox把内容往下推
-          if (hasImage)
+          if (hasImages)
             SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight),
 
-          // --- 图片显示区域 (已按要求修改) ---
-          if (hasImage)
+          if (hasImages) _buildImageViewer(),
+
+          if (entry.address != null && entry.address!.isNotEmpty)
             Padding(
-              // 设置图片的外边距
-              padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
-              child: ClipRRect(
-                // 设置圆角
-                borderRadius: BorderRadius.circular(15.0),
-                child: Image.file(
-                  File(entry.imagePath!),
-                  // 核心属性：宽度适应屏幕，高度自动调整
-                  fit: BoxFit.fitWidth,
-                  // 当图片加载失败时，显示一个错误占位符
-                  errorBuilder: (context, error, stackTrace) {
-                    return _buildImageErrorPlaceholder();
-                  },
-                ),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: ListTile(
+                leading: const Icon(Icons.location_on_outlined),
+                title: Text(entry.address!),
+                dense: true,
               ),
             ),
 
-          // --- 文本显示区域 ---
+          // Diary Text
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+            padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 8.0),
             child: Text(
               entry.text.isNotEmpty ? entry.text : '(这天没有写下任何文字)',
               style: Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -123,16 +179,36 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
               ),
             ),
           ),
+
+          // Tags
+          if (entry.tags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+              child: Wrap(
+                spacing: 8.0,
+                runSpacing: 8.0,
+                children: entry.tags.map((tag) => Chip(label: Text(tag))).toList(),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 32, right: 24.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                Text(
+                  '写于 ${DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
   }
 
-  /// 当图片文件加载失败时显示的占位Widget
   Widget _buildImageErrorPlaceholder() {
     return Container(
-      // 给错误占位符一个固定的高度和背景色，避免布局跳动
-      height: 200,
       decoration: BoxDecoration(
         color: Colors.grey.shade200,
         borderRadius: BorderRadius.circular(15.0),

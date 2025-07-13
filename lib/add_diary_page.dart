@@ -1,14 +1,15 @@
-// file: add_diary_page.dart
+// file: lib/add_diary_page.dart
 
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:provider/provider.dart'; // 导入 provider
+import 'package:geolocator/geolocator.dart'; // VVV 1. Import new packages
+import 'package:geocoding/geocoding.dart';
 import 'diary_service.dart';
 
 class AddDiaryPage extends StatefulWidget {
   final DateTime selectedDate;
-
   const AddDiaryPage({super.key, required this.selectedDate});
 
   @override
@@ -17,49 +18,131 @@ class AddDiaryPage extends StatefulWidget {
 
 class _AddDiaryPageState extends State<AddDiaryPage> {
   final TextEditingController _textController = TextEditingController();
-  File? _imageFile;
+  final List<File> _imageFiles = [];
+  String? _selectedMood;
+  final Map<String, String> _moodMap = {
+    '1': '特别开心', '2': '很开心', '3': '有点开心', '4': '一般',
+    '5': '有点伤心', '6': '伤心', '7': '很伤心', '8': '崩溃', '0': '生病',
+  };
+  final List<String> _tags = [];
+  final TextEditingController _tagController = TextEditingController();
 
-  Future<void> _pickImage() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-
-    if (image != null) {
-      setState(() {
-        _imageFile = File(image.path);
-      });
-    }
-  }
-
-  void _saveDiary() async {
-    if (_imageFile == null && _textController.text.trim().isEmpty) {
-      // 如果图片和文字都为空，提示用户
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('至少需要一张图片或一些文字哦～')),
-      );
-      return;
-    }
-
-    final newEntry = DiaryEntry(
-      filePath: '', // filePath 将在 service 中生成，这里留空
-      imagePath: _imageFile?.path,
-      text: _textController.text,
-      date: widget.selectedDate,
-      creationTime: DateTime.now(),
-    );
-
-    // <-- 使用 context.read<DiaryService>() 来调用方法
-    // 因为这只是一个单次操作，不需要监听变化
-    await context.read<DiaryService>().addEntry(newEntry);
-
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
-  }
+  // VVV 2. Add state variables for location
+  double? _latitude;
+  double? _longitude;
+  String? _address;
+  bool _isFetchingLocation = false;
 
   @override
   void dispose() {
     _textController.dispose();
+    _tagController.dispose();
     super.dispose();
+  }
+
+  // VVV 3. Update save logic to include location
+  void _saveDiary() async {
+    if (_tagController.text.trim().isNotEmpty) {
+      setState(() => _tags.add(_tagController.text.trim()));
+      _tagController.clear();
+    }
+
+    final text = _textController.text.trim();
+    if (_imageFiles.isEmpty && text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('至少需要一张图片或一些文字哦～')));
+      return;
+    }
+
+    final newEntry = DiaryEntry(
+      filePath: '',
+      text: text,
+      imagePaths: _imageFiles.map((file) => file.path).toList(),
+      date: widget.selectedDate,
+      creationTime: DateTime.now(),
+      mood: _selectedMood,
+      tags: _tags,
+      latitude: _latitude,
+      longitude: _longitude,
+      address: _address,
+    );
+
+    await context.read<DiaryService>().addEntry(newEntry);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
+      Navigator.of(context).pop();
+    }
+  }
+  Future<void> _pickImages() async {
+    final ImagePicker picker = ImagePicker();
+    final List<XFile> pickedFiles = await picker.pickMultipleMedia(imageQuality: 80);
+
+    if (pickedFiles.isNotEmpty) {
+      setState(() {
+        _imageFiles.addAll(pickedFiles.map((xfile) => File(xfile.path)));
+      });
+    }
+  }
+
+  // VVV 4. Add method to get current location
+  Future<void> _getCurrentLocation() async {
+    setState(() => _isFetchingLocation = true);
+
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('无法获取位置，因为权限被拒绝。')));
+          setState(() => _isFetchingLocation = false);
+          return;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('位置权限被永久拒绝，请在系统设置中开启。')));
+        setState(() => _isFetchingLocation = false);
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final placemarks = await placemarkFromCoordinates(position.latitude, position.longitude);
+
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        setState(() {
+          _latitude = position.latitude;
+          _longitude = position.longitude;
+          _address = "${place.locality}, ${place.street}";
+        });
+      }
+    } catch (e) {
+      print("获取位置失败: $e");
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('获取位置信息失败。')));
+    } finally {
+      setState(() => _isFetchingLocation = false);
+    }
+  }
+
+  // VVV 5. Add a UI widget for the location selector
+  Widget _buildLocationSelector() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: const Icon(Icons.location_on_outlined),
+        title: Text(_address ?? '添加当前位置'),
+        subtitle: _address != null ? const Text('位置已记录') : const Text('点击获取地理位置'),
+        trailing: _isFetchingLocation
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+            : IconButton(
+          icon: const Icon(Icons.my_location),
+          onPressed: _getCurrentLocation,
+        ),
+      ),
+    );
   }
 
   @override
@@ -68,59 +151,202 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       appBar: AppBar(
         title: const Text('写下今天的故事'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.save_alt_outlined),
-            tooltip: '保存',
-            onPressed: _saveDiary,
+          IconButton(icon: const Icon(Icons.save_alt_outlined), tooltip: '保存', onPressed: _saveDiary),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            // ... _buildMoodSelector remains unchanged ...
+            _buildMoodSelector(),
+            const Divider(height: 32),
+            _buildLocationSelector(), // VVV 6. Add the location widget to the layout
+            const Divider(height: 32),
+            // ... _buildTagEditor remains unchanged ...
+            Text('添加标签', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            _buildTagEditor(),
+            const Divider(height: 32),
+            // ... _buildImageGrid remains unchanged ...
+            _buildImageGrid(),
+            const SizedBox(height: 16),
+            // ... TextField remains unchanged ...
+            TextField(
+              controller: _textController,
+              maxLines: 10,
+              decoration: InputDecoration(
+                hintText: '今天有什么新鲜事...',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.all(12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Helper methods below are unchanged
+  Widget _buildMoodSelector() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('今天心情如何?', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 8.0,
+            children: _moodMap.entries.map((entry) {
+              final moodCode = entry.key;
+              final moodText = entry.value;
+              final isSelected = _selectedMood == moodCode;
+              IconData? moodIcon;
+
+              // This switch statement assigns the correct icon for each mood
+              switch (moodCode) {
+                case '1': moodIcon = isSelected ? Icons.sentiment_very_satisfied : Icons.sentiment_very_satisfied_outlined; break;
+                case '2': moodIcon = isSelected ? Icons.sentiment_satisfied : Icons.sentiment_satisfied_outlined; break;
+                case '3': moodIcon = isSelected ? Icons.mood : Icons.mood_outlined; break;
+                case '4': moodIcon = isSelected ? Icons.sentiment_neutral : Icons.sentiment_neutral_outlined; break;
+                case '5': moodIcon = isSelected ? Icons.sentiment_dissatisfied : Icons.sentiment_dissatisfied_outlined; break;
+                case '6': moodIcon = isSelected ? Icons.sentiment_dissatisfied : Icons.sentiment_dissatisfied_outlined; break;
+                case '7': moodIcon = isSelected ? Icons.sentiment_very_dissatisfied : Icons.sentiment_very_dissatisfied_outlined; break;
+                case '8': moodIcon = isSelected ? Icons.mood_bad : Icons.mood_bad_outlined; break;
+                case '0': moodIcon = isSelected ? Icons.sick : Icons.sick_outlined; break;
+              }
+
+              return ChoiceChip(
+                avatar: Icon( // The avatar property displays the icon
+                  moodIcon,
+                  color: isSelected ? Theme.of(context).colorScheme.onPrimary : null,
+                ),
+                label: Text(moodText),
+                labelStyle: TextStyle(
+                  color: isSelected ? Theme.of(context).colorScheme.onPrimary : Theme.of(context).textTheme.bodyLarge?.color,
+                ),
+                selected: isSelected,
+                onSelected: (selected) {
+                  setState(() {
+                    _selectedMood = selected ? moodCode : null;
+                  });
+                },
+                selectedColor: Theme.of(context).colorScheme.primary,
+                showCheckmark: false, // No need for a checkmark when the icon fills in
+              );
+            }).toList(),
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: SingleChildScrollView(
-          child: Column(
-            children: [
-              GestureDetector(
-                onTap: _pickImage,
-                child: Container(
-                  height: 300,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade300),
-                  ),
-                  child: _imageFile != null
-                      ? ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(_imageFile!, fit: BoxFit.cover),
-                  )
-                      : const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.add_a_photo_outlined, size: 50, color: Colors.grey),
-                        SizedBox(height: 8),
-                        Text('点击选择封面照片', style: TextStyle(color: Colors.grey)),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _textController,
-                maxLines: 10,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(
-                  hintText: '今天有什么新鲜事...',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
+    );
+  }
+
+  Widget _buildTagEditor() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8.0,
+          runSpacing: 4.0,
+          children: _tags.map((tag) {
+            return Chip(
+              label: Text(tag),
+              onDeleted: () {
+                setState(() {
+                  _tags.remove(tag);
+                });
+              },
+            );
+          }).toList(),
         ),
+        TextField(
+          controller: _tagController,
+          decoration: InputDecoration(
+            hintText: '输入标签后按回车或空格...',
+            prefixIcon: const Icon(Icons.label_outline),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          onSubmitted: (value) {
+            if (value.trim().isNotEmpty) {
+              setState(() {
+                _tags.add(value.trim());
+                _tagController.clear();
+              });
+            }
+          },
+          onChanged: (value) {
+            if (value.endsWith(' ') || value.endsWith('，')) {
+              final tag = value.trim().replaceAll('，', '');
+              if (tag.isNotEmpty) {
+                setState(() {
+                  _tags.add(tag);
+                  _tagController.clear();
+                });
+              }
+            }
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildImageGrid() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: _imageFiles.length + 1,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
       ),
+      itemBuilder: (context, index) {
+        if (index == _imageFiles.length) {
+          return GestureDetector(
+            onTap: _pickImages,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Theme.of(context).dividerColor),
+              ),
+              child: const Center(
+                child: Icon(Icons.add_a_photo_outlined, size: 40, color: Colors.grey),
+              ),
+            ),
+          );
+        }
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(_imageFiles[index], fit: BoxFit.cover),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: InkWell(
+                onTap: () {
+                  setState(() {
+                    _imageFiles.removeAt(index);
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close, color: Colors.white, size: 16),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

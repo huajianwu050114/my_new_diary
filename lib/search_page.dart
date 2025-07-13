@@ -7,7 +7,10 @@ import 'diary_view_page.dart';
 import 'package:intl/intl.dart';
 
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key});
+  // VVV 1. 添加一个可选参数，用于接收初始搜索词 VVV
+  final String? initialQuery;
+
+  const SearchPage({super.key, this.initialQuery});
 
   @override
   State<SearchPage> createState() => _SearchPageState();
@@ -18,6 +21,17 @@ class _SearchPageState extends State<SearchPage> {
   List<DiaryEntry> _searchResults = [];
   bool _isLoading = false;
   String _message = '请输入关键词开始搜索...';
+
+  // VVV 2. 在 initState 中处理初始搜索词 VVV
+  @override
+  void initState() {
+    super.initState();
+    // 如果有初始搜索词，则设置到搜索框并立即执行搜索
+    if (widget.initialQuery != null && widget.initialQuery!.isNotEmpty) {
+      _searchController.text = widget.initialQuery!;
+      _performSearch(widget.initialQuery!);
+    }
+  }
 
   Future<void> _performSearch(String keyword) async {
     if (keyword.isEmpty) {
@@ -30,18 +44,60 @@ class _SearchPageState extends State<SearchPage> {
 
     setState(() {
       _isLoading = true;
-      _message = ''; // 清空消息
+      _message = '';
     });
 
     final results = await context.read<DiaryService>().searchEntries(keyword);
+
+    if (!mounted) return;
 
     setState(() {
       _searchResults = results;
       _isLoading = false;
       if (results.isEmpty) {
-        _message = '没有找到相关的日记';
+        _message = '没有找到包含“$keyword”的日记';
       }
     });
+  }
+
+  Widget _buildHighlightedText(String text, String keyword) {
+    if (keyword.isEmpty || !text.toLowerCase().contains(keyword.toLowerCase())) {
+      return Text(text, maxLines: 2, overflow: TextOverflow.ellipsis);
+    }
+
+    final List<TextSpan> spans = [];
+    final textLower = text.toLowerCase();
+    final keywordLower = keyword.toLowerCase();
+
+    int start = 0;
+    int indexOfKeyword;
+
+    while ((indexOfKeyword = textLower.indexOf(keywordLower, start)) != -1) {
+      if (indexOfKeyword > start) {
+        spans.add(TextSpan(text: text.substring(start, indexOfKeyword)));
+      }
+      spans.add(TextSpan(
+        text: text.substring(indexOfKeyword, indexOfKeyword + keyword.length),
+        style: TextStyle(
+          backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+          fontWeight: FontWeight.bold,
+        ),
+      ));
+      start = indexOfKeyword + keyword.length;
+    }
+
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start)));
+    }
+
+    return RichText(
+      text: TextSpan(
+        style: Theme.of(context).textTheme.bodyLarge,
+        children: spans,
+      ),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
   }
 
   @override
@@ -54,14 +110,13 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // 在AppBar中直接放置搜索框
         title: TextField(
           controller: _searchController,
-          autofocus: true, // 自动弹出键盘
+          // VVV 3. 如果有初始词，就不再自动弹出键盘 VVV
+          autofocus: widget.initialQuery == null,
           decoration: InputDecoration(
             hintText: '搜索日记内容...',
             border: InputBorder.none,
-            // 添加一个清除按钮
             suffixIcon: IconButton(
               icon: const Icon(Icons.clear),
               onPressed: () {
@@ -71,7 +126,6 @@ class _SearchPageState extends State<SearchPage> {
             ),
           ),
           onSubmitted: (value) {
-            // 用户按下键盘上的“完成”或“搜索”时执行搜索
             _performSearch(value);
           },
         ),
@@ -98,17 +152,13 @@ class _SearchPageState extends State<SearchPage> {
       itemCount: _searchResults.length,
       itemBuilder: (context, index) {
         final entry = _searchResults[index];
+        final keyword = _searchController.text;
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: ListTile(
-            title: Text(
-              entry.text,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+            title: _buildHighlightedText(entry.text, keyword),
             subtitle: Text(DateFormat('yyyy-MM-dd').format(entry.date)),
             onTap: () {
-              // 点击搜索结果可以跳转到日记详情页
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry)),
               );

@@ -1,50 +1,80 @@
-// file: diary_service.dart
+// file: lib/diary_service.dart
 
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/material.dart'; // <-- 1. 导入 material
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
-// --- 数据模型 (保持不变) ---
 class DiaryEntry {
   final String filePath;
-  final String? imagePath;
+  final List<String> imagePaths;
   final String text;
   final DateTime date;
   final DateTime creationTime;
+  final String? mood;
+  final List<String> tags;
+  // VVV 1. Add new fields for location data VVV
+  final double? latitude;
+  final double? longitude;
+  final String? address;
 
   DiaryEntry({
     required this.filePath,
-    this.imagePath,
+    required this.imagePaths,
     required this.text,
     required this.date,
     required this.creationTime,
+    this.mood,
+    this.tags = const [],
+    // VVV 2. Update the constructor VVV
+    this.latitude,
+    this.longitude,
+    this.address,
   });
 
   factory DiaryEntry.fromMap(Map<String, dynamic> map, String filePath) {
+    List<String> paths = [];
+    if (map['imagePaths'] != null && map['imagePaths'] is List) {
+      paths = List<String>.from(map['imagePaths']);
+    } else if (map['imagePath'] != null && map['imagePath'] is String) {
+      paths = [map['imagePath']];
+    }
+
     return DiaryEntry(
       filePath: filePath,
-      imagePath: map['imagePath'],
+      imagePaths: paths,
       text: map['text'],
       date: DateTime.parse(map['date']),
-      creationTime: map['creationTime'] != null ? DateTime.parse(map['creationTime']) : DateTime.parse(map['date']),
+      creationTime: map['creationTime'] != null
+          ? DateTime.parse(map['creationTime'])
+          : DateTime.parse(map['date']),
+      mood: map['mood'],
+      tags: map['tags'] != null ? List<String>.from(map['tags']) : [],
+      // VVV 3. Read location data from the map VVV
+      latitude: map['latitude'],
+      longitude: map['longitude'],
+      address: map['address'],
     );
   }
 
   Map<String, dynamic> toMap() {
     return {
-      'imagePath': imagePath,
+      'imagePaths': imagePaths,
       'text': text,
       'date': date.toIso8601String(),
       'creationTime': creationTime.toIso8601String(),
+      'mood': mood,
+      'tags': tags,
+      // VVV 4. Write location data to the map VVV
+      'latitude': latitude,
+      'longitude': longitude,
+      'address': address,
     };
   }
 }
 
-// --- 日记数据服务 ---
-class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
-
+class DiaryService extends ChangeNotifier {
   Future<Directory> get _diariesDir async {
     final appDir = await getApplicationDocumentsDirectory();
     final diariesDir = Directory(p.join(appDir.path, 'diaries'));
@@ -73,11 +103,13 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
     }
 
     final List<DiaryEntry> entries = [];
-    final dayString = "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
+    final dayString =
+        "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
 
     await for (var entity in dayDir.list()) {
-      if (entity is File && p.basename(entity.path).startsWith(dayString) && p.basename(entity.path).endsWith('.json')) {
-        // <-- 3. 添加了错误处理
+      if (entity is File &&
+          p.basename(entity.path).startsWith(dayString) &&
+          p.basename(entity.path).endsWith('.json')) {
         try {
           final jsonString = await entity.readAsString();
           final map = jsonDecode(jsonString);
@@ -87,7 +119,6 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
         }
       }
     }
-    // 按创建时间排序，让最新的显示在最前面
     entries.sort((a, b) => b.creationTime.compareTo(a.creationTime));
     return entries;
   }
@@ -107,7 +138,7 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
     final file = File(p.join(monthDir.path, fileName));
 
     await file.writeAsString(jsonEncode(entry.toMap()));
-    notifyListeners(); // <-- 4. 数据变化后，通知监听者
+    notifyListeners();
   }
 
   Future<void> moveEntryToTrash(String filePath) async {
@@ -120,7 +151,7 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
       final fileName = p.basename(filePath);
       final newPath = p.join(trashDir.path, fileName);
       await file.rename(newPath);
-      notifyListeners(); // <-- 4. 数据变化后，通知监听者
+      notifyListeners();
     } catch (e) {
       print('移动文件到回收站时出错: $e');
     }
@@ -137,8 +168,8 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
         await for (var monthEntity in yearEntity.list()) {
           if (monthEntity is Directory) {
             await for (var fileEntity in monthEntity.list()) {
-              if (fileEntity is File && p.basename(fileEntity.path).endsWith('.json')) {
-                // <-- 3. 添加了错误处理
+              if (fileEntity is File &&
+                  p.basename(fileEntity.path).endsWith('.json')) {
                 try {
                   final jsonString = await fileEntity.readAsString();
                   final map = jsonDecode(jsonString);
@@ -153,14 +184,21 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
       }
     }
 
-    allEntries.sort((a, b) => b.creationTime.compareTo(a.creationTime));
+    allEntries.sort((a, b) {
+      int dateComparison = b.date.compareTo(a.date);
+      if (dateComparison == 0) {
+        return b.creationTime.compareTo(a.creationTime);
+      }
+      return dateComparison;
+    });
+
     return allEntries;
   }
 
   Future<List<DiaryEntry>> getRecentEntriesWithImages({int limit = 5}) async {
     final allEntries = await getAllEntriesSorted();
     final entriesWithImages = allEntries.where((entry) {
-      return entry.imagePath != null && entry.imagePath!.isNotEmpty;
+      return entry.imagePaths.isNotEmpty;
     }).toList();
     return entriesWithImages.take(limit).toList();
   }
@@ -184,12 +222,10 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
         }
       }
     }
-    // 按创建时间排序，让最新的显示在最前面
     entries.sort((a, b) => b.creationTime.compareTo(a.creationTime));
     return entries;
   }
 
-  /// 2. 从回收站恢复一篇日记
   Future<void> restoreFromTrash(String filePath) async {
     final file = File(filePath);
     if (!await file.exists()) return;
@@ -197,7 +233,6 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
     final entry = DiaryEntry.fromMap(jsonDecode(await file.readAsString()), filePath);
     final diariesDir = await _diariesDir;
 
-    // 根据日记的原始日期，确定它应该被放回哪个年/月文件夹
     final year = entry.date.year.toString();
     final month = entry.date.month.toString().padLeft(2, '0');
     final monthDir = Directory(p.join(diariesDir.path, year, month));
@@ -208,37 +243,79 @@ class DiaryService extends ChangeNotifier { // <-- 2. 继承自 ChangeNotifier
 
     final newPath = p.join(monthDir.path, p.basename(filePath));
     await file.rename(newPath);
-    notifyListeners(); // 通知UI刷新
+    notifyListeners();
   }
 
-  /// 3. 永久删除一篇日记
   Future<void> deletePermanently(String filePath) async {
     final file = File(filePath);
     if (await file.exists()) {
       await file.delete();
     }
-    notifyListeners(); // 通知UI刷新
+    notifyListeners();
   }
+
   Future<List<DiaryEntry>> searchEntries(String keyword) async {
-    // 如果关键词为空，直接返回空列表
     if (keyword.isEmpty) {
       return [];
     }
 
-    // 先获取所有日记
     final allEntries = await getAllEntriesSorted();
     final List<DiaryEntry> results = [];
-
-    // 将关键词转为小写，以便进行不区分大小写的搜索
     final lowerCaseKeyword = keyword.toLowerCase();
 
     for (var entry in allEntries) {
-      // 如果日记的文本内容（也转为小写）包含关键词，则加入到结果列表中
       if (entry.text.toLowerCase().contains(lowerCaseKeyword)) {
         results.add(entry);
       }
     }
 
     return results;
+  }
+
+  // VVV 用这个新的、更健壮的版本，完整替换旧的 getOnThisDayEntries 方法 VVV
+  Future<List<DiaryEntry>> getOnThisDayEntries() async {
+    final now = DateTime.now();
+    // 创建一个只包含今天“年月日”的日期对象，忽略所有时间信息
+    final todayDateOnly = DateTime(now.year, now.month, now.day);
+
+    final allEntries = await getAllEntriesSorted();
+
+    final List<DiaryEntry> resultEntries = allEntries.where((entry) {
+      // 同样，为每篇日记创建一个只包含“年月日”的日期对象
+      final entryDateOnly = DateTime(entry.date.year, entry.date.month, entry.date.day);
+
+      // 条件：月份相同、日期相同、但年份不同
+      return entryDateOnly.month == todayDateOnly.month &&
+          entryDateOnly.day == todayDateOnly.day &&
+          entryDateOnly.year != todayDateOnly.year;
+    }).toList();
+
+    resultEntries.sort((a, b) => a.date.compareTo(b.date));
+
+    return resultEntries;
+  }
+  Future<String> getDebugInfo() async {
+    final buffer = StringBuffer();
+    final now = DateTime.now();
+    buffer.writeln('--- 调试信息 ---');
+    buffer.writeln('当前时间: $now');
+    buffer.writeln('当前时区: ${now.timeZoneName} (偏移量: ${now.timeZoneOffset})');
+    buffer.writeln('');
+
+    final allEntries = await getAllEntriesSorted();
+    buffer.writeln('共找到 ${allEntries.length} 篇日记:');
+    buffer.writeln('--------------------');
+
+    for (var entry in allEntries) {
+      buffer.writeln(
+          '日记所属日期 (date): ${entry.date.toIso8601String()}');
+      buffer.writeln(
+          '日记创建时间 (creationTime): ${entry.creationTime.toIso8601String()}');
+      buffer.writeln('日记文本 (text): "${entry.text.substring(0, (entry.text.length > 20 ? 20 : entry.text.length))
+      }..."');
+      buffer.writeln('---');
+    }
+
+    return buffer.toString();
   }
 }

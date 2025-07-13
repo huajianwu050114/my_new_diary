@@ -1,37 +1,65 @@
 // file: lib/home_page.dart
 
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:carousel_slider/carousel_slider.dart' as cs;
+import 'package:http/http.dart' as http; // VVV 1. This import was missing VVV
 import 'diary_service.dart';
 import 'main.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:carousel_slider/carousel_slider.dart' as cs;
-import 'dart:io';
 import 'diary_view_page.dart';
 import 'theme_provider.dart';
 import 'user_provider.dart';
 import 'edit_profile_page.dart';
 import 'recycle_bin_page.dart';
 import 'search_page.dart';
+import 'favorites_provider.dart';
+import 'favorites_page.dart';
+import 'analysis_page.dart';
+import 'settings_page.dart';
+import 'festival_service.dart'; // 导入新服务
+import 'festivals_page.dart';   // 导入新页面
+import 'diary_home_page.dart';
 
-/// HomePage 外壳组件 (StatelessWidget)
-/// 它只负责构建整体的页面框架，如 AppBar 和 FloatingActionButton。
-/// 它的主题切换按钮只会重建它自己，不会影响 body 里的内容。
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
+
+  void _showDebugInfo(BuildContext context) async {
+    final diaryService = context.read<DiaryService>();
+    final String debugInfo = await diaryService.getDebugInfo();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('调试信息'),
+        content: SingleChildScrollView(
+          child: Text(debugInfo),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的日记'),
+        title: GestureDetector(
+          onLongPress: () {
+            _showDebugInfo(context);
+          },
+          child: const Text('我的日记'),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        // 我们不再需要 actions 里的按钮，因为它将被移到菜单栏中
       ),
-      // VVV 关键改动：在这里添加 drawer 属性 VVV
       drawer: const AppDrawer(),
       body: const _HomePageContent(),
       floatingActionButton: FloatingActionButton(
@@ -47,8 +75,7 @@ class HomePage extends StatelessWidget {
   }
 }
 
-/// 真正的内容区组件 (StatefulWidget)
-/// 它使用了 AutomaticKeepAliveClientMixin 来保证在主题切换时，它的状态（包括滚动位置）不会丢失。
+// VVV 2. This StatefulWidget class definition was missing VVV
 class _HomePageContent extends StatefulWidget {
   const _HomePageContent();
 
@@ -56,13 +83,19 @@ class _HomePageContent extends StatefulWidget {
   State<_HomePageContent> createState() => _HomePageContentState();
 }
 
+// file: lib/home_page.dart
+
 class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAliveClientMixin {
-  // 开启“保活”模式
   @override
   bool get wantKeepAlive => true;
 
-  String _dailyQuote = "正在获取今日份的灵感...";
+  String _fullQuoteText = "正在获取今日份的灵感...";
+  String _currentSentence = "";
+  String _currentSource = "";
   bool _isLoadingQuote = true;
+
+  // VVV 1. Remove the hardcoded gradient list from here VVV
+  // final List<List<Color>> _festivalGradients = const [ ... ];
 
   @override
   void initState() {
@@ -70,28 +103,104 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     _fetchDailyQuote();
   }
 
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  // ... (_fetchDailyQuote, _buildDailyQuoteSection, _buildHeader methods are unchanged) ...
   Future<void> _fetchDailyQuote() async {
+    setState(() {
+      _isLoadingQuote = true;
+      _fullQuoteText = "正在获取...";
+    });
+
     try {
-      final String today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final url = Uri.parse('https://sentence.iciba.com/index.php?c=dailysentence&m=getdetail&title=$today');
+      final url = Uri.parse('https://v1.hitokoto.cn/?c=d&c=i&c=l');
       final response = await http.get(url).timeout(const Duration(seconds: 10));
+
       if (response.statusCode == 200 && mounted) {
-        final data = jsonDecode(response.body);
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        final sentence = data['hitokoto'] ?? '';
+        final source = data['from'] ?? '未知来源';
+
         setState(() {
-          _dailyQuote = "${data['content']}\n${data['note']}";
+          _currentSentence = sentence;
+          _currentSource = source;
+          _fullQuoteText = "$sentence\n——《$source》";
           _isLoadingQuote = false;
         });
       } else {
-        throw Exception('Failed to load daily sentence');
+        throw Exception('Failed to load hitokoto sentence');
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _dailyQuote = "获取句子失败，请检查网络连接。";
+          _currentSentence = "获取句子失败";
+          _currentSource = "请检查网络连接";
+          _fullQuoteText = "$_currentSentence\n$_currentSource";
           _isLoadingQuote = false;
         });
       }
     }
+  }
+
+  Widget _buildDailyQuoteSection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        children: [
+          Text(
+            _fullQuoteText,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: _isLoadingQuote
+                    ? const Padding(padding: EdgeInsets.all(10.0), child: CircularProgressIndicator(strokeWidth: 2))
+                    : IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: '换一句',
+                  onPressed: _fetchDailyQuote,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Consumer<FavoritesProvider>(
+                builder: (context, favProvider, child) {
+                  final isLiked = favProvider.isFavorite(_currentSentence, _currentSource);
+                  return SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: IconButton(
+                      tooltip: isLiked ? '取消收藏' : '收藏',
+                      icon: Icon(
+                        isLiked ? Icons.favorite : Icons.favorite_border,
+                        color: isLiked ? Colors.redAccent : null,
+                      ),
+                      onPressed: (_isLoadingQuote || _currentSentence.isEmpty)
+                          ? null
+                          : () {
+                        if (isLiked) {
+                          favProvider.removeFavorite(_currentSentence, _currentSource);
+                        } else {
+                          favProvider.addFavorite(_currentSentence, _currentSource);
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+            ],
+          )
+        ],
+      ),
+    );
   }
 
   Widget _buildHeader(BuildContext context) {
@@ -134,15 +243,219 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          _buildDailyQuoteSection(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFestivalSection() {
+    // VVV 2. Use Consumer2 to listen to both FestivalProvider and ThemeProvider VVV
+    return Consumer2<FestivalProvider, ThemeProvider>(
+      builder: (context, festivalProvider, themeProvider, child) {
+        if (festivalProvider.isLoading) {
+          return const SizedBox(height: 160, child: Center(child: CircularProgressIndicator()));
+        }
+
+        final festivals = festivalProvider.upcomingFestivals;
+        if (festivals.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40.0),
+          child: cs.CarouselSlider.builder(
+            itemCount: festivals.length,
+            itemBuilder: (context, index, realIndex) {
+              // Pass the entire ThemeProvider to the card builder
+              return _buildFestivalCard(festivals[index], index, themeProvider);
+            },
+            options: cs.CarouselOptions(
+              height: 160,
+              scrollDirection: Axis.vertical,
+              enlargeCenterPage: true,
+              viewportFraction: 0.7,
+              enlargeFactor: 0.25,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // VVV 3. Update the card builder to accept ThemeProvider and use the correct gradient list VVV
+  // file: lib/home_page.dart
+
+  // ... inside the _HomePageContentState class ...
+
+  // VVV Use this to replace the old _buildFestivalCard method VVV
+  Widget _buildFestivalCard(Map<String, dynamic> festival, int index, ThemeProvider themeProvider) {
+    final int daysUntil = festival['daysUntil'];
+    final String dateFormatted = DateFormat('M月d日').format(festival['date']);
+
+    // --- FIX: Use the unified 'cardGradientColors' for all cards ---
+    final gradients = themeProvider.cardGradientColors;
+    final gradient = gradients[index % gradients.length];
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FestivalsPage()));
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(15),
+          gradient: LinearGradient(
+            colors: gradient,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: gradient.last.withOpacity(0.5),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  festival['name'],
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    shadows: [Shadow(color: Colors.black26, blurRadius: 2)],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  dateFormatted,
+                  style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                ),
+              ],
+            ),
+            Text(
+              daysUntil == 0 ? '今天' : '$daysUntil\n天后',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 26,
+                fontWeight: FontWeight.w300,
+                height: 1.2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+
+  // ... (all other methods like _buildOnThisDaySection, _buildHistoryList, etc., remain the same) ...
+  Widget _buildOnThisDaySection() {
+    return Consumer<DiaryService>(
+      builder: (context, diaryService, child) {
+        return FutureBuilder<List<DiaryEntry>>(
+          future: diaryService.getOnThisDayEntries(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const SizedBox.shrink();
+            }
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return const SizedBox.shrink();
+            }
+
+            final entries = snapshot.data!;
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('那年今日', style: Theme.of(context).textTheme.headlineSmall),
+                  const SizedBox(height: 10),
+                  Column(
+                    children: entries.map((entry) => _buildOnThisDayCard(entry)).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                  const Divider(),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildOnThisDayCard(DiaryEntry entry) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry))),
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Row(
             children: [
-              Expanded(child: Text(_dailyQuote, style: theme.textTheme.bodySmall, textAlign: TextAlign.center)),
-              if (_isLoadingQuote) const SizedBox(width: 10),
-              if (_isLoadingQuote) const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              Container(
+                width: 80,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      entry.date.year.toString(),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      DateFormat('M月d日', 'zh_CN').format(entry.date),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.8),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  entry.text.isNotEmpty ? entry.text : '(无文字内容)',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (entry.imagePaths.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(
+                    File(entry.imagePaths.first),
+                    width: 50,
+                    height: 50,
+                    fit: BoxFit.cover,
+                  ),
+                ),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -173,7 +486,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.file(File(entry.imagePath!), fit: BoxFit.cover),
+              Image.file(File(entry.imagePaths.first), fit: BoxFit.cover),
               Positioned(
                 bottom: 0.0, left: 0.0, right: 0.0,
                 child: Container(
@@ -215,12 +528,14 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           itemCount: entries.length,
           itemBuilder: (context, index) {
             final currentEntry = entries[index];
-            final bool showMonthSeparator = index == 0 || (entries[index - 1].creationTime.month != currentEntry.creationTime.month || entries[index - 1].creationTime.year != currentEntry.creationTime.year);
+            final bool showMonthSeparator = index == 0 ||
+                (entries[index - 1].date.month != currentEntry.date.month ||
+                    entries[index - 1].date.year != currentEntry.date.year);
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (showMonthSeparator) _buildMonthSeparator(currentEntry.creationTime),
+                if (showMonthSeparator) _buildMonthSeparator(currentEntry.date),
                 Consumer<ThemeProvider>(
                   builder: (context, themeProvider, child) {
                     return _buildHistoryCard(currentEntry, index, themeProvider);
@@ -275,12 +590,12 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                   ),
                 ),
               ),
-              if (entry.imagePath != null && entry.imagePath!.isNotEmpty)
+              if (entry.imagePaths.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8.0),
-                    child: Image.file(File(entry.imagePath!), width: 100, height: 120, fit: BoxFit.cover),
+                    child: Image.file(File(entry.imagePaths.first), width: 100, height: 120, fit: BoxFit.cover),
                   ),
                 ),
             ],
@@ -303,22 +618,25 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // KeepAlive 需要这一句
+    super.build(context);
     final diaryService = context.watch<DiaryService>();
 
     return SafeArea(
       top: false,
       child: RefreshIndicator(
         onRefresh: () async {
-          setState(() {});
           await _fetchDailyQuote();
+          await context.read<FestivalProvider>().loadFestivals();
         },
         child: ListView(
           children: [
-            // 使用 Consumer 来精准更新 Header，而不是让整个组件都 watch
             Consumer<ThemeProvider>(
                 builder: (context, themeProvider, child) => _buildHeader(context)
             ),
+            const SizedBox(height: 10),
+            _buildFestivalSection(),
+            const SizedBox(height: 20),
+            _buildOnThisDaySection(),
             const SizedBox(height: 20),
             Padding(
               padding: const EdgeInsets.only(left: 20.0),
@@ -333,37 +651,21 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 }
-// file: lib/home_page.dart (粘贴到文件末尾)
 
-
-
-// VVV 用下面的代码完整替换您文件中现有的 AppDrawer 类 VVV
-// file: lib/home_page.dart (找到 AppDrawer 类并替换)
-
-// file: lib/home_page.dart
-
-
-
-// ... (HomePage 组件和 _HomePageContent 组件保持不变) ...
-
-
-// VVV 用下面的代码完整替换您文件中现有的 AppDrawer 类 VVV
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // 使用 Consumer2 可以同时监听两个 Provider，让代码更清晰
     return Consumer2<ThemeProvider, UserProvider>(
       builder: (context, themeProvider, userProvider, child) {
         return Drawer(
           child: ListView(
             padding: EdgeInsets.zero,
             children: [
-              // 1. 将头部用 GestureDetector 包裹，使其可以响应点击事件
               GestureDetector(
                 onTap: () {
-                  Navigator.pop(context); // 先关闭抽屉
+                  Navigator.pop(context);
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const EditProfilePage()),
                   );
@@ -381,7 +683,6 @@ class AppDrawer extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 2. 头像部分：从 UserProvider 获取数据
                       CircleAvatar(
                         radius: 35,
                         backgroundColor: Colors.white.withOpacity(0.3),
@@ -393,7 +694,6 @@ class AppDrawer extends StatelessWidget {
                             : null,
                       ),
                       const SizedBox(height: 12),
-                      // 3. 昵称部分：从 UserProvider 获取数据
                       Text(
                         userProvider.nickname,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -405,13 +705,29 @@ class AppDrawer extends StatelessWidget {
                   ),
                 ),
               ),
-
-              // 4. 功能列表部分保持不变
               ListTile(
                 leading: const Icon(Icons.home_outlined),
                 title: const Text('主页'),
+                onTap: () => Navigator.pop(context),
+              ),
+              ListTile(
+                leading: const Icon(Icons.analytics_outlined),
+                title: const Text('统计分析'),
                 onTap: () {
                   Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const AnalysisPage()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.favorite_outline),
+                title: const Text('我的收藏'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const FavoritesPage()),
+                  );
                 },
               ),
               ListTile(
@@ -428,8 +744,8 @@ class AppDrawer extends StatelessWidget {
                 leading: const Icon(Icons.restore_from_trash_outlined),
                 title: const Text('回收站'),
                 onTap: () {
-                  Navigator.pop(context); // 先关闭抽屉
-                  Navigator.of(context).push( // 再跳转到回收站页面
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
                     MaterialPageRoute(builder: (context) => const RecycleBinPage()),
                   );
                 },
@@ -438,13 +754,23 @@ class AppDrawer extends StatelessWidget {
                 leading: const Icon(Icons.search_outlined),
                 title: const Text('搜索'),
                 onTap: () {
-                  Navigator.pop(context); // 先关闭抽屉
-                  Navigator.of(context).push( // 再跳转到搜索页面
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
                     MaterialPageRoute(builder: (context) => const SearchPage()),
                   );
                 },
               ),
               const Divider(),
+              ListTile(
+                leading: const Icon(Icons.settings_outlined),
+                title: const Text('设置与工具'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const SettingsPage()),
+                  );
+                },
+              ),
               SwitchListTile(
                 title: const Text('夜间模式'),
                 secondary: Icon(
