@@ -1,14 +1,7 @@
 allprojects {
     repositories {
-        // --- 把阿里云镜像加在最前面 ---
-        maven("https://maven.aliyun.com/repository/public")
-        maven("https://maven.aliyun.com/repository/google")
-        maven("https://maven.aliyun.com/repository/central")
-
-        // --- 保留原来的作为备用 ---
         google()
         mavenCentral()
-        gradlePluginPortal()
     }
 }
 
