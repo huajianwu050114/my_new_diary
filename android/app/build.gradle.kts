@@ -51,15 +51,19 @@ dependencies {
 }
 
 configurations.all {
-    resolutionStrategy {
-        // 这是一个示例，强制所有地方都使用 1.9.0 版本的 core-ktx 库
-        // 您需要根据您项目的实际冲突来修改
-        force 'androidx.core:core-ktx:1.9.0'
-
-        // Kotlin 版本冲突也是常见原因，可以强制统一
-        force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22'
-
-        // 如果您发现其他库有冲突，也可以用同样的方式添加
-        // 例如: force 'com.google.android.material:material:1.8.0'
+    resolutionStrategy.eachDependency {
+        if (requested.group == "androidx.core" && requested.name == "core-ktx") {
+            useVersion("1.9.0")
+            because("Force specific version to resolve conflict")
+        }
+        if (requested.group == "org.jetbrains.kotlin" && requested.name == "kotlin-stdlib-jdk8") {
+            useVersion("1.8.22")
+            because("Force specific version to resolve conflict")
+        }
+        // 如果发现其他冲突，可以按下面的格式继续添加
+        // if (requested.group == "group.name" && requested.name == "library-name") {
+        //     useVersion("version.number")
+        //     because("Reason for forcing version")
+        // }
     }
 }
