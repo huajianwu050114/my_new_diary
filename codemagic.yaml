@@ -1,25 +1,34 @@
 workflows:
-  android-build: # 工作流名称，可以自定义
-    name: Android Build # 在 Codemagic UI 中显示的名字
-    instance_type: mac_mini_m1 # 您可以根据需要选择机器类型
+  android-build:
+    name: Android Build
+    instance_type: mac_mini_m1
     environment:
-      flutter: stable # 使用稳定版的 Flutter SDK
+      flutter: stable
       xcode: latest
       cocoapods: default
     scripts:
       - name: 清理项目缓存
         script: |
           set -e # 如果任何命令失败，则立即停止
+          
+          echo "--- 正在清理 Flutter 项目 ---"
           flutter clean
-          cd android
-          ./gradlew clean
-          cd ..
+          
+          echo "--- 正在清理 Android 项目 (Gradle) ---"
+          # 1. 赋予 gradlew 文件执行权限，防止因 git 权限问题导致失败
+          chmod +x android/gradlew
+          
+          # 2. 从项目根目录执行 gradlew clean，-p android 参数指定了 android 项目的位置
+          #    这比 cd android; ./gradlew clean; cd .. 的方式更安全、更健壮
+          ./android/gradlew -p android clean
+
       - name: 拉取 Flutter 依赖
         script: |
           flutter pub get
+
       - name: 构建 Android APK
         script: |
-          # 使用这个命令来构建一个包含所有依赖的、独立的APK
           flutter build apk --release --split-per-abi
+
     artifacts:
-      - build/app/outputs/apk/**/*.apk # 构建成功后，从这个路径收集产物
+      - build/app/outputs/apk/release/*.apk # 收集 release 文件夹下的所有 apk
