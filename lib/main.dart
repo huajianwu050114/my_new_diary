@@ -124,7 +124,7 @@ class MyApp extends StatelessWidget {
       darkTheme: darkTheme,
       // 关键！根据 themeProvider 的状态来决定使用哪个主题
       themeMode: themeProvider.themeMode,
-      home: const AuthGate(),
+      home: const HomePage(),
       debugShowCheckedModeBanner: false,
     );
   }
