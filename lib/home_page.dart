@@ -22,6 +22,8 @@ import 'settings_page.dart';
 import 'festival_service.dart'; // 导入新服务
 import 'festivals_page.dart';   // 导入新页面
 import 'diary_home_page.dart';
+import 'package:flutter_speed_dial/flutter_speed_dial.dart';
+import 'add_diary_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -62,14 +64,52 @@ class HomePage extends StatelessWidget {
       ),
       drawer: const AppDrawer(),
       body: const _HomePageContent(),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => const DiaryHomePage()),
-          );
-        },
-        child: const Icon(Icons.calendar_month),
-        tooltip: '查看日历',
+      floatingActionButton: SpeedDial(
+        icon: Icons.menu, // 主按钮的图标
+        activeIcon: Icons.close, // 展开后主按钮的图标
+        buttonSize: const Size(56.0, 56.0),
+        visible: true,
+        curve: Curves.bounceIn,
+        overlayColor: Colors.black,
+        overlayOpacity: 0.5,
+        tooltip: '快速操作',
+        heroTag: 'speed-dial-hero-tag',
+        backgroundColor: Theme.of(context).primaryColor,
+        foregroundColor: Colors.white,
+        elevation: 8.0,
+        shape: const CircleBorder(),
+
+        // VVV 这里定义展开的子按钮 VVV
+        children: [
+          SpeedDialChild(
+            child: const Icon(Icons.add),
+            backgroundColor: Colors.green,
+            foregroundColor: Colors.white,
+            label: '写日记',
+            labelStyle: const TextStyle(fontSize: 18.0),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => AddDiaryPage(
+                    selectedDate: DateTime.now(),
+                  ),
+                ),
+              );
+            },
+          ),
+          SpeedDialChild(
+            child: const Icon(Icons.calendar_month),
+            backgroundColor: Colors.blue,
+            foregroundColor: Colors.white,
+            label: '看日历',
+            labelStyle: const TextStyle(fontSize: 18.0),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const DiaryHomePage()),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -111,35 +151,37 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   // ... (_fetchDailyQuote, _buildDailyQuoteSection, _buildHeader methods are unchanged) ...
   Future<void> _fetchDailyQuote() async {
     setState(() {
-      _isLoadingQuote = true;
-      _fullQuoteText = "正在获取...";
+      _isLoadingQuote = true; // 开始加载，显示转圈圈
+      _fullQuoteText = "正在连接情绪的频率...";
     });
 
     try {
-      final url = Uri.parse('https://v1.hitokoto.cn/?c=d&c=i&c=l');
+      final url = Uri.parse('https://api.shadiao.pro/pyq');
       final response = await http.get(url).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200 && mounted) {
         final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final sentence = data['hitokoto'] ?? '';
-        final source = data['from'] ?? '未知来源';
+
+        // 解析新的API返回的文案
+        final sentence = data['data']['text'] ?? '今天也要开心哦。';
+        final source = ''; // 这个API不提供来源，所以我们留空
 
         setState(() {
           _currentSentence = sentence;
           _currentSource = source;
-          _fullQuoteText = "$sentence\n——《$source》";
-          _isLoadingQuote = false;
+          _fullQuoteText = sentence; // 直接显示句子
+          _isLoadingQuote = false; // 加载完成
         });
       } else {
-        throw Exception('Failed to load hitokoto sentence');
+        throw Exception('Failed to load quote from API');
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _currentSentence = "获取句子失败";
-          _currentSource = "请检查网络连接";
-          _fullQuoteText = "$_currentSentence\n$_currentSource";
-          _isLoadingQuote = false;
+          _currentSentence = "可以看看窗外，今天的风很温柔。";
+          _currentSource = "";
+          _fullQuoteText = _currentSentence;
+          _isLoadingQuote = false; // 加载失败也要停止转圈
         });
       }
     }
@@ -162,6 +204,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               SizedBox(
                 width: 40,
                 height: 40,
+                // 加载时显示菊花图，加载完显示刷新按钮
                 child: _isLoadingQuote
                     ? const Padding(padding: EdgeInsets.all(10.0), child: CircularProgressIndicator(strokeWidth: 2))
                     : IconButton(
@@ -183,6 +226,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                         isLiked ? Icons.favorite : Icons.favorite_border,
                         color: isLiked ? Colors.redAccent : null,
                       ),
+                      // 正在加载或句子为空时，禁用收藏按钮
                       onPressed: (_isLoadingQuote || _currentSentence.isEmpty)
                           ? null
                           : () {

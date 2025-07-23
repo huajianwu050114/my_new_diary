@@ -7,6 +7,9 @@ import 'notification_service.dart';
 import 'diary_service.dart';
 import 'export_service.dart';
 import 'stop_words_page.dart'; // VVV 导入新页面 VVV
+import 'package:file_picker/file_picker.dart';
+import 'dart:convert'; // 导入 dart:convert
+import 'dart:io'; // 导入 dart:io
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -37,6 +40,52 @@ class _SettingsPageState extends State<SettingsPage> {
       final minute = prefs.getInt('reminder_minute') ?? 0;
       _reminderTime = TimeOfDay(hour: hour, minute: minute);
     });
+  }
+
+  Future<void> _runImport() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['json'],
+    );
+
+    if (result == null || result.files.single.path == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('未选择任何文件。')));
+      }
+      return;
+    }
+
+    try {
+      final file = File(result.files.single.path!);
+      final jsonString = await file.readAsString();
+      final List<dynamic> entryMaps = jsonDecode(jsonString);
+
+      final diaryService = context.read<DiaryService>();
+      final existingEntries = await diaryService.getAllEntriesSorted();
+      final existingCreationTimes = existingEntries.map((e) => e.creationTime.toIso8601String()).toSet();
+
+      int importCount = 0;
+      for (var map in entryMaps) {
+        // 通过创建时间来判断是否为重复日记，避免重复导入
+        if (!existingCreationTimes.contains(map['creationTime'])) {
+          final newEntry = DiaryEntry.fromMap(map, ''); // filePath 在 addEntry 中会重新生成
+          await diaryService.addEntry(newEntry);
+          importCount++;
+        }
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导入完成！成功导入 $importCount 篇新日记。')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导入失败，文件格式错误或已损坏: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _saveSettings(bool enabled, TimeOfDay time) async {
@@ -167,6 +216,12 @@ class _SettingsPageState extends State<SettingsPage> {
                 title: const Text('导出为 JSON'),
                 subtitle: const Text('备份所有数据，用于恢复或迁移。'),
                 onTap: _isExporting ? null : () => _runExport((s, cb) => s.exportToJson(onProgress: cb)),
+              ),
+              ListTile(
+                leading: const Icon(Icons.data_array, color: Colors.green),
+                title: const Text('从 JSON 导入'),
+                subtitle: const Text('从备份文件恢复日记数据。'),
+                onTap: _isExporting ? null : _runImport, // VVV 绑定新的导入方法
               ),
             ],
           ),

@@ -7,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart'; // VVV 1. Import new packages
 import 'package:geocoding/geocoding.dart';
 import 'diary_service.dart';
+import 'map_selection_page.dart';
+import 'package:latlong2/latlong.dart' as latlong;// flutter_map 使用 latlong2 包来处理坐标
 
 class AddDiaryPage extends StatefulWidget {
   final DateTime selectedDate;
@@ -83,6 +85,24 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
     }
   }
 
+  Future<void> _selectLocationOnMap() async {
+    final result = await Navigator.of(context).push<Map<String, dynamic>>(
+      MaterialPageRoute(
+        builder: (context) => MapSelectionPage(
+          initialLocation: latlong.LatLng(_latitude ?? 39.9, _longitude ?? 116.4),
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _latitude = result['latitude'];
+        _longitude = result['longitude'];
+        _address = result['address'];
+      });
+    }
+  }
+
   // VVV 4. Add method to get current location
   Future<void> _getCurrentLocation() async {
     setState(() => _isFetchingLocation = true);
@@ -133,13 +153,15 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       ),
       child: ListTile(
         leading: const Icon(Icons.location_on_outlined),
-        title: Text(_address ?? '添加当前位置'),
-        subtitle: _address != null ? const Text('位置已记录') : const Text('点击获取地理位置'),
+        title: Text(_address ?? '添加位置'),
+        subtitle: _address != null ? const Text('点击可重新选择位置') : const Text('点击从地图选择或自动定位'),
+        onTap: _selectLocationOnMap, // VVV 主要点击行为改为打开地图
         trailing: _isFetchingLocation
             ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
             : IconButton(
           icon: const Icon(Icons.my_location),
-          onPressed: _getCurrentLocation,
+          tooltip: '自动定位当前位置',
+          onPressed: _getCurrentLocation, // VVV 按钮保留为自动定位
         ),
       ),
     );

@@ -54,6 +54,8 @@ dependencies:
   flutter_local_notifications: ^17.1.2 # 添加这一行
   timezone: ^0.9.3
   flutter_heatmap_calendar: ^1.0.5
+  flutter_map: ^8.2.1
+  flutter_speed_dial: ^7.0.0
 
 
   # The following adds the Cupertino Icons fonts to your application.

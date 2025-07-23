@@ -5,10 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'diary_service.dart';
-// import 'add_diary_page.dart'; // 已移至 diary_home_page.dart
-// import 'dart:io'; // 已移至 diary_home_page.dart
-// import 'diary_view_page.dart'; // 已移至 diary_home_page.dart
-// import 'package:flutter_slidable/flutter_slidable.dart'; // 已移至 diary_home_page.dart
 import 'home_page.dart';
 import 'theme_provider.dart';
 import 'user_provider.dart';
@@ -17,6 +13,7 @@ import 'auth_gate.dart';
 import 'festival_service.dart';
 import 'notification_service.dart';
 import 'diary_home_page.dart'; // <-- 新增的导入
+import 'theme_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -77,37 +74,49 @@ final ThemeData lightTheme = ThemeData(
 // 夜间主题
 final ThemeData darkTheme = ThemeData(
   brightness: Brightness.dark,
-  primarySwatch: Colors.deepPurple,
-  colorScheme: ColorScheme.fromSeed(
-    seedColor: Colors.deepPurple,
-    brightness: Brightness.dark, // 关键！设置为暗色
-  ),
-  useMaterial3: true,
   fontFamily: 'MiSans',
-  scaffoldBackgroundColor: const Color(0xFF121212), // 深黑色背景
-  appBarTheme: AppBarTheme(
-    backgroundColor: Colors.grey.shade900.withOpacity(0.5),
-    elevation: 0,
-    centerTitle: true,
+  useMaterial3: true,
+
+  // 1. 核心颜色方案保持不变，我们主要调整背景和表面
+  primarySwatch: Colors.blue,
+  colorScheme: ColorScheme.fromSeed(
+    seedColor: const Color(0xFF4A90E2),
+    brightness: Brightness.dark,
+    primary: const Color(0xFF4A90E2),
+    secondary: const Color(0xFF00796B),
   ),
+
+  // 2. VVV 使用更深的背景和表面颜色 VVV
+  scaffoldBackgroundColor: const Color(0xFF121212), // Material Design 标准深色背景
   cardTheme: CardThemeData(
-    color: const Color(0xFF1E1E1E), // 卡片颜色比背景稍亮
+    color: const Color(0xFF1E1E1E), // 卡片表面颜色，比背景稍亮
     elevation: 2.0,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(15.0),
-    ),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15.0)),
     clipBehavior: Clip.antiAlias,
     margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
   ),
+
+  // 3. 文本和图标主题保持不变
   textTheme: TextTheme(
     bodyMedium: TextStyle(fontSize: 16.0, color: Colors.white.withOpacity(0.87)),
     titleMedium: TextStyle(fontSize: 16.0, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.87)),
     bodySmall: TextStyle(fontSize: 12.0, color: Colors.white.withOpacity(0.6)),
   ),
+  iconTheme: IconThemeData(color: Colors.white.withOpacity(0.87)),
+
+  // 4. 其他UI组件样式
+  appBarTheme: AppBarTheme(
+    backgroundColor: const Color(0xFF121212).withOpacity(0.8), // 与新背景色统一
+    elevation: 0,
+    centerTitle: true,
+  ),
   textButtonTheme: TextButtonThemeData(
     style: TextButton.styleFrom(
-      foregroundColor: Colors.purple.shade200,
+      foregroundColor: const Color(0xFF4A90E2),
     ),
+  ),
+  dividerTheme: DividerThemeData(
+    color: Colors.white.withOpacity(0.2),
   ),
 );
 class MyApp extends StatelessWidget {

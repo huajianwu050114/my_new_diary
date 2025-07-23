@@ -22,19 +22,24 @@ class ThemeProvider extends ChangeNotifier {
 
   // And ONE set for dark mode
   final List<List<Color>> _darkGradients = const [
-    [Color(0xFF2E3192), Color(0xFF1BFFFF)],
-    [Color(0xFF673AB7), Color(0xFF512DA8)],
-    [Color(0xFF0D47A1), Color(0xFF1976D2)],
-    [Color(0xFF4527A0), Color(0xFF7E57C2)],
-    [Color(0xFF006064), Color(0xFF0097A7)],
-    [Color(0xFF1A237E), Color(0xFF303F9F)],
-    // Added colors from the previous festival list for more variety
-    [Color(0xff09203f), Color(0xff537895)],
-    [Color(0xff2c3e50), Color(0xff4ca1af)],
+    // 深海蓝 -> 星云紫
+    [Color(0xFF0D47A1), Color(0xFF4527A0)],
+    // 墨绿 -> 森林青
+    [Color(0xFF004D40), Color(0xFF00796B)],
+    // 石板灰 -> 月光银
+    [Color(0xFF37474F), Color(0xFF546E7A)],
+    // 午夜蓝 -> 黎明灰
+    [Color(0xFF2C3E50), Color(0xFF4CA1AF)],
+    // 玫瑰紫 -> 晚霞粉
+    [Color(0xFF880E4F), Color(0xFFC2185B)],
+    // 炭黑 -> 深空灰
+    [Color(0xFF212121), Color(0xFF424242)],
   ];
 
-  // This single getter will now provide colors for ALL cards
   List<List<Color>> get cardGradientColors => isDarkMode ? _darkGradients : _lightGradients;
+
+  // This single getter will now provide colors for ALL cards
+
 
   // We no longer need a separate festivalGradientColors getter
 
