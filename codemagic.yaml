@@ -1,0 +1,25 @@
+workflows:
+  android-build: # 工作流名称，可以自定义
+    name: Android Build # 在 Codemagic UI 中显示的名字
+    instance_type: mac_mini_m1 # 您可以根据需要选择机器类型
+    environment:
+      flutter: stable # 使用稳定版的 Flutter SDK
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: 清理项目缓存
+        script: |
+          set -e # 如果任何命令失败，则立即停止
+          flutter clean
+          cd android
+          ./gradlew clean
+          cd ..
+      - name: 拉取 Flutter 依赖
+        script: |
+          flutter pub get
+      - name: 构建 Android APK
+        script: |
+          # 使用这个命令来构建一个包含所有依赖的、独立的APK
+          flutter build apk --release --split-per-abi
+    artifacts:
+      - build/app/outputs/apk/**/*.apk # 构建成功后，从这个路径收集产物
