@@ -8,6 +8,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:file_picker/file_picker.dart'; // VVV 1. 导入新的插件
 import 'diary_service.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart'; // 导入 path_provider
+import 'package:share_plus/share_plus.dart';
 
 typedef ExportProgressCallback = void Function(int current, int total);
 
@@ -150,29 +152,32 @@ class ExportService {
 
   // VVV 3. 全新的文件保存方法，使用 file_picker VVV
   Future<String?> _saveFileWithPicker(dynamic content, String fileName) async {
-    // 弹出“另存为”对话框，让用户选择保存位置和文件名
-    String? outputPath = await FilePicker.platform.saveFile(
-      dialogTitle: '请选择保存位置',
-      fileName: fileName,
-    );
+    // 1. 获取应用的临时目录
+    final tempDir = await getTemporaryDirectory();
+    final filePath = '${tempDir.path}/$fileName';
+    final file = File(filePath);
 
-    // 如果用户取消了对话框，则 outputPath 会是 null
-    if (outputPath == null) {
-      print('用户取消了保存操作');
-      return null;
-    }
-
+    // 2. 将内容写入临时文件
     try {
-      final file = File(outputPath);
       if (content is String) {
         await file.writeAsString(content);
       } else if (content is List<int>) {
         await file.writeAsBytes(content);
       }
-      return outputPath; // 成功保存，返回路径
     } catch (e) {
-      print('保存文件时出错: $e');
-      return null; // 保存失败
+      print('写入临时文件时出错: $e');
+      return null;
     }
+
+    // 3. 调用分享功能
+    final xfile = XFile(filePath);
+    final result = await Share.shareXFiles([xfile], text: '我的日记备份');
+
+    // 可以在分享成功后返回一个成功的提示
+    if (result.status == ShareResultStatus.success) {
+      return "分享成功"; // 或者返回文件路径 filePath
+    }
+
+    return null;
   }
 }

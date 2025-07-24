@@ -10,6 +10,8 @@ import 'stop_words_page.dart'; // VVV 导入新页面 VVV
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert'; // 导入 dart:convert
 import 'dart:io'; // 导入 dart:io
+import 'package:permission_handler/permission_handler.dart';
+
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -41,6 +43,38 @@ class _SettingsPageState extends State<SettingsPage> {
       _reminderTime = TimeOfDay(hour: hour, minute: minute);
     });
   }
+
+  Future<void> _handleReminderSwitch(bool value) async {
+    if (value) {
+      // 如果用户是想“开启”提醒
+      final status = await Permission.notification.request();
+      if (status.isGranted) {
+        // 权限被授予，保存设置并安排提醒
+        setState(() {
+          _isReminderEnabled = true;
+        });
+        _saveSettings(true, _reminderTime);
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('提醒已在 ${_reminderTime.format(context)} 开启'))
+        );
+      } else {
+        // 权限被拒绝，保持Switch关闭状态
+        setState(() {
+          _isReminderEnabled = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('需要通知权限才能开启提醒。请在系统设置中手动开启。'))
+        );
+      }
+    } else {
+      // 如果用户是想“关闭”提醒
+      setState(() {
+        _isReminderEnabled = false;
+      });
+      _saveSettings(false, _reminderTime); // 这会调用 cancelAllNotifications
+    }
+  }
+
 
   Future<void> _runImport() async {
     final result = await FilePicker.platform.pickFiles(
@@ -177,12 +211,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 subtitle: Text(_isReminderEnabled ? '已开启' : '已关闭'),
                 trailing: Switch(
                   value: _isReminderEnabled,
-                  onChanged: (value) {
-                    setState(() {
-                      _isReminderEnabled = value;
-                    });
-                    _saveSettings(value, _reminderTime);
-                  },
+                  onChanged: _handleReminderSwitch, // VVV 更新这一行 VVV
                 ),
               ),
               if (_isReminderEnabled)

@@ -66,7 +66,10 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                // VVV 换成高德地图的瓦片地址 VVV
+                urlTemplate: 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
+                // VVV 添加高德需要的子域名 VVV
+                subdomains: const ['1', '2', '3', '4'],
                 userAgentPackageName: 'com.example.my_new_diary',
               ),
             ],
