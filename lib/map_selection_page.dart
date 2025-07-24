@@ -19,7 +19,7 @@ class MapSelectionPage extends StatefulWidget {
 
 class _MapSelectionPageState extends State<MapSelectionPage> {
   // --- 配置区域 ---
-  final String _amapApiKey = '在此处粘贴你的高德Web服务API Key';
+  final String _amapApiKey = '	efb67b0292824f14fafb71f7f7222330';
   // VVV 替换为你在高德后台获取的暗黑模式样式ID VVV
   final String _darkStyleId = '在此处粘贴你的暗黑模式样式ID';
 

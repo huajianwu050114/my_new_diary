@@ -58,6 +58,10 @@ dependencies:
   flutter_speed_dial: ^7.0.0
   share_plus: ^9.0.0
   permission_handler: ^11.3.1
+  firebase_core: ^3.1.1      # 核心插件，必須有
+  firebase_auth: ^5.1.1      # 用於用戶認證 (登入/註冊)
+  cloud_firestore: ^5.0.2  # 用於Firestore資料庫 (存日記文本、資訊)
+  firebase_storage: ^12.1.0
 
 
   # The following adds the Cupertino Icons fonts to your application.
