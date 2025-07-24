@@ -1,7 +1,6 @@
-// file: lib/diary_service.dart
-
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data'; // Required for Uint8List
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -15,7 +14,6 @@ class DiaryEntry {
   final DateTime creationTime;
   final String? mood;
   final List<String> tags;
-  // VVV 1. Add new fields for location data VVV
   final double? latitude;
   final double? longitude;
   final String? address;
@@ -28,7 +26,6 @@ class DiaryEntry {
     required this.creationTime,
     this.mood,
     this.tags = const [],
-    // VVV 2. Update the constructor VVV
     this.latitude,
     this.longitude,
     this.address,
@@ -45,29 +42,44 @@ class DiaryEntry {
     return DiaryEntry(
       filePath: filePath,
       imagePaths: paths,
-      text: map['text'],
+      text: map['text'] ?? '',
       date: DateTime.parse(map['date']),
       creationTime: map['creationTime'] != null
           ? DateTime.parse(map['creationTime'])
           : DateTime.parse(map['date']),
       mood: map['mood'],
       tags: map['tags'] != null ? List<String>.from(map['tags']) : [],
-      // VVV 3. Read location data from the map VVV
       latitude: map['latitude'],
       longitude: map['longitude'],
       address: map['address'],
     );
   }
 
-  Map<String, dynamic> toMap() {
+  // VVV MODIFICATION 1: The `toMap` method is now async and handles Base64 encoding for export VVV
+  Future<Map<String, dynamic>> toMap({bool forExport = false}) async {
+    List<String> imagePayload = [];
+
+    if (forExport) {
+      // For export, read image files and encode them to Base64
+      for (final path in imagePaths) {
+        final file = File(path);
+        if (await file.exists()) {
+          final bytes = await file.readAsBytes();
+          imagePayload.add(base64Encode(bytes));
+        }
+      }
+    } else {
+      // For normal saving, just use the file paths
+      imagePayload = imagePaths;
+    }
+
     return {
-      'imagePaths': imagePaths,
+      'imagePaths': imagePayload, // This will contain either paths or Base64 strings
       'text': text,
       'date': date.toIso8601String(),
       'creationTime': creationTime.toIso8601String(),
       'mood': mood,
       'tags': tags,
-      // VVV 4. Write location data to the map VVV
       'latitude': latitude,
       'longitude': longitude,
       'address': address,
@@ -76,22 +88,42 @@ class DiaryEntry {
 }
 
 class DiaryService extends ChangeNotifier {
+  Future<Directory> get _appDir async => await getApplicationDocumentsDirectory();
+
   Future<Directory> get _diariesDir async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final diariesDir = Directory(p.join(appDir.path, 'diaries'));
-    if (!await diariesDir.exists()) {
-      await diariesDir.create(recursive: true);
+    final dir = Directory(p.join((await _appDir).path, 'diaries'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
     }
-    return diariesDir;
+    return dir;
   }
 
-  Future<Directory> get _trashDir async {
-    final appDir = await getApplicationDocumentsDirectory();
-    final trashDir = Directory(p.join(appDir.path, 'diaries_trash'));
-    if (!await trashDir.exists()) {
-      await trashDir.create(recursive: true);
+  // VVV NEW: Directory for storing all images VVV
+  Future<Directory> get _imagesDir async {
+    final dir = Directory(p.join((await _appDir).path, 'images'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
     }
-    return trashDir;
+    return dir;
+  }
+
+
+  Future<Directory> get _trashDir async {
+    final dir = Directory(p.join((await _appDir).path, 'diaries_trash'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  // VVV NEW: Method to save an image from bytes (for import) VVV
+  Future<String> saveImageFromBytes(Uint8List bytes) async {
+    final imagesDir = await _imagesDir;
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final fileName = 'imported_image_$timestamp.jpg';
+    final file = File(p.join(imagesDir.path, fileName));
+    await file.writeAsBytes(bytes);
+    return file.path;
   }
 
   Future<List<DiaryEntry>> getEntriesForDay(DateTime day) async {
@@ -120,10 +152,12 @@ class DiaryService extends ChangeNotifier {
         }
       }
     }
+
     entries.sort((a, b) => b.creationTime.compareTo(a.creationTime));
     return entries;
   }
 
+  // VVV MODIFICATION 2: `addEntry` now awaits the async `toMap` method VVV
   Future<void> addEntry(DiaryEntry entry) async {
     final year = entry.date.year.toString();
     final month = entry.date.month.toString().padLeft(2, '0');
@@ -138,7 +172,8 @@ class DiaryService extends ChangeNotifier {
     final fileName = "$year-$month-${day}_$timestamp.json";
     final file = File(p.join(monthDir.path, fileName));
 
-    await file.writeAsString(jsonEncode(entry.toMap()));
+    // Await the async `toMap()` call
+    await file.writeAsString(jsonEncode(await entry.toMap()));
     notifyListeners();
   }
 

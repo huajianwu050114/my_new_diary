@@ -131,11 +131,11 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
     return MaterialApp(
-      title: '我的日記',
+      title: '我的日记',
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: themeProvider.themeMode,
-      home: const AuthGate(),
+      home: const HomePage(),
       debugShowCheckedModeBanner: false,
     );
   }

@@ -22,13 +22,14 @@ class ExportService {
   Future<String?> exportToJson({ExportProgressCallback? onProgress}) async {
     final List<Map<String, dynamic>> entryList = [];
     for (int i = 0; i < entries.length; i++) {
-      entryList.add(entries[i].toMap());
+      // Call toMap with forExport: true to get Base64 image data
+      entryList.add(await entries[i].toMap(forExport: true));
       onProgress?.call(i + 1, entries.length);
-      await Future.delayed(const Duration(milliseconds: 1));
+      // Optional delay to keep the UI responsive on large exports
+      await Future.delayed(const Duration(milliseconds: 5));
     }
 
     final jsonString = jsonEncode(entryList);
-    // 使用新的保存方法
     return await _saveFileWithPicker(jsonString, 'my_diary_backup.json');
   }
 

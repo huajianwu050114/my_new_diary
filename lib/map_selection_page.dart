@@ -1,4 +1,5 @@
 // file: lib/map_selection_page.dart
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -6,7 +7,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
-// VVV 导入我们新创建的服务 VVV
 import 'location_service.dart';
 
 class MapSelectionPage extends StatefulWidget {
@@ -18,29 +18,29 @@ class MapSelectionPage extends StatefulWidget {
 }
 
 class _MapSelectionPageState extends State<MapSelectionPage> {
-  // --- 配置区域 ---
-  final String _amapApiKey = '	efb67b0292824f14fafb71f7f7222330';
-  // VVV 替换为你在高德后台获取的暗黑模式样式ID VVV
-  final String _darkStyleId = '在此处粘贴你的暗黑模式样式ID';
+  // --- 配置區域 ---
+  // VVV 在此處貼上你的高德Web服務API Key VVV
+  final String _amapApiKey = 'efb67b0292824f14fafb71f7f7222330';
+  // VVV 在此處貼上你在高德後台獲取的暗黑模式樣式ID VVV
+  final String _darkStyleId = 'YOUR_DARK_STYLE_ID';
 
   // --- 控制器 ---
   final MapController _mapController = MapController();
   final TextEditingController _searchController = TextEditingController();
 
-  // --- 状态变量 ---
+  // --- 狀態變數 ---
   LatLng? _currentMapCenter;
   List<Poi> _nearbyPlaces = [];
-  bool _isLoadingPlaces = false;
+  bool _isLoadingPlaces = true;
   Timer? _debounce;
   Poi? _selectedPlace;
   List<Marker> _searchResultMarkers = [];
 
-  // VVV 新增的服务和状态 VVV
   final SearchHistoryService _historyService = SearchHistoryService();
   final FavoritePlaceService _favoritePlaceService = FavoritePlaceService();
   List<String> _searchHistory = [];
   List<Poi> _favoritePlaces = [];
-  bool _isSearching = false; // 用于显示/隐藏历史和收藏
+  bool _isSearching = false;
 
   @override
   void initState() {
@@ -51,7 +51,9 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
 
   void _loadInitialData() async {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchNearbyPlaces(widget.initialLocation);
+      if (_currentMapCenter != null) {
+        _fetchNearbyPlaces(_currentMapCenter!);
+      }
     });
     _searchHistory = await _historyService.getHistory();
     _favoritePlaces = await _favoritePlaceService.getFavorites();
@@ -66,12 +68,91 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
     super.dispose();
   }
 
-  // --- 核心API方法 ---
-  Future<void> _fetchNearbyPlaces(LatLng location) async {
-    setState(() => _isLoadingPlaces = true);
-    // ... 此方法不变 ...
+  /// 當用戶點擊確認按鈕時觸發
+  void _onConfirm() {
+    // 優先使用用戶明確點選的POI
+    if (_selectedPlace != null) {
+      final result = {
+        'latitude': _selectedPlace!.location.latitude,
+        'longitude': _selectedPlace!.location.longitude,
+        'address': _selectedPlace!.name, // 通常POI名稱比地址更簡潔
+      };
+      Navigator.of(context).pop(result);
+      return;
+    }
+
+    // 如果用戶沒有點選，但周邊列表有數據，默認選第一個
+    if (_nearbyPlaces.isNotEmpty) {
+      final firstPlace = _nearbyPlaces.first;
+      final result = {
+        'latitude': firstPlace.location.latitude,
+        'longitude': firstPlace.location.longitude,
+        'address': firstPlace.name,
+      };
+      Navigator.of(context).pop(result);
+      return;
+    }
+
+    // 作為備選，如果POI列表為空，則返回地圖中心點的粗略地址
+    if (_currentMapCenter != null) {
+      final result = {
+        'latitude': _currentMapCenter!.latitude,
+        'longitude': _currentMapCenter!.longitude,
+        'address': "地圖上的選定點",
+      };
+      Navigator.of(context).pop(result);
+    }
   }
 
+  /// 當地圖位置變化時觸發，使用 debounce 防止API頻繁請求
+  void _onPositionChanged(MapCamera camera, bool hasGesture) {
+    if (hasGesture) {
+      _currentMapCenter = camera.center;
+      // 拖動地圖時，清除之前的搜索結果標記
+      if (_searchResultMarkers.isNotEmpty) {
+        setState(() => _searchResultMarkers = []);
+      }
+
+      // debounce 邏輯：如果用戶在500毫秒內沒有再次移動地圖，則發起請求
+      if (_debounce?.isActive ?? false) _debounce!.cancel();
+      _debounce = Timer(const Duration(milliseconds: 500), () {
+        if (_currentMapCenter != null) {
+          _fetchNearbyPlaces(_currentMapCenter!);
+        }
+      });
+    }
+  }
+
+  /// 獲取指定座標點周邊的POI列表
+  Future<void> _fetchNearbyPlaces(LatLng location) async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingPlaces = true;
+      _nearbyPlaces = []; // 清空舊數據
+    });
+
+    final url = Uri.parse(
+        'https://restapi.amap.com/v3/geocode/regeo?key=$_amapApiKey&location=${location.longitude},${location.latitude}&poitype=all&radius=1000&extensions=all');
+
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == '1' && data['regeocode'] != null) {
+          final poisJson = data['regeocode']['pois'] as List? ?? [];
+          _nearbyPlaces = poisJson.map((p) => Poi.fromJson(p)).toList();
+        }
+      }
+    } catch (e) {
+      print("獲取周邊位置失敗: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingPlaces = false);
+      }
+    }
+  }
+
+  /// 搜索地點
   Future<void> _searchLocation(String query) async {
     FocusScope.of(context).unfocus();
     if (query.isEmpty) return;
@@ -83,52 +164,51 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
         'https://restapi.amap.com/v3/place/text?key=$_amapApiKey&keywords=$query&offset=20&page=1&extensions=base');
 
     try {
-      final response = await http.get(url);
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['status'] == '1') {
-          final poisJson = data['pois'] as List;
+          final poisJson = data['pois'] as List? ?? [];
           final results = poisJson.map((p) => Poi.fromJson(p)).toList();
-
-          setState(() {
-            _isSearching = false;
-            _nearbyPlaces = results;
-            _searchResultMarkers = results.map((p) => Marker(
-              point: p.location,
-              width: 80,
-              height: 80,
-              child: const Icon(Icons.location_on, color: Colors.blue, size: 30),
-            )).toList();
-          });
 
           if (results.isNotEmpty) {
             _mapController.move(results.first.location, 15);
+            setState(() {
+              _isSearching = false;
+              _nearbyPlaces = results; // 將搜索結果也顯示在底部列表
+              _searchResultMarkers = results.map((p) => Marker(
+                point: p.location,
+                width: 30,
+                height: 30,
+                child: Icon(Icons.location_on, color: Theme.of(context).colorScheme.secondary, size: 30),
+              )).toList();
+            });
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('没有找到相关的地点')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('沒有找到相關的地點')));
           }
         }
       }
     } catch (e) {
-      // ... 错误处理 ...
+      print("搜索地點失敗: $e");
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('搜索失敗，請檢查網路')));
     }
   }
 
-  // --- UI交互方法 ---
-  void _onConfirm() { // 不变
-    // ...
-  }
-
-  void _onPositionChanged(MapCamera camera, bool hasGesture) {
-    if (hasGesture) {
-      setState(() => _searchResultMarkers = []); // 拖动地图时清除搜索标记
-      // ... debounce逻辑不变 ...
+  /// 定位到我的當前位置
+  Future<void> _goToMyLocation() async {
+    try {
+      final position = await Geolocator.getCurrentPosition();
+      final myLocation = LatLng(position.latitude, position.longitude);
+      _mapController.move(myLocation, 16.0);
+      _fetchNearbyPlaces(myLocation);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('無法獲取當前位置')));
+      }
     }
   }
 
-  Future<void> _goToMyLocation() async { // 不变
-    // ...
-  }
-
+  /// 添加或移除收藏
   void _onFavoriteToggle(Poi place) async {
     bool isFav = await _favoritePlaceService.isFavorite(place);
     if (isFav) {
@@ -137,10 +217,9 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
       await _favoritePlaceService.addFavorite(place);
     }
     _favoritePlaces = await _favoritePlaceService.getFavorites();
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
-  // --- UI构建方法 ---
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -148,8 +227,8 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('选择位置'),
-        actions: [ IconButton(icon: const Icon(Icons.check), onPressed: _onConfirm) ],
+        title: const Text('選擇位置'),
+        actions: [ IconButton(icon: const Icon(Icons.check), tooltip: '確認選擇', onPressed: _onConfirm) ],
       ),
       body: Stack(
         children: [
@@ -159,7 +238,7 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
               initialCenter: widget.initialLocation,
               initialZoom: 16,
               onPositionChanged: _onPositionChanged,
-              onTap: (_, __) { setState(() => _isSearching = false); FocusScope.of(context).unfocus(); },
+              onTap: (_, __) { if (_isSearching) { setState(() => _isSearching = false); FocusScope.of(context).unfocus(); } },
             ),
             children: [
               TileLayer(
@@ -170,27 +249,17 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
             ],
           ),
 
-          const Center(child: Icon(Icons.location_pin, size: 50, color: Colors.red)),
+          const Center(child: IgnorePointer(child: Icon(Icons.location_pin, size: 50, color: Colors.red))),
 
-          // --- 全新的搜索和建议UI ---
-          if (_isSearching)
-            _buildSearchSuggestionOverlay(),
+          if (_isSearching) _buildSearchSuggestionOverlay(),
 
-          Positioned(
-            top: 10,
-            left: 15,
-            right: 15,
-            child: _buildSearchBar(),
-          ),
-
-          Positioned(
-            left: 0, right: 0, bottom: 0,
-            child: _buildPoiList(),
-          ),
+          Positioned(top: 10, left: 15, right: 15, child: _buildSearchBar()),
+          Positioned(left: 0, right: 0, bottom: 0, child: _buildPoiList()),
         ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _goToMyLocation,
+        tooltip: '我的位置',
         child: const Icon(Icons.my_location),
       ),
     );
@@ -204,32 +273,39 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
             child: TextField(
               controller: _searchController,
               decoration: const InputDecoration(
-                hintText: '搜索地点...',
+                hintText: '搜索地點...',
                 prefixIcon: Icon(Icons.search),
                 border: InputBorder.none,
               ),
-              onTap: () => setState(() => _isSearching = true),
+              onTap: () async {
+                _searchHistory = await _historyService.getHistory();
+                setState(() => _isSearching = true);
+              },
               onSubmitted: _searchLocation,
             ),
           ),
           IconButton(
             icon: const Icon(Icons.star, color: Colors.amber),
-            tooltip: '收藏夹',
-            onPressed: () {
+            tooltip: '收藏夾',
+            onPressed: () async {
+              _favoritePlaces = await _favoritePlaceService.getFavorites();
               setState(() => _isSearching = false);
               FocusScope.of(context).unfocus();
-              // 用底部弹窗显示收藏夹
               showModalBottomSheet(
                   context: context,
-                  builder: (context) => ListView.builder(
+                  builder: (context) => _favoritePlaces.isEmpty
+                      ? const Center(child: Padding(padding: EdgeInsets.all(16.0), child: Text("還沒有收藏任何地點")))
+                      : ListView.builder(
                     itemCount: _favoritePlaces.length,
                     itemBuilder: (context, index) {
                       final place = _favoritePlaces[index];
                       return ListTile(
+                        leading: const Icon(Icons.star),
                         title: Text(place.name),
-                        subtitle: Text(place.address),
+                        subtitle: Text(place.address, maxLines: 1, overflow: TextOverflow.ellipsis),
                         onTap: () {
                           _mapController.move(place.location, 16);
+                          _fetchNearbyPlaces(place.location);
                           Navigator.of(context).pop();
                         },
                       );
@@ -252,25 +328,26 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
           child: SafeArea(
             child: Column(
               children: [
-                const SizedBox(height: 70), // 为搜索框留出空间
-                Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 15),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _searchHistory.length,
-                    itemBuilder: (context, index) {
-                      final term = _searchHistory[index];
-                      return ListTile(
-                        leading: const Icon(Icons.history),
-                        title: Text(term),
-                        onTap: () {
-                          _searchController.text = term;
-                          _searchLocation(term);
-                        },
-                      );
-                    },
+                const SizedBox(height: 70),
+                if (_searchHistory.isNotEmpty)
+                  Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 15),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: _searchHistory.length,
+                      itemBuilder: (context, index) {
+                        final term = _searchHistory[index];
+                        return ListTile(
+                          leading: const Icon(Icons.history),
+                          title: Text(term),
+                          onTap: () {
+                            _searchController.text = term;
+                            _searchLocation(term);
+                          },
+                        );
+                      },
+                    ),
                   ),
-                ),
               ],
             ),
           ),
@@ -287,30 +364,31 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
         color: Theme.of(context).scaffoldBackgroundColor,
         child: _isLoadingPlaces
             ? const Center(child: CircularProgressIndicator())
+            : _nearbyPlaces.isEmpty
+            ? const Center(child: Text('周邊沒有找到地點'))
             : ListView.builder(
           itemCount: _nearbyPlaces.length,
           itemBuilder: (context, index) {
             final place = _nearbyPlaces[index];
-            return FutureBuilder<bool>(
-              future: _favoritePlaceService.isFavorite(place),
-              builder: (context, snapshot) {
-                final isFav = snapshot.data ?? false;
-                return ListTile(
-                  title: Text(place.name),
-                  subtitle: Text(place.address, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  trailing: IconButton(
+            final isSelected = _selectedPlace == place;
+            return ListTile(
+              title: Text(place.name, style: TextStyle(fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
+              subtitle: Text(place.address, maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: FutureBuilder<bool>(
+                future: _favoritePlaceService.isFavorite(place),
+                builder: (context, snapshot) {
+                  final isFav = snapshot.data ?? false;
+                  return IconButton(
                     icon: Icon(
                       isFav ? Icons.star : Icons.star_border,
                       color: isFav ? Colors.amber : null,
                     ),
                     onPressed: () => _onFavoriteToggle(place),
-                  ),
-                  onTap: () {
-                    setState(() => _selectedPlace = place);
-                    _mapController.move(place.location, _mapController.camera.zoom);
-                  },
-                );
-              },
+                  );
+                },
+              ),
+              tileColor: isSelected ? Theme.of(context).colorScheme.primary.withOpacity(0.1) : null,
+              onTap: () => setState(() => _selectedPlace = place),
             );
           },
         ),
