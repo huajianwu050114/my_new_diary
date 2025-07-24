@@ -24,6 +24,7 @@ import 'festivals_page.dart';   // 导入新页面
 import 'diary_home_page.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'add_diary_page.dart';
+import 'location_memories_page.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -761,6 +762,16 @@ class AppDrawer extends StatelessWidget {
                   Navigator.pop(context);
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (context) => const AnalysisPage()),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.map_outlined),
+                title: const Text('足迹地图'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (context) => const LocationMemoriesPage()),
                   );
                 },
               ),

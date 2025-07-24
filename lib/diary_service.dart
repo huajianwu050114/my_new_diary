@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:latlong2/latlong.dart' as latlong;
 
 class DiaryEntry {
   final String filePath;
@@ -317,5 +318,50 @@ class DiaryService extends ChangeNotifier {
     }
 
     return buffer.toString();
+  }
+
+  Future<List<List<DiaryEntry>>> getGroupedEntriesByLocation({
+    double distanceThreshold = 200,
+  }) async {
+    // 1. 获取所有带位置的日记
+    final allEntries = await getAllEntriesSorted();
+    final entriesWithLocation = allEntries.where((e) => e.latitude != null && e.longitude != null).toList();
+
+    if (entriesWithLocation.isEmpty) {
+      return [];
+    }
+
+    final List<List<DiaryEntry>> clusteredEntries = [];
+    final distance = const latlong.Distance();
+
+    // 2. 遍历所有带位置的日记进行聚类
+    for (var entry in entriesWithLocation) {
+      bool foundCluster = false;
+      final entryLocation = latlong.LatLng(entry.latitude!, entry.longitude!);
+
+      // 检查当前日记是否可以并入已有的分组
+      for (var cluster in clusteredEntries) {
+        // 使用分组内的第一篇日记作为这个分组的中心点
+        final clusterCenter = latlong.LatLng(cluster.first.latitude!, cluster.first.longitude!);
+
+        final double meters = distance(entryLocation, clusterCenter);
+
+        if (meters <= distanceThreshold) {
+          cluster.add(entry);
+          foundCluster = true;
+          break; // 找到后就跳出循环
+        }
+      }
+
+      // 3. 如果没有找到可以并入的分组，就为它创建一个新分组
+      if (!foundCluster) {
+        clusteredEntries.add([entry]);
+      }
+    }
+
+    // 可选：按分组内日记数量排序，让故事多的地点排在前面
+    clusteredEntries.sort((a, b) => b.length.compareTo(a.length));
+
+    return clusteredEntries;
   }
 }
