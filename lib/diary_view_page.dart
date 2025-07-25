@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'diary_service.dart';
+import 'gemini_service.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 class DiaryViewPage extends StatefulWidget {
   final DiaryEntry entry;
@@ -17,6 +19,7 @@ class DiaryViewPage extends StatefulWidget {
 class _DiaryViewPageState extends State<DiaryViewPage> {
   // VVV 1. 添加状态来追踪当前图片页码 VVV
   int _currentPage = 0;
+  final GeminiService _geminiService = GeminiService();
 
   void _deleteDiary() async {
     final bool? confirmDelete = await showDialog<bool>(
@@ -47,6 +50,44 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         Navigator.of(context).pop();
       }
     }
+  }
+
+  void _showAnalysis(String title, Future<String?> analysisFuture) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.75,
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: Theme.of(context).textTheme.headlineSmall),
+              const Divider(height: 24),
+              Expanded(
+                child: FutureBuilder<String?>(
+                  future: analysisFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
+                      return const Center(child: Text('分析失败或无结果。'));
+                    }
+                    // 使用 Markdown 组件来渲染AI返回的格式化文本
+                    return Markdown(
+                      data: snapshot.data!,
+                      selectable: true, // 让用户可以复制文本
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   // VVV 2. 构建图片浏览器 VVV
@@ -144,9 +185,42 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
           shadows: [Shadow(color: Colors.black.withOpacity(0.5), blurRadius: 4)],
         ) : null,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            onPressed: _deleteDiary,
+          // 使用这个新的 PopupMenuButton 替换旧的删除按钮
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert), // 使用更常见的“更多”图标
+            onSelected: (value) {
+              if (value == 'diary_analysis') {
+                _showAnalysis('AI 日记分析师', _geminiService.getDiaryAnalysis(widget.entry));
+              } else if (value == 'psychological_analysis') {
+                _showAnalysis('AI 心理洞察', _geminiService.getPsychologicalAnalysis(widget.entry));
+              } else if (value == 'delete') {
+                _deleteDiary();
+              }
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'diary_analysis',
+                child: ListTile(
+                  leading: Icon(Icons.auto_awesome_outlined), // AI 图标
+                  title: Text('日记分析'),
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'psychological_analysis',
+                child: ListTile(
+                  leading: Icon(Icons.psychology_outlined),
+                  title: Text('心理洞察'),
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem<String>(
+                value: 'delete',
+                child: ListTile(
+                  leading: Icon(Icons.delete_outline),
+                  title: Text('删除日记'),
+                ),
+              ),
+            ],
           ),
         ],
       ),
