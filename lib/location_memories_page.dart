@@ -89,6 +89,7 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
           TileLayer(
             urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
             subdomains: const ['a', 'b', 'c'],
+            userAgentPackageName: 'com.example.my_new_diary',
           ),
           MarkerLayer(
             markers: groupedEntries.map((cluster) {

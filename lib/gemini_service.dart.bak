@@ -1,6 +1,4 @@
 // file: lib/gemini_service.dart
-
-import 'package:firebase_vertexai/firebase_vertexai.dart'; // 1. 导入新的包
 import 'diary_service.dart';
 
 class GeminiService {

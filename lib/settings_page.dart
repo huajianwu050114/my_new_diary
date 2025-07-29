@@ -45,33 +45,56 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _handleReminderSwitch(bool value) async {
-    if (value) {
-      // 如果用户是想“开启”提醒
-      final status = await Permission.notification.request();
-      if (status.isGranted) {
-        // 权限被授予，保存设置并安排提醒
-        setState(() {
-          _isReminderEnabled = true;
-        });
-        _saveSettings(true, _reminderTime);
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('提醒已在 ${_reminderTime.format(context)} 开启'))
-        );
-      } else {
-        // 权限被拒绝，保持Switch关闭状态
-        setState(() {
-          _isReminderEnabled = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('需要通知权限才能开启提醒。请在系统设置中手动开启。'))
-        );
-      }
+    // 如果是想关闭提醒，直接执行并返回
+    if (!value) {
+      setState(() => _isReminderEnabled = false);
+      _saveSettings(false, _reminderTime);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('每日提醒已关闭')),
+      );
+      return;
+    }
+
+    // 如果是想开启提醒，则开始权限请求流程
+    final status = await Permission.notification.request();
+
+    if (!mounted) return; // 检查页面是否还存在
+
+    if (status.isGranted) {
+      // 1. 权限已授予：直接开启功能
+      setState(() => _isReminderEnabled = true);
+      _saveSettings(true, _reminderTime);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('提醒已在 ${_reminderTime.format(context)} 开启'))
+      );
+    } else if (status.isPermanentlyDenied) {
+      // 2. 权限被“永久拒绝”：弹出一个对话框，引导用户去设置
+      await showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('需要通知权限'),
+          content: const Text('您之前已拒绝通知权限，请在系统设置中手动为本应用开启。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              // 点击后直接打开应用的设置页面
+              onPressed: () {
+                openAppSettings();
+                Navigator.of(context).pop();
+              },
+              child: const Text('前往设置'),
+            ),
+          ],
+        ),
+      );
     } else {
-      // 如果用户是想“关闭”提醒
-      setState(() {
-        _isReminderEnabled = false;
-      });
-      _saveSettings(false, _reminderTime); // 这会调用 cancelAllNotifications
+      // 3. 其他拒绝情况（例如用户只拒绝了一次）：只显示一个提示
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('开启每日提醒需要授予通知权限。'))
+      );
     }
   }
 

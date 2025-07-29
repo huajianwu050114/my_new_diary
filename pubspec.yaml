@@ -62,9 +62,9 @@ dependencies:
   firebase_auth:     # 用於用戶認證 (登入/註冊)
   cloud_firestore: # 用於Firestore資料庫 (存日記文本、資訊)
   firebase_storage:
-  #google_generative_ai: ^0.4.0
+  google_generative_ai: ^0.4.0
   flutter_markdown: ^0.7.1
-  firebase_vertexai: ^0.1.0+1
+  #firebase_vertexai: ^0.1.0+1
 
 
   # The following adds the Cupertino Icons fonts to your application.

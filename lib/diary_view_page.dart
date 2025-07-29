@@ -5,8 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'diary_service.dart';
-import 'gemini_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'gemini_service_local.dart';
+import 'ai_chat_page.dart';
 
 class DiaryViewPage extends StatefulWidget {
   final DiaryEntry entry;
@@ -19,7 +20,7 @@ class DiaryViewPage extends StatefulWidget {
 class _DiaryViewPageState extends State<DiaryViewPage> {
   // VVV 1. 添加状态来追踪当前图片页码 VVV
   int _currentPage = 0;
-  final GeminiService _geminiService = GeminiService();
+  final GeminiServiceLocal _geminiService = GeminiServiceLocal();
 
   void _deleteDiary() async {
     final bool? confirmDelete = await showDialog<bool>(
@@ -50,44 +51,6 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         Navigator.of(context).pop();
       }
     }
-  }
-
-  void _showAnalysis(String title, Future<String?> analysisFuture) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) {
-        return Container(
-          height: MediaQuery.of(context).size.height * 0.75,
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.headlineSmall),
-              const Divider(height: 24),
-              Expanded(
-                child: FutureBuilder<String?>(
-                  future: analysisFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
-                      return const Center(child: Text('分析失败或无结果。'));
-                    }
-                    // 使用 Markdown 组件来渲染AI返回的格式化文本
-                    return Markdown(
-                      data: snapshot.data!,
-                      selectable: true, // 让用户可以复制文本
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   // VVV 2. 构建图片浏览器 VVV
@@ -149,67 +112,33 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
-    // VVV 3. 更新判断逻辑 VVV
     final bool hasImages = entry.imagePaths.isNotEmpty;
-
     return Scaffold(
-      extendBodyBehindAppBar: hasImages,
       appBar: AppBar(
-        title: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(DateFormat('yyyy年M月d日', 'zh_CN').format(entry.date)),
-            Text(
-              '${DateFormat('HH:mm').format(entry.creationTime)}',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-        backgroundColor:
-        hasImages ? Colors.transparent : Theme.of(context).appBarTheme.backgroundColor,
-        elevation: 0,
-        titleTextStyle: hasImages
-            ? TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontFamily: 'MiSans',
-          shadows: [Shadow(color: Colors.black.withOpacity(0.5), blurRadius: 4)],
-        ) : null,
-        iconTheme: hasImages
-            ? IconThemeData(
-          color: Colors.white,
-          shadows: [Shadow(color: Colors.black.withOpacity(0.5), blurRadius: 4)],
-        ) : null,
+        // ... (title, actions etc.)
         actions: [
-          // 使用这个新的 PopupMenuButton 替换旧的删除按钮
           PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert), // 使用更常见的“更多”图标
-            onSelected: (value) {
-              if (value == 'diary_analysis') {
-                _showAnalysis('AI 日记分析师', _geminiService.getDiaryAnalysis(widget.entry));
-              } else if (value == 'psychological_analysis') {
-                _showAnalysis('AI 心理洞察', _geminiService.getPsychologicalAnalysis(widget.entry));
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) async {
+              if (value == 'chat_with_ai') {
+                // Correct way to navigate to the AiChatPage widget
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => AiChatPage(entry: widget.entry),
+                  ),
+                );
+                // Refresh the state when returning from the chat page
+                setState(() {});
               } else if (value == 'delete') {
                 _deleteDiary();
               }
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               const PopupMenuItem<String>(
-                value: 'diary_analysis',
+                value: 'chat_with_ai',
                 child: ListTile(
-                  leading: Icon(Icons.auto_awesome_outlined), // AI 图标
-                  title: Text('日记分析'),
-                ),
-              ),
-              const PopupMenuItem<String>(
-                value: 'psychological_analysis',
-                child: ListTile(
-                  leading: Icon(Icons.psychology_outlined),
-                  title: Text('心理洞察'),
+                  leading: Icon(Icons.auto_awesome_outlined),
+                  title: Text('与AI交流'),
                 ),
               ),
               const PopupMenuDivider(),
@@ -264,6 +193,23 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
                 children: entry.tags.map((tag) => Chip(label: Text(tag))).toList(),
               ),
             ),
+          if (entry.aiAnalyses.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 16.0, top: 8, bottom: 8),
+                    child: Text(
+                      "AI 分析记录 (${entry.aiAnalyses.length})",
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  ...entry.aiAnalyses.map((analysis) => _buildAnalysisTile(analysis)).toList(),
+                ],
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.only(top: 32, right: 24.0),
             child: Row(
@@ -296,6 +242,35 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
             Text('图片加载失败', style: TextStyle(color: Colors.grey)),
           ],
         ),
+      ),
+    );
+  }
+  Widget _buildAnalysisTile(String analysisText) {
+    return Card(
+      elevation: 1,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ExpansionTile(
+        leading: Icon(Icons.bookmark_border, color: Colors.amber.shade800),
+        title: Text(
+          // 将分析内容的第一行作为标题预览
+          analysisText.split('\n').first,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: MarkdownBody(
+        data: analysisText,
+        selectable: true,
+        styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+          p: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6),
+        ),
+          )
+          )
+        ],
       ),
     );
   }

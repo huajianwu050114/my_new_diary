@@ -135,7 +135,7 @@ class MyApp extends StatelessWidget {
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: themeProvider.themeMode,
-      home: const HomePage(),
+      home: const AuthGate(),
       debugShowCheckedModeBanner: false,
     );
   }

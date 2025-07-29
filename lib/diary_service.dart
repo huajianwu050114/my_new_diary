@@ -17,6 +17,7 @@ class DiaryEntry {
   final double? latitude;
   final double? longitude;
   final String? address;
+  List<String> aiAnalyses;
 
   DiaryEntry({
     required this.filePath,
@@ -29,6 +30,7 @@ class DiaryEntry {
     this.latitude,
     this.longitude,
     this.address,
+    this.aiAnalyses = const [],
   });
 
   factory DiaryEntry.fromMap(Map<String, dynamic> map, String filePath) {
@@ -52,6 +54,7 @@ class DiaryEntry {
       latitude: map['latitude'],
       longitude: map['longitude'],
       address: map['address'],
+      aiAnalyses: map['aiAnalyses'] != null ? List<String>.from(map['aiAnalyses']) : [],
     );
   }
 
@@ -83,6 +86,7 @@ class DiaryEntry {
       'latitude': latitude,
       'longitude': longitude,
       'address': address,
+      'aiAnalyses': aiAnalyses,
     };
   }
 }
@@ -105,6 +109,40 @@ class DiaryService extends ChangeNotifier {
       await dir.create(recursive: true);
     }
     return dir;
+  }
+
+  static Future<DiaryEntry> fromFile(File file) async {
+    final jsonString = await file.readAsString();
+    final map = jsonDecode(jsonString);
+    return DiaryEntry(
+      filePath: file.path,
+      imagePaths: List<String>.from(map['imagePaths'] ?? []),
+      text: map['text'] ?? '',
+      date: DateTime.parse(map['date']),
+      creationTime: map['creationTime'] != null
+          ? DateTime.parse(map['creationTime'])
+          : DateTime.parse(map['date']),
+      mood: map['mood'],
+      tags: map['tags'] != null ? List<String>.from(map['tags']) : [],
+      latitude: map['latitude'],
+      longitude: map['longitude'],
+      address: map['address'],
+      aiAnalyses: map['aiAnalyses'] != null ? List<String>.from(map['aiAnalyses']) : [], // <--- 4. 从map中读取AI分析结果
+    );
+  }
+
+
+  Future<void> addAnalysisToEntry(DiaryEntry entry, String newAnalysis) async {
+    final file = File(entry.filePath);
+    if (!await file.exists()) {
+      print('Error: File does not exist: ${entry.filePath}');
+      return;
+    }
+
+    entry.aiAnalyses.add(newAnalysis);
+
+    await file.writeAsString(jsonEncode(await entry.toMap()));
+    notifyListeners();
   }
 
 

@@ -233,30 +233,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "0.9.3+4"
-  firebase_app_check:
-    dependency: transitive
-    description:
-      name: firebase_app_check
-      sha256: aac3b42cdf804b10cb1085c9902e5d1ef2f30e7cfc0c504e6f47519713d86829
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.2.2+7"
-  firebase_app_check_platform_interface:
-    dependency: transitive
-    description:
-      name: firebase_app_check_platform_interface
-      sha256: d0b9e4676ee7a272160b989a9a899d6469e336fe3624b3935cdae77a476f00d1
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.1.0+29"
-  firebase_app_check_web:
-    dependency: transitive
-    description:
-      name: firebase_app_check_web
-      sha256: f5359ba62111e4b28e5f1477b7c5c560dcfabe1ccc9e02e65ebdb428eda204ad
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.1.2+7"
   firebase_auth:
     dependency: "direct main"
     description:
@@ -329,14 +305,6 @@ packages:
       url: "https://pub.flutter-io.cn"
     source: hosted
     version: "3.9.7"
-  firebase_vertexai:
-    dependency: "direct main"
-    description:
-      name: firebase_vertexai
-      sha256: "6eb4a201238198de74d54d465fd7b8f54e43c6bf714ff46440947a80d19adfec"
-      url: "https://pub.flutter-io.cn"
-    source: hosted
-    version: "0.1.1"
   fixnum:
     dependency: transitive
     description:
@@ -537,7 +505,7 @@ packages:
     source: hosted
     version: "0.2.5"
   google_generative_ai:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: google_generative_ai
       sha256: "71f613d0247968992ad87a0eb21650a566869757442ba55a31a81be6746e0d1f"

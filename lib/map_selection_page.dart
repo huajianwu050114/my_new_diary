@@ -242,8 +242,10 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&x={x}&y={y}&z={z}$mapStyle',
+                // 【修正】: 在URL中添加 &key=... 参数
+                urlTemplate: 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&x={x}&y={y}&z={z}&key=$_amapApiKey$mapStyle',
                 subdomains: const ['1', '2', '3', '4'],
+                userAgentPackageName: 'com.example.my_new_diary',
               ),
               MarkerLayer(markers: _searchResultMarkers),
             ],
@@ -273,7 +275,7 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
             child: TextField(
               controller: _searchController,
               decoration: const InputDecoration(
-                hintText: '搜索地點...',
+                hintText: '搜索地点...',
                 prefixIcon: Icon(Icons.search),
                 border: InputBorder.none,
               ),
