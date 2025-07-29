@@ -22,7 +22,6 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
   // VVV 在此處貼上你的高德Web服務API Key VVV
   final String _amapApiKey = 'efb67b0292824f14fafb71f7f7222330';
   // VVV 在此處貼上你在高德後台獲取的暗黑模式樣式ID VVV
-  final String _darkStyleId = 'YOUR_DARK_STYLE_ID';
 
   // --- 控制器 ---
   final MapController _mapController = MapController();
@@ -128,23 +127,29 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
     if (!mounted) return;
     setState(() {
       _isLoadingPlaces = true;
-      _nearbyPlaces = []; // 清空舊數據
+      _nearbyPlaces = [];
     });
 
+    // 【修正1】: 使用 place/around (周边搜索) API
     final url = Uri.parse(
-        'https://restapi.amap.com/v3/geocode/regeo?key=$_amapApiKey&location=${location.longitude},${location.latitude}&poitype=all&radius=1000&extensions=all');
+        'https://restapi.amap.com/v3/place/around?key=$_amapApiKey&location=${location.longitude},${location.latitude}&radius=3000&offset=25&page=1&extensions=all');
 
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        if (data['status'] == '1' && data['regeocode'] != null) {
-          final poisJson = data['regeocode']['pois'] as List? ?? [];
-          _nearbyPlaces = poisJson.map((p) => Poi.fromJson(p)).toList();
+        if (data['status'] == '1') {
+          // 【修正2】: "周边搜索" API 的返回结构不同，直接从 'pois' 键获取列表
+          final poisJson = data['pois'] as List? ?? [];
+          if (mounted) {
+            setState(() {
+              _nearbyPlaces = poisJson.map((p) => Poi.fromJson(p)).toList();
+            });
+          }
         }
       }
     } catch (e) {
-      print("獲取周邊位置失敗: $e");
+      print("获取周边位置失败: $e");
     } finally {
       if (mounted) {
         setState(() => _isLoadingPlaces = false);
@@ -184,13 +189,13 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
               )).toList();
             });
           } else {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('沒有找到相關的地點')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('没有找到相关的网址')));
           }
         }
       }
     } catch (e) {
-      print("搜索地點失敗: $e");
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('搜索失敗，請檢查網路')));
+      print("搜索地点失败: $e");
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('搜索失败，请检查网络')));
     }
   }
 
@@ -203,7 +208,7 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
       _fetchNearbyPlaces(myLocation);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('無法獲取當前位置')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('无法获得当前位置')));
       }
     }
   }
@@ -222,13 +227,12 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final mapStyle = isDarkMode ? "&style=amap://styles/$_darkStyleId" : "";
+    final String mapStyle = "";
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('選擇位置'),
-        actions: [ IconButton(icon: const Icon(Icons.check), tooltip: '確認選擇', onPressed: _onConfirm) ],
+        title: const Text('选择位置'),
+        actions: [ IconButton(icon: const Icon(Icons.check), tooltip: '确认选择', onPressed: _onConfirm) ],
       ),
       body: Stack(
         children: [
@@ -243,7 +247,7 @@ class _MapSelectionPageState extends State<MapSelectionPage> {
             children: [
               TileLayer(
                 // 【修正】: 在URL中添加 &key=... 参数
-                urlTemplate: 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&x={x}&y={y}&z={z}&key=$_amapApiKey$mapStyle',
+                urlTemplate: 'https://webst0{s}.is.autonavi.com/appmaptile?style=7&x={x}&y={y}&z={z}',
                 subdomains: const ['1', '2', '3', '4'],
                 userAgentPackageName: 'com.example.my_new_diary',
               ),
