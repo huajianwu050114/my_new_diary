@@ -29,37 +29,11 @@ import 'location_memories_page.dart';
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
-  void _showDebugInfo(BuildContext context) async {
-    final diaryService = context.read<DiaryService>();
-    final String debugInfo = await diaryService.getDebugInfo();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('调试信息'),
-        content: SingleChildScrollView(
-          child: Text(debugInfo),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: GestureDetector(
-          onLongPress: () {
-            _showDebugInfo(context);
-          },
-          child: const Text('我的日记'),
-        ),
+        title: const Text('我的日记'), // <--- 直接保留 Text 即可
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -196,7 +170,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           Text(
             _fullQuoteText,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5),
+            style: Theme
+                .of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(height: 1.5),
           ),
           const SizedBox(height: 8),
           Row(
@@ -207,7 +185,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                 height: 40,
                 // 加载时显示菊花图，加载完显示刷新按钮
                 child: _isLoadingQuote
-                    ? const Padding(padding: EdgeInsets.all(10.0), child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const Padding(padding: EdgeInsets.all(10.0),
+                    child: CircularProgressIndicator(strokeWidth: 2))
                     : IconButton(
                   icon: const Icon(Icons.refresh),
                   tooltip: '换一句',
@@ -217,7 +196,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               const SizedBox(width: 16),
               Consumer<FavoritesProvider>(
                 builder: (context, favProvider, child) {
-                  final isLiked = favProvider.isFavorite(_currentSentence, _currentSource);
+                  final isLiked = favProvider.isFavorite(
+                      _currentSentence, _currentSource);
                   return SizedBox(
                     width: 40,
                     height: 40,
@@ -232,9 +212,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                           ? null
                           : () {
                         if (isLiked) {
-                          favProvider.removeFavorite(_currentSentence, _currentSource);
+                          favProvider.removeFavorite(
+                              _currentSentence, _currentSource);
                         } else {
-                          favProvider.addFavorite(_currentSentence, _currentSource);
+                          favProvider.addFavorite(
+                              _currentSentence, _currentSource);
                         }
                       },
                     ),
@@ -258,7 +240,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         ? [const Color(0xFF3A3A3A), const Color(0xFF2A2A2A)]
         : [Colors.purple.shade200, Colors.pink.shade100];
 
-    final Color cardTextColor = themeProvider.isDarkMode ? Colors.white70 : Colors.white;
+    final Color cardTextColor = themeProvider.isDarkMode
+        ? Colors.white70
+        : Colors.white;
 
     return Padding(
       padding: const EdgeInsets.all(20.0),
@@ -266,22 +250,35 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 24.0, vertical: 16.0),
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: cardGradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
+              gradient: LinearGradient(colors: cardGradient,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight),
               borderRadius: BorderRadius.circular(12.0),
-              boxShadow: [BoxShadow(color: theme.colorScheme.primary.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 4))],
+              boxShadow: [
+                BoxShadow(color: theme.colorScheme.primary.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4))
+              ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('${now.day}', style: TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: cardTextColor, height: 1)),
+                Text('${now.day}', style: TextStyle(fontSize: 64,
+                    fontWeight: FontWeight.bold,
+                    color: cardTextColor,
+                    height: 1)),
                 const SizedBox(width: 16),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(dayOfWeek, style: TextStyle(fontSize: 18, color: cardTextColor, fontWeight: FontWeight.w600)),
-                    Text('${now.year} / ${now.month}', style: TextStyle(fontSize: 18, color: cardTextColor)),
+                    Text(dayOfWeek, style: TextStyle(fontSize: 18,
+                        color: cardTextColor,
+                        fontWeight: FontWeight.w600)),
+                    Text('${now.year} / ${now.month}',
+                        style: TextStyle(fontSize: 18, color: cardTextColor)),
                   ],
                 ),
               ],
@@ -299,7 +296,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     return Consumer2<FestivalProvider, ThemeProvider>(
       builder: (context, festivalProvider, themeProvider, child) {
         if (festivalProvider.isLoading) {
-          return const SizedBox(height: 160, child: Center(child: CircularProgressIndicator()));
+          return const SizedBox(
+              height: 160, child: Center(child: CircularProgressIndicator()));
         }
 
         final festivals = festivalProvider.upcomingFestivals;
@@ -334,7 +332,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   // ... inside the _HomePageContentState class ...
 
   // VVV Use this to replace the old _buildFestivalCard method VVV
-  Widget _buildFestivalCard(Map<String, dynamic> festival, int index, ThemeProvider themeProvider) {
+  Widget _buildFestivalCard(Map<String, dynamic> festival, int index,
+      ThemeProvider themeProvider) {
     final int daysUntil = festival['daysUntil'];
     final String dateFormatted = DateFormat('M月d日').format(festival['date']);
 
@@ -344,7 +343,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
     return GestureDetector(
       onTap: () {
-        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FestivalsPage()));
+        Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const FestivalsPage()));
       },
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
@@ -383,7 +383,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                 const SizedBox(height: 4),
                 Text(
                   dateFormatted,
-                  style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 14),
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.8), fontSize: 14),
                 ),
               ],
             ),
@@ -405,38 +406,36 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
 
   // ... (all other methods like _buildOnThisDaySection, _buildHistoryList, etc., remain the same) ...
-  Widget _buildOnThisDaySection() {
-    return Consumer<DiaryService>(
-      builder: (context, diaryService, child) {
-        return FutureBuilder<List<DiaryEntry>>(
-          future: diaryService.getOnThisDayEntries(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const SizedBox.shrink();
-            }
-            if (!snapshot.hasData || snapshot.data!.isEmpty) {
-              return const SizedBox.shrink();
-            }
+  Widget _buildOnThisDaySection(List<DiaryEntry> allEntries) {
+    // 核心逻辑移到了这里，直接处理传入的列表
+    final now = DateTime.now();
+    final todayDateOnly = DateTime(now.year, now.month, now.day);
 
-            final entries = snapshot.data!;
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('那年今日', style: Theme.of(context).textTheme.headlineSmall),
-                  const SizedBox(height: 10),
-                  Column(
-                    children: entries.map((entry) => _buildOnThisDayCard(entry)).toList(),
-                  ),
-                  const SizedBox(height: 10),
-                  const Divider(),
-                ],
-              ),
-            );
-          },
-        );
-      },
+    final onThisDayEntries = allEntries.where((entry) {
+      final entryDateOnly = DateTime(entry.date.year, entry.date.month, entry.date.day);
+      return entryDateOnly.month == todayDateOnly.month &&
+          entryDateOnly.day == todayDateOnly.day &&
+          entryDateOnly.year != todayDateOnly.year;
+    }).toList();
+
+    if (onThisDayEntries.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('那年今日', style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 10),
+          Column(
+            children: onThisDayEntries.map((entry) => _buildOnThisDayCard(entry)).toList(),
+          ),
+          const SizedBox(height: 10),
+          const Divider(),
+        ],
+      ),
     );
   }
 
@@ -444,17 +443,24 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
-        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry))),
+        onTap: () =>
+            Navigator.of(context).push(MaterialPageRoute(builder: (context) =>
+                DiaryViewPage(entry: entry))),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(12.0),
           child: Row(
             children: [
+              // ... 左侧日期部分不变 ...
               Container(
                 width: 80,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
+                  color: Theme
+                      .of(context)
+                      .colorScheme
+                      .primaryContainer,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(
@@ -465,7 +471,10 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                        color: Theme
+                            .of(context)
+                            .colorScheme
+                            .onPrimaryContainer,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -473,7 +482,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                       DateFormat('M月d日', 'zh_CN').format(entry.date),
                       style: TextStyle(
                         fontSize: 12,
-                        color: Theme.of(context).colorScheme.onPrimaryContainer.withOpacity(0.8),
+                        color: Theme
+                            .of(context)
+                            .colorScheme
+                            .onPrimaryContainer
+                            .withOpacity(0.8),
                       ),
                     ),
                   ],
@@ -491,11 +504,14 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               if (entry.imagePaths.isNotEmpty)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    File(entry.imagePaths.first),
+                  // 注意：这里需要从 Image.file 改为 Image.network
+                  child: Image.network(
+                    entry.imagePaths.first,
                     width: 50,
                     height: 50,
                     fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) =>
+                        Icon(Icons.broken_image),
                   ),
                 ),
             ],
@@ -505,25 +521,33 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  Widget _buildCarousel(DiaryService diaryService) {
-    return FutureBuilder<List<DiaryEntry>>(
-      future: diaryService.getRecentEntriesWithImages(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
-        if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()));
+  Widget _buildCarousel(List<DiaryEntry> allEntries) {
+    // 从所有日记中筛选出带图片的最近5篇
+    final entriesWithImages = allEntries
+        .where((entry) => entry.imagePaths.isNotEmpty)
+        .take(10)
+        .toList();
 
-        return cs.CarouselSlider.builder(
-          itemCount: snapshot.data!.length,
-          itemBuilder: (context, index, realIndex) => _buildCarouselItem(snapshot.data![index]),
-          options: cs.CarouselOptions(aspectRatio: 16 / 9, viewportFraction: 0.85, enlargeCenterPage: true, autoPlay: true),
-        );
-      },
+    if (entriesWithImages.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return cs.CarouselSlider.builder(
+      itemCount: entriesWithImages.length,
+      itemBuilder: (context, index, realIndex) =>
+          _buildCarouselItem(entriesWithImages[index]),
+      options: cs.CarouselOptions(aspectRatio: 16 / 9,
+          viewportFraction: 0.85,
+          enlargeCenterPage: true,
+          autoPlay: true),
     );
   }
 
   Widget _buildCarouselItem(DiaryEntry entry) {
     return GestureDetector(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry))),
+      onTap: () =>
+          Navigator.of(context).push(MaterialPageRoute(
+          builder: (context) => DiaryViewPage(entry: entry))),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 5.0),
         child: ClipRRect(
@@ -537,17 +561,28 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                 child: Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [Color.fromARGB(200, 0, 0, 0), Colors.transparent],
+                      colors: [
+                        Color.fromARGB(200, 0, 0, 0),
+                        Colors.transparent
+                      ],
                       begin: Alignment.bottomCenter, end: Alignment.topCenter,
                     ),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 20.0),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 10.0, horizontal: 20.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime), style: const TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold)),
+                      Text(DateFormat('yyyy-MM-dd HH:mm').format(
+                          entry.creationTime), style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14.0,
+                          fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Text(entry.text, style: const TextStyle(color: Colors.white, fontSize: 12.0), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(entry.text, style: const TextStyle(
+                          color: Colors.white, fontSize: 12.0),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
@@ -559,36 +594,33 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  Widget _buildHistoryList(DiaryService diaryService) {
-    return FutureBuilder<List<DiaryEntry>>(
-      future: diaryService.getAllEntriesSorted(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: Padding(padding: EdgeInsets.all(32.0), child: CircularProgressIndicator()));
-        if (!snapshot.hasData || snapshot.data!.isEmpty) return const Center(child: Padding(padding: EdgeInsets.symmetric(vertical: 50.0), child: Text('还没有任何日记，开始记录第一篇吧！')));
+  Widget _buildHistoryList(List<DiaryEntry> entries) {
+    if (entries.isEmpty) {
+      return const Center(child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 50.0),
+          child: Text('还没有任何日记，开始记录第一篇吧！')));
+    }
+    // ... 内部的 ListView.builder 逻辑不变，只需确保 _buildHistoryCard 使用的是新版本 ...
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final currentEntry = entries[index];
+        final bool showMonthSeparator = index == 0 ||
+            (entries[index - 1].date.month != currentEntry.date.month ||
+                entries[index - 1].date.year != currentEntry.date.year);
 
-        final entries = snapshot.data!;
-        return ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: entries.length,
-          itemBuilder: (context, index) {
-            final currentEntry = entries[index];
-            final bool showMonthSeparator = index == 0 ||
-                (entries[index - 1].date.month != currentEntry.date.month ||
-                    entries[index - 1].date.year != currentEntry.date.year);
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (showMonthSeparator) _buildMonthSeparator(currentEntry.date),
-                Consumer<ThemeProvider>(
-                  builder: (context, themeProvider, child) {
-                    return _buildHistoryCard(currentEntry, index, themeProvider);
-                  },
-                ),
-              ],
-            );
-          },
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showMonthSeparator) _buildMonthSeparator(currentEntry.date),
+            Consumer<ThemeProvider>(
+              builder: (context, themeProvider, child) {
+                return _buildHistoryCard(currentEntry, index, themeProvider);
+              },
+            ),
+          ],
         );
       },
     );
@@ -673,24 +705,38 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           await _fetchDailyQuote();
           await context.read<FestivalProvider>().loadFestivals();
         },
-        child: ListView(
-          children: [
-            Consumer<ThemeProvider>(
-                builder: (context, themeProvider, child) => _buildHeader(context)
-            ),
-            const SizedBox(height: 10),
-            _buildFestivalSection(),
-            const SizedBox(height: 20),
-            _buildOnThisDaySection(),
-            const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.only(left: 20.0),
-              child: Text('近期精彩瞬间', style: Theme.of(context).textTheme.headlineSmall),
-            ),
-            const SizedBox(height: 10),
-            _buildCarousel(diaryService),
-            _buildHistoryList(diaryService),
-          ],
+        child: StreamBuilder<List<DiaryEntry>>(
+          stream: context.watch<DiaryService>().getAllEntriesSortedStream(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(child: Text("加载数据出错: ${snapshot.error}"));
+            }
+
+            // 获取所有日记列表，如果为空则给一个空列表
+            final allEntries = snapshot.data ?? [];
+
+            // 将 allEntries 传递给需要它的子组件
+            return ListView(
+              children: [
+                _buildHeader(context),
+                const SizedBox(height: 10),
+                _buildFestivalSection(),
+                const SizedBox(height: 20),
+                _buildOnThisDaySection(allEntries), // 传入数据
+                const SizedBox(height: 20),
+                Padding(
+                  padding: const EdgeInsets.only(left: 20.0),
+                  child: Text('近期精彩瞬间', style: Theme.of(context).textTheme.headlineSmall),
+                ),
+                const SizedBox(height: 10),
+                _buildCarousel(allEntries), // 传入数据
+                _buildHistoryList(allEntries), // 传入数据
+              ],
+            );
+          },
         ),
       ),
     );

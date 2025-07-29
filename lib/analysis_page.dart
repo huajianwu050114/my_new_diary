@@ -84,7 +84,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
   Future<void> _fetchAndAnalyzeData() async {
     if (!mounted) return;
     final diaryService = context.read<DiaryService>();
-    final allEntries = await diaryService.getAllEntriesSorted();
+    final allEntries = await diaryService.getAllEntriesSortedStream().first;
 
     // Prepare data for heatmap (uses all entries)
     final activityData = _prepareActivityData(allEntries);

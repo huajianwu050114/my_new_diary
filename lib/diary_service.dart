@@ -1,26 +1,33 @@
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data'; // Required for Uint8List
+
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import 'package:latlong2/latlong.dart' as latlong;
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
+/// 日记条目的数据模型。
+/// 已为云端存储进行适配，包含云端特有字段。
 class DiaryEntry {
-  final String filePath;
-  final List<String> imagePaths;
-  final String text;
-  final DateTime date;
-  final DateTime creationTime;
-  final String? mood;
-  final List<String> tags;
-  final double? latitude;
-  final double? longitude;
-  final String? address;
-  List<String> aiAnalyses;
+  final String diaryId;          // Firestore文档的唯一ID
+  final String authorId;         // 日记作者的Firebase用户UID
+  final List<String> imagePaths; // 存储图片的云端下载URL
+  final String text;             // 日记正文
+  final DateTime date;           // 日记所属日期
+  final DateTime creationTime;   // 日记创建/编辑的具体时间
+  final String? mood;            // 心情
+  final List<String> tags;       // 标签
+  final double? latitude;        // 地理位置纬度
+  final double? longitude;       // 地理位置经度
+  final String? address;         // 地址名称
+  List<String> aiAnalyses;     // AI分析结果列表
+  final bool isDeleted;          // 用于实现回收站功能的软删除标记
 
+  // DiaryEntry的构造函数
   DiaryEntry({
-    required this.filePath,
+    required this.diaryId,
+    required this.authorId,
     required this.imagePaths,
     required this.text,
     required this.date,
@@ -31,410 +38,272 @@ class DiaryEntry {
     this.longitude,
     this.address,
     this.aiAnalyses = const [],
+    this.isDeleted = false,
   });
 
-  factory DiaryEntry.fromMap(Map<String, dynamic> map, String filePath) {
-    List<String> paths = [];
-    if (map['imagePaths'] != null && map['imagePaths'] is List) {
-      paths = List<String>.from(map['imagePaths']);
-    } else if (map['imagePath'] != null && map['imagePath'] is String) {
-      paths = [map['imagePath']];
-    }
-
+  /// 工厂方法：从Firestore文档的Map数据创建DiaryEntry实例。
+  /// [map] 是从Firestore获取的文档数据。
+  /// [diaryId] 是该文档在Firestore中的唯一ID。
+  factory DiaryEntry.fromMap(Map<String, dynamic> map, String diaryId) {
     return DiaryEntry(
-      filePath: filePath,
-      imagePaths: paths,
+      diaryId: diaryId,
+      authorId: map['authorId'] ?? '',
+      imagePaths: List<String>.from(map['imagePaths'] ?? []),
       text: map['text'] ?? '',
-      date: DateTime.parse(map['date']),
-      creationTime: map['creationTime'] != null
-          ? DateTime.parse(map['creationTime'])
-          : DateTime.parse(map['date']),
+      // Firestore存储的是Timestamp类型，需要转换为DateTime
+      date: (map['date'] as Timestamp).toDate(),
+      creationTime: (map['creationTime'] as Timestamp).toDate(),
       mood: map['mood'],
-      tags: map['tags'] != null ? List<String>.from(map['tags']) : [],
+      tags: List<String>.from(map['tags'] ?? []),
       latitude: map['latitude'],
       longitude: map['longitude'],
       address: map['address'],
-      aiAnalyses: map['aiAnalyses'] != null ? List<String>.from(map['aiAnalyses']) : [],
+      aiAnalyses: List<String>.from(map['aiAnalyses'] ?? []),
+      isDeleted: map['isDeleted'] ?? false,
     );
   }
 
-  // VVV MODIFICATION 1: The `toMap` method is now async and handles Base64 encoding for export VVV
-  Future<Map<String, dynamic>> toMap({bool forExport = false}) async {
-    List<String> imagePayload = [];
-
-    if (forExport) {
-      // For export, read image files and encode them to Base64
-      for (final path in imagePaths) {
-        final file = File(path);
-        if (await file.exists()) {
-          final bytes = await file.readAsBytes();
-          imagePayload.add(base64Encode(bytes));
-        }
-      }
-    } else {
-      // For normal saving, just use the file paths
-      imagePayload = imagePaths;
-    }
-
+  /// 将DiaryEntry实例转换为Map，以便写入Firestore。
+  Map<String, dynamic> toMap() {
     return {
-      'imagePaths': imagePayload, // This will contain either paths or Base64 strings
+      'authorId': authorId,
+      'imagePaths': imagePaths,
       'text': text,
-      'date': date.toIso8601String(),
-      'creationTime': creationTime.toIso8601String(),
+      // 为了能在Firestore中进行有效的查询和排序，将DateTime转换为Timestamp类型
+      'date': Timestamp.fromDate(date),
+      'creationTime': Timestamp.fromDate(creationTime),
       'mood': mood,
       'tags': tags,
       'latitude': latitude,
       'longitude': longitude,
       'address': address,
       'aiAnalyses': aiAnalyses,
+      'isDeleted': isDeleted,
     };
   }
 }
 
+
+/// 管理日记所有操作的服务类，与Firebase后端交互。
 class DiaryService extends ChangeNotifier {
-  Future<Directory> get _appDir async => await getApplicationDocumentsDirectory();
+  // 获取Firebase核心服务的实例
+  final _firestore = FirebaseFirestore.instance;
+  final _storage = FirebaseStorage.instance;
+  final _auth = FirebaseAuth.instance;
 
-  Future<Directory> get _diariesDir async {
-    final dir = Directory(p.join((await _appDir).path, 'diaries'));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir;
-  }
+  /// 添加一篇新的日记。
+  /// 此方法会先将本地图片上传到Firebase Storage，然后将包含图片URL的日记数据写入Cloud Firestore。
+  /// [entry] 是包含用户输入的基础日记信息的实例。
+  /// [localImageFiles] 是用户选择的本地图片文件列表。
+  // 文件: lib/diary_service.dart
 
-  // VVV NEW: Directory for storing all images VVV
-  Future<Directory> get _imagesDir async {
-    final dir = Directory(p.join((await _appDir).path, 'images'));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir;
-  }
+// 请找到 addEntry 方法，并用下面的代码完整替换它
+  Future<void> addEntry(DiaryEntry entry, List<File> localImageFiles) async {
+    // --- 诊断代码 ---
+    print("SERVICE DEBUG: A. 'addEntry' 方法开始执行。");
 
-  static Future<DiaryEntry> fromFile(File file) async {
-    final jsonString = await file.readAsString();
-    final map = jsonDecode(jsonString);
-    return DiaryEntry(
-      filePath: file.path,
-      imagePaths: List<String>.from(map['imagePaths'] ?? []),
-      text: map['text'] ?? '',
-      date: DateTime.parse(map['date']),
-      creationTime: map['creationTime'] != null
-          ? DateTime.parse(map['creationTime'])
-          : DateTime.parse(map['date']),
-      mood: map['mood'],
-      tags: map['tags'] != null ? List<String>.from(map['tags']) : [],
-      latitude: map['latitude'],
-      longitude: map['longitude'],
-      address: map['address'],
-      aiAnalyses: map['aiAnalyses'] != null ? List<String>.from(map['aiAnalyses']) : [], // <--- 4. 从map中读取AI分析结果
-    );
-  }
-
-
-  Future<void> addAnalysisToEntry(DiaryEntry entry, String newAnalysis) async {
-    final file = File(entry.filePath);
-    if (!await file.exists()) {
-      print('Error: File does not exist: ${entry.filePath}');
-      return;
+    final user = _auth.currentUser;
+    if (user == null) {
+      print("SERVICE DEBUG: B. 错误：用户未登录。");
+      throw Exception("用户未登录，无法添加日记");
     }
 
-    entry.aiAnalyses.add(newAnalysis);
+    print("SERVICE DEBUG: C. 用户已登录: ${user.uid}");
+    print("SERVICE DEBUG: D. 准备上传 ${localImageFiles.length} 张图片...");
 
-    await file.writeAsString(jsonEncode(await entry.toMap()));
-    notifyListeners();
-  }
-
-
-  Future<Directory> get _trashDir async {
-    final dir = Directory(p.join((await _appDir).path, 'diaries_trash'));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir;
-  }
-
-  // VVV NEW: Method to save an image from bytes (for import) VVV
-  Future<String> saveImageFromBytes(Uint8List bytes) async {
-    final imagesDir = await _imagesDir;
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final fileName = 'imported_image_$timestamp.jpg';
-    final file = File(p.join(imagesDir.path, fileName));
-    await file.writeAsBytes(bytes);
-    return file.path;
-  }
-
-  Future<List<DiaryEntry>> getEntriesForDay(DateTime day) async {
-    final year = day.year.toString();
-    final month = day.month.toString().padLeft(2, '0');
-    final dayDir = Directory(p.join((await _diariesDir).path, year, month));
-
-    if (!await dayDir.exists()) {
-      return [];
-    }
-
-    final List<DiaryEntry> entries = [];
-    final dayString =
-        "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
-
-    await for (var entity in dayDir.list()) {
-      if (entity is File &&
-          p.basename(entity.path).startsWith(dayString) &&
-          p.basename(entity.path).endsWith('.json')) {
-        try {
-          final jsonString = await entity.readAsString();
-          final map = jsonDecode(jsonString);
-          entries.add(DiaryEntry.fromMap(map, entity.path));
-        } catch (e) {
-          print("解析文件失败: ${entity.path}, 错误: $e");
-        }
-      }
-    }
-
-    entries.sort((a, b) => b.creationTime.compareTo(a.creationTime));
-    return entries;
-  }
-
-  // VVV MODIFICATION 2: `addEntry` now awaits the async `toMap` method VVV
-  Future<void> addEntry(DiaryEntry entry) async {
-    final year = entry.date.year.toString();
-    final month = entry.date.month.toString().padLeft(2, '0');
-    final day = entry.date.day.toString().padLeft(2, '0');
-
-    final monthDir = Directory(p.join((await _diariesDir).path, year, month));
-    if (!await monthDir.exists()) {
-      await monthDir.create(recursive: true);
-    }
-
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final fileName = "$year-$month-${day}_$timestamp.json";
-    final file = File(p.join(monthDir.path, fileName));
-
-    // Await the async `toMap()` call
-    await file.writeAsString(jsonEncode(await entry.toMap()));
-    notifyListeners();
-  }
-
-  Future<void> moveEntryToTrash(String filePath) async {
+    List<String> cloudImageUrls = [];
     try {
-      final file = File(filePath);
-      if (!await file.exists()) {
-        return;
+      for (int i = 0; i < localImageFiles.length; i++) {
+        File localFile = localImageFiles[i];
+        print("SERVICE DEBUG: E-$i. 开始上传第 ${i+1} 张图片: ${p.basename(localFile.path)}");
+
+        String fileName = '${DateTime.now().millisecondsSinceEpoch}_${p.basename(localFile.path)}';
+        Reference ref = _storage.ref('users/${user.uid}/images/$fileName');
+
+        // 等待图片上传完成
+        await ref.putFile(localFile);
+        print("SERVICE DEBUG: F-$i. 第 ${i+1} 张图片上传成功。");
+
+        // 等待获取下载URL
+        String downloadUrl = await ref.getDownloadURL();
+        cloudImageUrls.add(downloadUrl);
+        print("SERVICE DEBUG: G-$i. 成功获取第 ${i+1} 张图片的下载URL。");
       }
-      final trashDir = await _trashDir;
-      final fileName = p.basename(filePath);
-      final newPath = p.join(trashDir.path, fileName);
-      await file.rename(newPath);
-      notifyListeners();
     } catch (e) {
-      print('移动文件到回收站时出错: $e');
+      print("SERVICE DEBUG: X1. 图片上传过程中发生错误: $e");
+      rethrow; // 重新抛出异常，让UI层能捕获到
     }
+
+    print("SERVICE DEBUG: H. 所有图片处理完成，准备写入Firestore。");
+
+    DiaryEntry entryForCloud = DiaryEntry(
+      diaryId: '',
+      authorId: user.uid,
+      imagePaths: cloudImageUrls,
+      text: entry.text,
+      date: entry.date,
+      creationTime: entry.creationTime,
+      mood: entry.mood,
+      tags: entry.tags,
+      latitude: entry.latitude,
+      longitude: entry.longitude,
+      address: entry.address,
+    );
+
+    try {
+      // 等待写入Firestore
+      await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('diaries')
+          .add(entryForCloud.toMap());
+
+      print("SERVICE DEBUG: I. 数据成功写入Firestore。");
+    } catch (e) {
+      print("SERVICE DEBUG: X2. 写入Firestore时发生错误: $e");
+      rethrow;
+    }
+
+    notifyListeners();
+    print("SERVICE DEBUG: J. 'addEntry' 方法执行完毕。");
   }
 
-  Future<List<DiaryEntry>> getAllEntriesSorted() async {
-    final List<DiaryEntry> allEntries = [];
-    final dir = await _diariesDir;
+  /// 获取当前用户所有未被软删除的日记流。
+  /// 返回一个Stream，可以实时监听数据变化。
+  Stream<List<DiaryEntry>> getAllEntriesSortedStream() {
+    final user = _auth.currentUser;
+    if (user == null) return Stream.value([]); // 如果用户未登录，返回空流
 
-    if (!await dir.exists()) return [];
+    return _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('diaries')
+        .where('isDeleted', isEqualTo: false) // 仅获取未被删除的日记
+        .orderBy('creationTime', descending: true) // 按创建时间倒序排列
+        .snapshots() // snapshots()方法返回一个Stream，实现实时更新
+        .map((snapshot) => snapshot.docs
+        .map((doc) => DiaryEntry.fromMap(doc.data(), doc.id))
+        .toList());
+  }
 
-    await for (var yearEntity in dir.list()) {
-      if (yearEntity is Directory) {
-        await for (var monthEntity in yearEntity.list()) {
-          if (monthEntity is Directory) {
-            await for (var fileEntity in monthEntity.list()) {
-              if (fileEntity is File &&
-                  p.basename(fileEntity.path).endsWith('.json')) {
-                try {
-                  final jsonString = await fileEntity.readAsString();
-                  final map = jsonDecode(jsonString);
-                  allEntries.add(DiaryEntry.fromMap(map, fileEntity.path));
-                } catch (e) {
-                  print("解析文件失败: ${fileEntity.path}, 错误: $e");
-                }
-              }
-            }
-          }
-        }
+  /// 获取指定某一天的所有日记流。
+  Stream<List<DiaryEntry>> getEntriesForDayStream(DateTime day) {
+    final user = _auth.currentUser;
+    if (user == null) return Stream.value([]);
+
+    // 计算查询范围：从指定日期的0点0分到下一天的0点0分
+    final startOfDay = DateTime(day.year, day.month, day.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    return _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('diaries')
+        .where('isDeleted', isEqualTo: false)
+        .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+        .where('date', isLessThan: Timestamp.fromDate(endOfDay))
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+        .map((doc) => DiaryEntry.fromMap(doc.data(), doc.id))
+        .toList());
+  }
+
+  /// 将日记移动到回收站（软删除）。
+  /// 只是将`isDeleted`字段更新为`true`，并不会真正删除数据。
+  Future<void> moveEntryToTrash(String diaryId) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    await _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('diaries')
+        .doc(diaryId)
+        .update({'isDeleted': true});
+    notifyListeners();
+  }
+
+  /// 获取回收站中的所有日记流。
+  Stream<List<DiaryEntry>> getTrashEntriesStream() {
+    final user = _auth.currentUser;
+    if (user == null) return Stream.value([]);
+
+    return _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('diaries')
+        .where('isDeleted', isEqualTo: true) // 查询被标记为删除的日记
+        .orderBy('creationTime', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+        .map((doc) => DiaryEntry.fromMap(doc.data(), doc.id))
+        .toList());
+  }
+
+  /// 从回收站恢复日记。
+  /// 将`isDeleted`字段更新为`false`。
+  Future<void> restoreFromTrash(String diaryId) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    await _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('diaries')
+        .doc(diaryId)
+        .update({'isDeleted': false});
+    notifyListeners();
+  }
+
+  /// 永久删除一篇日记及其在Storage中的所有图片。
+  /// 这是一个不可逆的操作。
+  Future<void> deletePermanently(String diaryId) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final docRef = _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('diaries')
+        .doc(diaryId);
+
+    // 在删除文档前，先获取文档快照以拿到图片URL列表
+    final docSnapshot = await docRef.get();
+    if (!docSnapshot.exists) return; // 如果文档不存在，直接返回
+
+    final entry = DiaryEntry.fromMap(docSnapshot.data()!, docSnapshot.id);
+
+    // 1. 遍历URL，从Storage中删除对应的图片文件
+    for (String url in entry.imagePaths) {
+      if (url.isEmpty) continue;
+      try {
+        await _storage.refFromURL(url).delete();
+      } catch (e) {
+        // 即便某张图片删除失败，也继续尝试删除其他的，并打印错误
+        print("从Storage删除图片失败: $e");
       }
     }
 
-    allEntries.sort((a, b) {
-      int dateComparison = b.date.compareTo(a.date);
-      if (dateComparison == 0) {
-        return b.creationTime.compareTo(a.creationTime);
-      }
-      return dateComparison;
+    // 2. 最后，从Firestore中删除该文档
+    await docRef.delete();
+    notifyListeners();
+  }
+
+  /// 为某篇日记添加一条AI分析记录。
+  Future<void> addAnalysisToEntry(DiaryEntry entry, String newAnalysis) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final docRef = _firestore
+        .collection('users')
+        .doc(user.uid)
+        .collection('diaries')
+        .doc(entry.diaryId);
+
+    // 使用FieldValue.arrayUnion可以高效、安全地向数组字段中添加新元素，避免重复添加。
+    await docRef.update({
+      'aiAnalyses': FieldValue.arrayUnion([newAnalysis])
     });
-
-    return allEntries;
-  }
-
-  Future<List<DiaryEntry>> getRecentEntriesWithImages({int limit = 5}) async {
-    final allEntries = await getAllEntriesSorted();
-    final entriesWithImages = allEntries.where((entry) {
-      return entry.imagePaths.isNotEmpty;
-    }).toList();
-    return entriesWithImages.take(limit).toList();
-  }
-
-  Future<List<DiaryEntry>> getTrashEntries() async {
-    final trashDir = await _trashDir;
-    final List<DiaryEntry> entries = [];
-
-    if (!await trashDir.exists()) {
-      return [];
-    }
-
-    await for (var entity in trashDir.list()) {
-      if (entity is File && entity.path.endsWith('.json')) {
-        try {
-          final jsonString = await entity.readAsString();
-          final map = jsonDecode(jsonString);
-          entries.add(DiaryEntry.fromMap(map, entity.path));
-        } catch (e) {
-          print("解析回收站文件失败: ${entity.path}, 错误: $e");
-        }
-      }
-    }
-    entries.sort((a, b) => b.creationTime.compareTo(a.creationTime));
-    return entries;
-  }
-
-  Future<void> restoreFromTrash(String filePath) async {
-    final file = File(filePath);
-    if (!await file.exists()) return;
-
-    final entry = DiaryEntry.fromMap(jsonDecode(await file.readAsString()), filePath);
-    final diariesDir = await _diariesDir;
-
-    final year = entry.date.year.toString();
-    final month = entry.date.month.toString().padLeft(2, '0');
-    final monthDir = Directory(p.join(diariesDir.path, year, month));
-
-    if (!await monthDir.exists()) {
-      await monthDir.create(recursive: true);
-    }
-
-    final newPath = p.join(monthDir.path, p.basename(filePath));
-    await file.rename(newPath);
     notifyListeners();
-  }
-
-  Future<void> deletePermanently(String filePath) async {
-    final file = File(filePath);
-    if (await file.exists()) {
-      await file.delete();
-    }
-    notifyListeners();
-  }
-
-  Future<List<DiaryEntry>> searchEntries(String keyword) async {
-    if (keyword.isEmpty) {
-      return [];
-    }
-
-    final allEntries = await getAllEntriesSorted();
-    final List<DiaryEntry> results = [];
-    final lowerCaseKeyword = keyword.toLowerCase();
-
-    for (var entry in allEntries) {
-      if (entry.text.toLowerCase().contains(lowerCaseKeyword)) {
-        results.add(entry);
-      }
-    }
-
-    return results;
-  }
-
-  // VVV 用这个新的、更健壮的版本，完整替换旧的 getOnThisDayEntries 方法 VVV
-  Future<List<DiaryEntry>> getOnThisDayEntries() async {
-    final now = DateTime.now();
-    // 创建一个只包含今天“年月日”的日期对象，忽略所有时间信息
-    final todayDateOnly = DateTime(now.year, now.month, now.day);
-
-    final allEntries = await getAllEntriesSorted();
-
-    final List<DiaryEntry> resultEntries = allEntries.where((entry) {
-      // 同样，为每篇日记创建一个只包含“年月日”的日期对象
-      final entryDateOnly = DateTime(entry.date.year, entry.date.month, entry.date.day);
-
-      // 条件：月份相同、日期相同、但年份不同
-      return entryDateOnly.month == todayDateOnly.month &&
-          entryDateOnly.day == todayDateOnly.day &&
-          entryDateOnly.year != todayDateOnly.year;
-    }).toList();
-
-    resultEntries.sort((a, b) => a.date.compareTo(b.date));
-
-    return resultEntries;
-  }
-  Future<String> getDebugInfo() async {
-    final buffer = StringBuffer();
-    final now = DateTime.now();
-    buffer.writeln('--- 调试信息 ---');
-    buffer.writeln('当前时间: $now');
-    buffer.writeln('当前时区: ${now.timeZoneName} (偏移量: ${now.timeZoneOffset})');
-    buffer.writeln('');
-
-    final allEntries = await getAllEntriesSorted();
-    buffer.writeln('共找到 ${allEntries.length} 篇日记:');
-    buffer.writeln('--------------------');
-
-    for (var entry in allEntries) {
-      buffer.writeln(
-          '日记所属日期 (date): ${entry.date.toIso8601String()}');
-      buffer.writeln(
-          '日记创建时间 (creationTime): ${entry.creationTime.toIso8601String()}');
-      buffer.writeln('日记文本 (text): "${entry.text.substring(0, (entry.text.length > 20 ? 20 : entry.text.length))
-      }..."');
-      buffer.writeln('---');
-    }
-
-    return buffer.toString();
-  }
-
-  Future<List<List<DiaryEntry>>> getGroupedEntriesByLocation({
-    double distanceThreshold = 200,
-  }) async {
-    // 1. 获取所有带位置的日记
-    final allEntries = await getAllEntriesSorted();
-    final entriesWithLocation = allEntries.where((e) => e.latitude != null && e.longitude != null).toList();
-
-    if (entriesWithLocation.isEmpty) {
-      return [];
-    }
-
-    final List<List<DiaryEntry>> clusteredEntries = [];
-    final distance = const latlong.Distance();
-
-    // 2. 遍历所有带位置的日记进行聚类
-    for (var entry in entriesWithLocation) {
-      bool foundCluster = false;
-      final entryLocation = latlong.LatLng(entry.latitude!, entry.longitude!);
-
-      // 检查当前日记是否可以并入已有的分组
-      for (var cluster in clusteredEntries) {
-        // 使用分组内的第一篇日记作为这个分组的中心点
-        final clusterCenter = latlong.LatLng(cluster.first.latitude!, cluster.first.longitude!);
-
-        final double meters = distance(entryLocation, clusterCenter);
-
-        if (meters <= distanceThreshold) {
-          cluster.add(entry);
-          foundCluster = true;
-          break; // 找到后就跳出循环
-        }
-      }
-
-      // 3. 如果没有找到可以并入的分组，就为它创建一个新分组
-      if (!foundCluster) {
-        clusteredEntries.add([entry]);
-      }
-    }
-
-    // 可选：按分组内日记数量排序，让故事多的地点排在前面
-    clusteredEntries.sort((a, b) => b.length.compareTo(a.length));
-
-    return clusteredEntries;
   }
 }

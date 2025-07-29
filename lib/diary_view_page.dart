@@ -8,6 +8,7 @@ import 'diary_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'gemini_service_local.dart';
 import 'ai_chat_page.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class DiaryViewPage extends StatefulWidget {
   final DiaryEntry entry;
@@ -46,7 +47,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     );
 
     if (confirmDelete == true && mounted) {
-      await context.read<DiaryService>().moveEntryToTrash(widget.entry.filePath);
+      await context.read<DiaryService>().moveEntryToTrash(widget.entry.diaryId);
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -72,10 +73,11 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(15.0),
-                  child: Image.file(
-                    File(widget.entry.imagePaths[index]),
+                  child: CachedNetworkImage(
+                    imageUrl: widget.entry.imagePaths[index],
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => _buildImageErrorPlaceholder(),
+                    placeholder: (context, url) => Container(color: Colors.grey[200]),
+                    errorWidget: (context, url, error) => _buildImageErrorPlaceholder(),
                   ),
                 ),
               );

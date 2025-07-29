@@ -47,17 +47,35 @@ class _SearchPageState extends State<SearchPage> {
       _message = '';
     });
 
-    final results = await context.read<DiaryService>().searchEntries(keyword);
+    // --- 核心逻辑：在这里获取数据并进行客户端搜索 ---
+    try {
+      // 1. 获取所有日记
+      // 注意：这里我们直接使用 Future，而不是 Stream，因为搜索是一次性操作
+      final allEntries = await context.read<DiaryService>().getAllEntriesSortedStream().first;
 
-    if (!mounted) return;
+      // 2. 在内存中进行过滤
+      final lowerCaseKeyword = keyword.toLowerCase();
+      final results = allEntries.where((entry) {
+        return entry.text.toLowerCase().contains(lowerCaseKeyword);
+      }).toList();
+      // --- 搜索结束 ---
 
-    setState(() {
-      _searchResults = results;
-      _isLoading = false;
-      if (results.isEmpty) {
-        _message = '没有找到包含“$keyword”的日记';
-      }
-    });
+      if (!mounted) return;
+
+      setState(() {
+        _searchResults = results;
+        _isLoading = false;
+        if (results.isEmpty) {
+          _message = '没有找到包含“$keyword”的日记';
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _message = '搜索时发生错误: $e';
+      });
+    }
   }
 
   Widget _buildHighlightedText(String text, String keyword) {

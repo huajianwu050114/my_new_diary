@@ -35,6 +35,8 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
   String? _address;
   bool _isFetchingLocation = false;
 
+  bool _isSaving = false;
+
   @override
   void dispose() {
     _textController.dispose();
@@ -44,21 +46,39 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
 
   // VVV 3. Update save logic to include location
   void _saveDiary() async {
-    if (_tagController.text.trim().isNotEmpty) {
-      setState(() => _tags.add(_tagController.text.trim()));
-      _tagController.clear();
+    // --- 诊断代码 ---
+    print("DEBUG: 1. 保存按钮被点击。");
+
+    if (_isSaving) {
+      print("DEBUG: 2. 检测到正在保存，操作被阻止。");
+      return;
     }
 
+    setState(() {
+      _isSaving = true;
+    });
+    print("DEBUG: 3. UI状态更新为“保存中...”。");
+
+    // ... (其余检查逻辑保持不变)
+    if (_tagController.text.trim().isNotEmpty) {
+      _tags.add(_tagController.text.trim());
+      _tagController.clear();
+    }
     final text = _textController.text.trim();
     if (_imageFiles.isEmpty && text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('至少需要一张图片或一些文字哦～')));
+      setState(() {
+        _isSaving = false;
+      });
+      print("DEBUG: 内容为空，操作已终止。");
       return;
     }
 
     final newEntry = DiaryEntry(
-      filePath: '',
+      diaryId: '',
+      authorId: '',
       text: text,
-      imagePaths: _imageFiles.map((file) => file.path).toList(),
+      imagePaths: [],
       date: widget.selectedDate,
       creationTime: DateTime.now(),
       mood: _selectedMood,
@@ -68,12 +88,39 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       address: _address,
     );
 
-    await context.read<DiaryService>().addEntry(newEntry);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
-      Navigator.of(context).pop();
+    try {
+      print("DEBUG: 4. 即将调用 diaryService.addEntry 方法...");
+
+      await context.read<DiaryService>().addEntry(newEntry, _imageFiles);
+
+      // --- 这是最关键的诊断点 ---
+      print("DEBUG: 5. diaryService.addEntry 方法执行完毕！");
+
+      if (mounted) {
+        print("DEBUG: 6. 页面仍然挂载，准备跳转...");
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
+        Navigator.of(context).pop();
+        print("DEBUG: 7. 页面已跳转。");
+      } else {
+        print("DEBUG: 6. 警告：页面在保存完成后已被卸载。");
+      }
+    } catch (e) {
+      print("DEBUG: X. 保存过程中捕获到错误: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('保存失败: $e')),
+        );
+      }
+    } finally {
+      print("DEBUG: 8. finally代码块执行，准备重置UI状态。");
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
     }
   }
+
   Future<void> _pickImages() async {
     final ImagePicker picker = ImagePicker();
     final List<XFile> pickedFiles = await picker.pickMultipleMedia(imageQuality: 80);
@@ -173,7 +220,24 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       appBar: AppBar(
         title: const Text('写下今天的故事'),
         actions: [
-          IconButton(icon: const Icon(Icons.save_alt_outlined), tooltip: '保存', onPressed: _saveDiary),
+          // --- 核心修正点 3: 根据 _isSaving 状态显示不同按钮 ---
+          if (_isSaving)
+          // 如果正在保存，显示一个加载动画
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.0),
+              ),
+            )
+          else
+          // 如果未在保存，显示保存按钮
+            IconButton(
+              icon: const Icon(Icons.save_alt_outlined),
+              tooltip: '保存',
+              onPressed: _saveDiary,
+            ),
         ],
       ),
       body: SingleChildScrollView(

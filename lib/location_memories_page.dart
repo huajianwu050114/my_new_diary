@@ -1,4 +1,5 @@
-// file: lib/location_memories_page.dart
+// 文件: lib/location_memories_page.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -7,21 +8,39 @@ import 'diary_service.dart';
 import 'diary_view_page.dart';
 import 'dart:io';
 
-class LocationMemoriesPage extends StatefulWidget {
+class LocationMemoriesPage extends StatelessWidget {
   const LocationMemoriesPage({super.key});
 
-  @override
-  State<LocationMemoriesPage> createState() => _LocationMemoriesPageState();
-}
+  /// 核心逻辑：在UI层对日记列表进行分组
+  List<List<DiaryEntry>> _groupEntriesByLocation(List<DiaryEntry> allEntries) {
+    final entriesWithLocation = allEntries.where((e) => e.latitude != null && e.longitude != null).toList();
+    if (entriesWithLocation.isEmpty) {
+      return [];
+    }
 
-class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
-  Future<List<List<DiaryEntry>>>? _groupedEntriesFuture;
+    final List<List<DiaryEntry>> clusteredEntries = [];
+    final distance = const Distance();
+    const double distanceThreshold = 200; // 200米内视为同一地点
 
-  @override
-  void initState() {
-    super.initState();
-    // 使用 read 是因为我们只在 initState 中加载一次数据
-    _groupedEntriesFuture = context.read<DiaryService>().getGroupedEntriesByLocation();
+    for (var entry in entriesWithLocation) {
+      bool foundCluster = false;
+      final entryLocation = LatLng(entry.latitude!, entry.longitude!);
+
+      for (var cluster in clusteredEntries) {
+        final clusterCenter = LatLng(cluster.first.latitude!, cluster.first.longitude!);
+        if (distance(entryLocation, clusterCenter) <= distanceThreshold) {
+          cluster.add(entry);
+          foundCluster = true;
+          break;
+        }
+      }
+
+      if (!foundCluster) {
+        clusteredEntries.add([entry]);
+      }
+    }
+    clusteredEntries.sort((a, b) => b.length.compareTo(a.length));
+    return clusteredEntries;
   }
 
   @override
@@ -30,8 +49,9 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
       appBar: AppBar(
         title: const Text('我的足迹'),
       ),
-      body: FutureBuilder<List<List<DiaryEntry>>>(
-        future: _groupedEntriesFuture,
+      // 使用StreamBuilder来监听所有日记的实时数据流
+      body: StreamBuilder<List<DiaryEntry>>(
+        stream: context.read<DiaryService>().getAllEntriesSortedStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -43,14 +63,16 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
             return const Center(child: Text('还没有带地理位置的日记哦'));
           }
 
-          final groupedEntries = snapshot.data!;
+          // 在这里进行分组
+          final groupedEntries = _groupEntriesByLocation(snapshot.data!);
+
+          if (groupedEntries.isEmpty) {
+            return const Center(child: Text('还没有带地理位置的日记哦'));
+          }
 
           return Column(
             children: [
-              // --- 地图展示 ---
-              _buildMapView(groupedEntries),
-
-              // --- 列表展示 ---
+              _buildMapView(context, groupedEntries),
               const Padding(
                 padding: EdgeInsets.all(16.0),
                 child: Row(
@@ -62,7 +84,7 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
                 ),
               ),
               Expanded(
-                child: _buildLocationListView(groupedEntries),
+                child: _buildLocationListView(context, groupedEntries),
               ),
             ],
           );
@@ -71,10 +93,11 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
     );
   }
 
-  // 构建顶部的地图
-  Widget _buildMapView(List<List<DiaryEntry>> groupedEntries) {
+  // 构建地图视图
+  Widget _buildMapView(BuildContext context, List<List<DiaryEntry>> groupedEntries) {
+    // ... (此函数无需修改，直接从旧文件复制过来即可) ...
+    // 为了完整性，这里也提供
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
     return SizedBox(
       height: MediaQuery.of(context).size.height * 0.4,
       child: FlutterMap(
@@ -89,7 +112,6 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
           TileLayer(
             urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
             subdomains: const ['a', 'b', 'c'],
-            userAgentPackageName: 'com.example.my_new_diary',
           ),
           MarkerLayer(
             markers: groupedEntries.map((cluster) {
@@ -135,8 +157,9 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
     );
   }
 
-  // 构建下方的列表
-  Widget _buildLocationListView(List<List<DiaryEntry>> groupedEntries) {
+  // 构建地点列表
+  Widget _buildLocationListView(BuildContext context, List<List<DiaryEntry>> groupedEntries) {
+    // ... (此函数无需修改，直接从旧文件复制过来即可) ...
     return ListView.builder(
       itemCount: groupedEntries.length,
       itemBuilder: (context, index) {
@@ -150,11 +173,13 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
             leading: imagePath.isNotEmpty
                 ? ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.file(
-                File(imagePath),
+              // 注意：这里需要从 Image.file 改为 Image.network
+              child: Image.network(
+                imagePath,
                 width: 56,
                 height: 56,
                 fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image),
               ),
             )
                 : Container(width: 56, height: 56, color: Colors.grey.shade200, child: Icon(Icons.location_on)),
@@ -167,8 +192,9 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
     );
   }
 
-  // 点击后，显示该地点的所有日记
+  // 显示单个地点的日记列表
   void _showEntriesForCluster(BuildContext context, List<DiaryEntry> cluster) {
+    // ... (此函数无需修改，直接从旧文件复制过来即可) ...
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => Scaffold(
         appBar: AppBar(title: Text(cluster.first.address ?? '日记列表')),

@@ -1,3 +1,4 @@
+// 文件: lib/recycle_bin_page.dart (已适配云端数据)
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -13,7 +14,7 @@ class RecycleBinPage extends StatefulWidget {
 }
 
 class _RecycleBinPageState extends State<RecycleBinPage> {
-  // 确认是否永久删除的对话框
+  // 确认是否永久删除的对话框 (此方法无需修改)
   Future<bool> _showDeleteConfirmDialog() async {
     return await showDialog<bool>(
       context: context,
@@ -32,20 +33,21 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
           ),
         ],
       ),
-    ) ?? false; // 如果用户直接关闭对话框，也视为取消
+    ) ?? false;
   }
 
   @override
   Widget build(BuildContext context) {
-    // 这里我们用 watch，这样在恢复或删除后，列表能自动刷新
     final diaryService = context.watch<DiaryService>();
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('回收站'),
       ),
-      body: FutureBuilder<List<DiaryEntry>>(
-        future: diaryService.getTrashEntries(),
+      // --- 核心修正点 1: 使用 StreamBuilder 替代 FutureBuilder ---
+      body: StreamBuilder<List<DiaryEntry>>(
+        // 调用新的 stream 方法
+        stream: diaryService.getTrashEntriesStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -77,7 +79,6 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
                   ),
                   subtitle: Text(DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime)),
                   onTap: () {
-                    // 在回收站里也可以查看日记详情
                     Navigator.of(context).push(
                       MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry)),
                     );
@@ -90,7 +91,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
                         icon: const Icon(Icons.restore, color: Colors.green),
                         tooltip: '恢复',
                         onPressed: () {
-                          diaryService.restoreFromTrash(entry.filePath);
+                          // --- 核心修正点 2: 使用 diaryId ---
+                          diaryService.restoreFromTrash(entry.diaryId);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('日记已恢复')),
                           );
@@ -103,10 +105,13 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
                         onPressed: () async {
                           final confirm = await _showDeleteConfirmDialog();
                           if (confirm) {
-                            diaryService.deletePermanently(entry.filePath);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('日记已永久删除')),
-                            );
+                            // --- 核心修正点 3: 使用 diaryId ---
+                            diaryService.deletePermanently(entry.diaryId);
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('日记已永久删除')),
+                              );
+                            }
                           }
                         },
                       ),
