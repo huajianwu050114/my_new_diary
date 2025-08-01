@@ -35,7 +35,7 @@ class _LoginPageState extends State<LoginPage> {
     // 簡單的客戶端驗證
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       setState(() {
-        _errorMessage = '信箱和密碼不能為空';
+        _errorMessage = '邮箱和密码不能为空';
       });
       return;
     }
@@ -84,7 +84,7 @@ class _LoginPageState extends State<LoginPage> {
       }
       setState(() {}); // 更新UI以顯示錯誤訊息
     } on TimeoutException catch (_) { // <--- VVV 捕獲超時錯誤 VVV
-      _errorMessage = '請求超時，請檢查你的網路連線或VPN。';
+      _errorMessage = '连接超时，请检查你的网络连接。';
       if (mounted) setState(() {});
     } catch (e) {
       // 處理其他非Firebase的未知錯誤
@@ -125,7 +125,7 @@ class _LoginPageState extends State<LoginPage> {
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
               decoration: const InputDecoration(
-                labelText: '電子信箱',
+                labelText: '邮箱',
                 prefixIcon: Icon(Icons.email_outlined),
                 border: OutlineInputBorder(),
               ),
@@ -137,7 +137,7 @@ class _LoginPageState extends State<LoginPage> {
               controller: _passwordController,
               obscureText: true, // 隱藏密碼
               decoration: const InputDecoration(
-                labelText: '密碼',
+                labelText: '密码',
                 prefixIcon: Icon(Icons.lock_outline),
                 border: OutlineInputBorder(),
               ),
@@ -167,7 +167,7 @@ class _LoginPageState extends State<LoginPage> {
                 width: 24,
                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
               )
-                  : Text(_isLoginMode ? '登入' : '註冊'),
+                  : Text(_isLoginMode ? '登录' : '注册'),
             ),
             const SizedBox(height: 16),
 
@@ -179,7 +179,7 @@ class _LoginPageState extends State<LoginPage> {
                   _errorMessage = ''; // 切換模式時清空錯誤訊息
                 });
               },
-              child: Text(_isLoginMode ? '還沒有帳戶？立即註冊' : '已經有帳戶了？前往登入'),
+              child: Text(_isLoginMode ? '注册' : '登录'),
             ),
           ],
         ),
