@@ -83,7 +83,7 @@ class _LoginPageState extends State<LoginPage> {
           _errorMessage = '发生未知错误，请稍后再试。';
       }
       setState(() {}); // 更新UI以顯示錯誤訊息
-    } on TimeoutException catch (_) { // <--- VVV 捕獲超時錯誤 VVV
+    } on TimeoutException catch (_) {
       _errorMessage = '连接超时，请检查你的网络连接。';
       if (mounted) setState(() {});
     } catch (e) {

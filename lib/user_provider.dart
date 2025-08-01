@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class UserProvider extends ChangeNotifier {
-  String _nickname = "游客007";
+  String _nickname = "花间舞";
   String? _avatarPath;
 
   String get nickname => _nickname;
@@ -17,7 +17,7 @@ class UserProvider extends ChangeNotifier {
   // 从本地存储加载数据
   Future<void> loadUser() async {
     final prefs = await SharedPreferences.getInstance();
-    _nickname = prefs.getString('nickname') ?? "游客007";
+    _nickname = prefs.getString('nickname') ?? "花间舞";
     _avatarPath = prefs.getString('avatarPath');
     notifyListeners();
   }
