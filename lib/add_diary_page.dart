@@ -9,6 +9,9 @@ import 'package:geocoding/geocoding.dart';
 import 'diary_service.dart';
 import 'map_selection_page.dart';
 import 'package:latlong2/latlong.dart' as latlong;// flutter_map 使用 latlong2 包来处理坐标
+import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 
 class AddDiaryPage extends StatefulWidget {
   final DateTime selectedDate;
@@ -123,11 +126,54 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
 
   Future<void> _pickImages() async {
     final ImagePicker picker = ImagePicker();
-    final List<XFile> pickedFiles = await picker.pickMultipleMedia(imageQuality: 80);
+    final List<XFile> pickedFiles = await picker.pickMultipleMedia();
 
-    if (pickedFiles.isNotEmpty) {
+    if (pickedFiles.isNotEmpty && mounted) {
+      // 顯示一個處理中的提示
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在处理图片...')),
+      );
+
+      final List<File> compressedFiles = [];
+      // 使用 for...in 循環來異步處理每張圖片
+      for (var xfile in pickedFiles) {
+        try {
+          final fileBytes = await xfile.readAsBytes();
+          final image = img.decodeImage(fileBytes);
+
+          if (image != null) {
+            // 進行壓縮：將圖片最長邊限制在 1920 像素，並以 85% 的質量重新編碼為 JPEG
+            final resizedImage = img.copyResize(
+              image,
+              width: image.width > image.height ? 1920 : -1,
+              height: image.height > image.width ? 1920 : -1,
+            );
+            final compressedBytes = img.encodeJpg(resizedImage, quality: 85);
+
+            // 將壓縮後的二進位數據寫入一個新的臨時文件
+            final tempDir = await getTemporaryDirectory();
+            final tempFile = File('${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_${p.basename(xfile.path)}');
+            await tempFile.writeAsBytes(compressedBytes);
+
+            compressedFiles.add(tempFile);
+          }
+        } catch (e) {
+          print("图片处理失败: $e");
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('处理 ${p.basename(xfile.path)} 失败')),
+            );
+          }
+        }
+      }
+
+      // 隱藏提示
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+
       setState(() {
-        _imageFiles.addAll(pickedFiles.map((xfile) => File(xfile.path)));
+        _imageFiles.addAll(compressedFiles);
       });
     }
   }

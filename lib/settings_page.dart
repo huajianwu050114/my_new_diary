@@ -1,21 +1,18 @@
-// file: lib/settings_page.dart
+// file: lib/settings_page.dart (最终修改版)
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'notification_service.dart';
-import 'diary_service.dart';
-import 'export_service.dart';
-import 'stop_words_page.dart'; // VVV 导入新页面 VVV
 import 'package:file_picker/file_picker.dart';
-import 'dart:convert'; // 导入 dart:convert
-import 'dart:io'; // 导入 dart:io
-import 'package:permission_handler/permission_handler.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-
+// 导入我们需要的服务
+import 'diary_service.dart';
+import 'export_service_local.dart'; // 导入新的本地导出服务
+import 'notification_service.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'stop_words_page.dart';
+import 'theme_provider.dart';
 
 
 class SettingsPage extends StatefulWidget {
@@ -26,10 +23,9 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool _isExporting = false;
-  double _progressValue = 0.0;
-  String _progressText = '';
-
+  // 状态变量保持不变
+  bool _isLoading = false;
+  String _loadingText = '';
   bool _isReminderEnabled = false;
   TimeOfDay _reminderTime = const TimeOfDay(hour: 22, minute: 0);
 
@@ -39,6 +35,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _loadSettings();
   }
 
+  // --- 提醒功能的逻辑 (基本不变) ---
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
@@ -50,149 +47,22 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _handleReminderSwitch(bool value) async {
-    // 如果是想关闭提醒，直接执行并返回
     if (!value) {
       setState(() => _isReminderEnabled = false);
       _saveSettings(false, _reminderTime);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('每日提醒已关闭')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('每日提醒已关闭')));
       return;
     }
 
-    // 如果是想开启提醒，则开始权限请求流程
     final status = await Permission.notification.request();
-
-    if (!mounted) return; // 检查页面是否还存在
+    if (!mounted) return;
 
     if (status.isGranted) {
-      // 1. 权限已授予：直接开启功能
       setState(() => _isReminderEnabled = true);
       _saveSettings(true, _reminderTime);
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('提醒已在 ${_reminderTime.format(context)} 开启'))
-      );
-    } else if (status.isPermanentlyDenied) {
-      // 2. 权限被“永久拒绝”：弹出一个对话框，引导用户去设置
-      await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('需要通知权限'),
-          content: const Text('您之前已拒绝通知权限，请在系统设置中手动为本应用开启。'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              // 点击后直接打开应用的设置页面
-              onPressed: () {
-                openAppSettings();
-                Navigator.of(context).pop();
-              },
-              child: const Text('前往设置'),
-            ),
-          ],
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('提醒已在 ${_reminderTime.format(context)} 开启')));
     } else {
-      // 3. 其他拒绝情况（例如用户只拒绝了一次）：只显示一个提示
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('开启每日提醒需要授予通知权限。'))
-      );
-    }
-  }
-
-
-  Future<void> _runImport() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-    );
-    if (result == null || result.files.single.path == null) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('未选择任何文件。')));
-      return;
-    }
-
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('导入失败，用户未登录。')));
-      return;
-    }
-
-    setState(() {
-      _isExporting = true;
-      _progressValue = 0.0;
-      _progressText = '正在准备导入...';
-    });
-
-    try {
-      final file = File(result.files.single.path!);
-      final jsonString = await file.readAsString();
-      final List<dynamic> entryMaps = jsonDecode(jsonString);
-
-      int importCount = 0;
-      for (int i = 0; i < entryMaps.length; i++) {
-        final map = entryMaps[i];
-
-        setState(() {
-          _progressValue = (i + 1) / entryMaps.length;
-          _progressText = '正在处理: ${i + 1} / ${entryMaps.length}';
-        });
-
-        // 新的导入逻辑：
-        // 1. 解码Base64图片
-        // 2. 直接上传到Firebase Storage
-        // 3. 用获取到的云端URL替换旧的图片数据
-        final imagePayload = map['imagePaths'] as List? ?? [];
-        final List<String> cloudImageUrls = [];
-
-        for (final item in imagePayload) {
-          // 简单检查一下是否是Base64数据
-          if (item is String && !item.contains('/') && item.length > 256) {
-            try {
-              final imageBytes = base64Decode(item);
-              // 直接上传二进制数据到Storage
-              final ref = FirebaseStorage.instance.ref('users/${user.uid}/images/imported_${DateTime.now().millisecondsSinceEpoch}.jpg');
-              await ref.putData(imageBytes);
-              final downloadUrl = await ref.getDownloadURL();
-              cloudImageUrls.add(downloadUrl);
-            } catch (e) {
-              print('解码或上传Base64图片失败: $e');
-            }
-          }
-        }
-
-        // 用新的云端URL列表更新map
-        map['imagePaths'] = cloudImageUrls;
-
-        // 4. 直接将处理好的map写入Firestore，绕开需要`File`对象的`addEntry`方法
-        map['authorId'] = user.uid;
-        map['date'] = Timestamp.fromDate(DateTime.parse(map['date']));
-        map['creationTime'] = Timestamp.fromDate(DateTime.parse(map['creationTime']));
-
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .collection('diaries')
-            .add(map);
-
-        importCount++;
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导入完成！成功导入 $importCount 篇新日记。')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导入失败，文件格式错误或已损坏: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isExporting = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('开启每日提醒需要授予通知权限。')));
     }
   }
 
@@ -210,146 +80,180 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _pickTime() async {
-    final TimeOfDay? pickedTime = await showTimePicker(
-      context: context,
-      initialTime: _reminderTime,
-    );
+    final TimeOfDay? pickedTime = await showTimePicker(context: context, initialTime: _reminderTime);
     if (pickedTime != null && pickedTime != _reminderTime) {
-      setState(() {
-        _reminderTime = pickedTime;
-      });
+      setState(() => _reminderTime = pickedTime);
       if (_isReminderEnabled) {
         _saveSettings(true, pickedTime);
       }
     }
   }
 
-  Future<void> _runExport(Future<String?> Function(ExportService) exportFunction) async {
+  // --- 新增：本地导入导出逻辑 ---
+  Future<void> _runLocalExport() async {
     setState(() {
-      _isExporting = true;
-      _progressValue = 0.0; // 导出暂时简化，不显示具体进度
-      _progressText = '正在准备导出...';
+      _isLoading = true;
+      _loadingText = '正在准备备份文件...';
     });
+    final exportService = ExportServiceLocal();
+    try {
+      await exportService.exportToZip(context);
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导出失败: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
-    final diaryService = context.read<DiaryService>();
-
-    // 从新的Stream方法获取一次数据用于导出
-    final allEntries = await diaryService.getAllEntriesSortedStream().first;
-
-    if (allEntries.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('没有任何日记可以导出。')),
-        );
-      }
-      setState(() => _isExporting = false);
+  Future<void> _runLocalImport() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['zip'],
+    );
+    if (result == null || result.files.single.path == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('未选择任何文件。')));
       return;
     }
 
-    final exportService = ExportService(allEntries);
-    final String? resultMessage = await exportFunction(exportService);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认导入'),
+        content: const Text('导入备份将会覆盖所有当前的本地数据，此操作不可逆，确定要继续吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('确认', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    ) ?? false;
 
-    if (mounted) {
-      setState(() => _isExporting = false);
-      if (resultMessage != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('导出操作成功！')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('导出操作已取消或失败。')),
-        );
+    if (confirmed && mounted) {
+      setState(() {
+        _isLoading = true;
+        _loadingText = '正在导入备份...';
+      });
+      final exportService = ExportServiceLocal();
+      try {
+        await exportService.importFromZip(context, result.files.single.path!);
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('导入成功！请重启App以加载新数据。')));
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('导入失败: $e')));
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
 
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('设置与工具'),
-      ),
-      body: Stack(
-        children: [
-          ListView(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.notifications_outlined),
-                title: const Text('每日写作提醒'),
-                subtitle: Text(_isReminderEnabled ? '已开启' : '已关闭'),
-                trailing: Switch(
-                  value: _isReminderEnabled,
-                  onChanged: _handleReminderSwitch, // VVV 更新这一行 VVV
-                ),
-              ),
-              if (_isReminderEnabled)
-                ListTile(
-                  leading: const SizedBox(),
-                  title: const Text('提醒时间'),
-                  subtitle: Text(_reminderTime.format(context)),
-                  onTap: _pickTime,
-                ),
-              const Divider(),
-              // VVV 在这里添加新列表项 VVV
-              ListTile(
-                leading: const Icon(Icons.block_flipped),
-                title: const Text('词云停用词管理'),
-                subtitle: const Text('自定义词云分析中需要忽略的词汇'),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const StopWordsPage()),
-                  );
-                },
-              ),
-              const Divider(),
-              ListTile(
-                leading: const Icon(Icons.picture_as_pdf),
-                title: const Text('导出为 PDF'),
-                subtitle: const Text('将所有日记导出为一个可读的PDF文件。'),
-                onTap: _isExporting ? null : () => _runExport((s) => s.exportToPdf()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.data_object),
-                title: const Text('导出为 JSON'),
-                subtitle: const Text('备份所有数据，用于恢复或迁移。'),
-                onTap: _isExporting ? null : () => _runExport((s) => s.exportToJson()),
-              ),
-              ListTile(
-                leading: const Icon(Icons.data_array, color: Colors.green),
-                title: const Text('从 JSON 导入'),
-                subtitle: const Text('从备份文件恢复日记数据。'),
-                onTap: _isExporting ? null : _runImport, // VVV 绑定新的导入方法
-              ),
-            ],
+    // 使用 Consumer 来获取 DiaryService 和 ThemeProvider 的当前状态
+    return Consumer2<DiaryService, ThemeProvider>(
+      builder: (context, diaryService, themeProvider, child) {
+        // 检查用户是否已登录Firebase，只有登录后才能切换到云端模式
+        final bool isLoggedIn = FirebaseAuth.instance.currentUser != null;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('设置与工具'),
           ),
-          if (_isExporting)
-            Container(
-              color: Colors.black.withOpacity(0.6),
-              child: Center(
-                child: Card(
-                  color: Theme.of(context).colorScheme.surface,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 24.0),
+          body: Stack(
+            children: [
+              ListView(
+                children: [
+                  // --- 1. 新增：数据模式切换 ---
+                  ListTile(
+                    leading: Icon(diaryService.currentMode == StorageMode.cloud ? Icons.cloud_queue : Icons.dns),
+                    title: const Text('数据存储模式'),
+                    subtitle: Text(diaryService.currentMode == StorageMode.cloud ? '云端同步 (Firebase)' : '纯本地存储'),
+                    trailing: Switch(
+                      value: diaryService.currentMode == StorageMode.cloud,
+                      // 如果用户未登录，则禁用切换到云端模式的开关
+                      onChanged: !isLoggedIn
+                          ? null
+                          : (isCloud) {
+                        if (isCloud) {
+                          diaryService.switchToCloudMode();
+                        } else {
+                          diaryService.switchToLocalMode();
+                        }
+                      },
+                    ),
+                  ),
+                  if (!isLoggedIn)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 8.0),
+                      child: Text('提示：登录后才能开启云端同步模式。', style: Theme.of(context).textTheme.bodySmall),
+                    ),
+                  const Divider(),
+
+                  // --- 2. 新增：本地数据备份/恢复 ---
+                  // 只有在本地模式下，才显示这些选项
+                  if (diaryService.currentMode == StorageMode.local) ...[
+                    ListTile(
+                      leading: const Icon(Icons.upload_file_outlined),
+                      title: const Text('导出本地数据'),
+                      subtitle: const Text('将所有本地日记打包成 .zip 文件'),
+                      onTap: _isLoading ? null : _runLocalExport,
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.download_for_offline_outlined),
+                      title: const Text('从本地备份导入'),
+                      subtitle: const Text('从 .zip 文件恢复数据（将覆盖现有）'),
+                      onTap: _isLoading ? null : _runLocalImport,
+                    ),
+                    const Divider(),
+                  ],
+
+                  // --- 3. 原有的功能保持不变 ---
+                  ListTile(
+                    leading: const Icon(Icons.notifications_outlined),
+                    title: const Text('每日写作提醒'),
+                    subtitle: Text(_isReminderEnabled ? '已开启' : '已关闭'),
+                    trailing: Switch(
+                      value: _isReminderEnabled,
+                      onChanged: _handleReminderSwitch,
+                    ),
+                  ),
+                  if (_isReminderEnabled)
+                    ListTile(
+                      leading: const SizedBox(width: 56), // 用于对齐
+                      title: const Text('提醒时间'),
+                      subtitle: Text(_reminderTime.format(context)),
+                      onTap: _pickTime,
+                    ),
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(Icons.block_flipped),
+                    title: const Text('词云停用词管理'),
+                    subtitle: const Text('自定义词云分析中需要忽略的词汇'),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const StopWordsPage()),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              // 加载中的遮罩层
+              if (_isLoading)
+                Container(
+                  color: Colors.black.withOpacity(0.5),
+                  child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('正在导出，请稍候...'),
-                        const SizedBox(height: 20),
-                        LinearProgressIndicator(
-                          value: _progressValue,
-                          minHeight: 10,
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(_progressText, style: Theme.of(context).textTheme.bodySmall),
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 16),
+                        Text(_loadingText, style: const TextStyle(color: Colors.white, fontSize: 16)),
                       ],
                     ),
                   ),
                 ),
-              ),
-            ),
-        ],
-      ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

@@ -25,6 +25,9 @@ import 'diary_home_page.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'add_diary_page.dart';
 import 'location_memories_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -672,7 +675,14 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                   padding: const EdgeInsets.all(8.0),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8.0),
-                    child: Image.file(File(entry.imagePaths.first), width: 100, height: 120, fit: BoxFit.cover),
+                    child: CachedNetworkImage(
+                      imageUrl: entry.imagePaths.first,
+                      width: 100,
+                      height: 120,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(color: Colors.grey[200]),
+                      errorWidget: (context, url, error) => const Icon(Icons.error),
+                    ),
                   ),
                 ),
             ],
@@ -777,10 +787,12 @@ class AppDrawer extends StatelessWidget {
                       CircleAvatar(
                         radius: 35,
                         backgroundColor: Colors.white.withOpacity(0.3),
-                        backgroundImage: userProvider.avatarPath != null
-                            ? FileImage(File(userProvider.avatarPath!))
+                        // [之前] backgroundImage: userProvider.avatarPath != null ? FileImage(File(userProvider.avatarPath!)) : null,
+                        // [之后] 使用 NetworkImage 来加载云端URL
+                        backgroundImage: userProvider.avatarUrl != null
+                            ? NetworkImage(userProvider.avatarUrl!)
                             : null,
-                        child: userProvider.avatarPath == null
+                        child: userProvider.avatarUrl == null // [之前] userProvider.avatarPath
                             ? const Icon(Icons.person, size: 40, color: Colors.white)
                             : null,
                       ),
@@ -870,6 +882,20 @@ class AppDrawer extends StatelessWidget {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (context) => const SettingsPage()),
                   );
+                },
+              ),
+              const Divider(), // VVV 为了美观，可以在退出按钮前加一条分割线 VVV
+
+              // VVV VVV 在这里添加“退出登录”按钮 VVV VVV
+              ListTile(
+                leading: Icon(Icons.logout, color: Theme.of(context).colorScheme.error),
+                title: const Text('退出登录'),
+                onTap: () async {
+                  // 先关闭抽屉
+                  Navigator.of(context).pop();
+                  // 调用Firebase的退出登录方法
+                  await FirebaseAuth.instance.signOut();
+                  // 退出后，AuthGate会自动监听到状态变化并导航回LoginPage
                 },
               ),
               SwitchListTile(

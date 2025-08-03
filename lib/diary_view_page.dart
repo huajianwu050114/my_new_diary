@@ -9,6 +9,9 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'gemini_service_local.dart';
 import 'ai_chat_page.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'edit_diary_page.dart'; // VVV 1. 添加缺失的 import VVV
+import 'package:path_provider/path_provider.dart'; // VVV 1. 添加導入
+import 'package:path/path.dart' as p;
 
 class DiaryViewPage extends StatefulWidget {
   final DiaryEntry entry;
@@ -19,9 +22,13 @@ class DiaryViewPage extends StatefulWidget {
 }
 
 class _DiaryViewPageState extends State<DiaryViewPage> {
-  // VVV 1. 添加状态来追踪当前图片页码 VVV
   int _currentPage = 0;
-  final GeminiServiceLocal _geminiService = GeminiServiceLocal();
+  // VVV geminiService 暂时未使用，为了消除警告，我们先注释掉 VVV
+  // final GeminiServiceLocal _geminiService = GeminiServiceLocal();
+  Future<String> _getLocalImagePath(String fileName) async {
+    final directory = await getApplicationDocumentsDirectory();
+    return p.join(directory.path, 'diary_images', fileName);
+  }
 
   void _deleteDiary() async {
     final bool? confirmDelete = await showDialog<bool>(
@@ -54,13 +61,14 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     }
   }
 
-  // VVV 2. 构建图片浏览器 VVV
   Widget _buildImageViewer() {
+    // VVV 3. 獲取 DiaryService 來判斷當前模式
+    final diaryService = context.read<DiaryService>();
+
     return AspectRatio(
       aspectRatio: 16 / 9,
       child: Stack(
         children: [
-          // 可滑动的 PageView
           PageView.builder(
             itemCount: widget.entry.imagePaths.length,
             onPageChanged: (index) {
@@ -69,43 +77,35 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
               });
             },
             itemBuilder: (context, index) {
+              final imagePath = widget.entry.imagePaths[index];
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(15.0),
-                  child: CachedNetworkImage(
-                    imageUrl: widget.entry.imagePaths[index],
+                  // VVV 4. 根據模式顯示不同的圖片組件
+                  child: diaryService.currentMode == StorageMode.cloud
+                      ? CachedNetworkImage(
+                    imageUrl: imagePath,
                     fit: BoxFit.cover,
                     placeholder: (context, url) => Container(color: Colors.grey[200]),
                     errorWidget: (context, url, error) => _buildImageErrorPlaceholder(),
+                  )
+                      : FutureBuilder<String>(
+                    future: _getLocalImagePath(imagePath),
+                    builder: (context, snapshot) {
+                      if (snapshot.hasData) {
+                        return Image.file(
+                          File(snapshot.data!),
+                          fit: BoxFit.cover,
+                        );
+                      }
+                      return Container(color: Colors.grey[200]);
+                    },
                   ),
                 ),
               );
             },
           ),
-          // 底部的页码指示器
-          if (widget.entry.imagePaths.length > 1)
-            Positioned(
-              bottom: 16,
-              left: 0,
-              right: 0,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(widget.entry.imagePaths.length, (index) {
-                  return Container(
-                    width: 8,
-                    height: 8,
-                    margin: const EdgeInsets.symmetric(horizontal: 4),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: _currentPage == index
-                          ? Colors.white
-                          : Colors.white.withOpacity(0.4),
-                    ),
-                  );
-                }),
-              ),
-            ),
         ],
       ),
     );
@@ -117,30 +117,46 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     final bool hasImages = entry.imagePaths.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
-        // ... (title, actions etc.)
         actions: [
+          // VVV 2. 修正 PopupMenuButton 的整体结构 VVV
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
+            // --- 这是 onSelected 回调函数 ---
             onSelected: (value) async {
-              if (value == 'chat_with_ai') {
-                // Correct way to navigate to the AiChatPage widget
+              if (value == 'edit') {
+                final DiaryEntry? updatedEntry = await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => EditDiaryPage(entry: widget.entry),
+                  ),
+                );
+                if (updatedEntry != null && mounted) {
+                  setState(() {});
+                }
+              } else if (value == 'chat_with_ai') {
                 await Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => AiChatPage(entry: widget.entry),
                   ),
                 );
-                // Refresh the state when returning from the chat page
                 setState(() {});
               } else if (value == 'delete') {
                 _deleteDiary();
               }
             },
+            // --- 这是 itemBuilder 属性，它必须在 onSelected 外面 ---
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               const PopupMenuItem<String>(
                 value: 'chat_with_ai',
                 child: ListTile(
                   leading: Icon(Icons.auto_awesome_outlined),
                   title: Text('与AI交流'),
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'edit',
+                child: ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('编辑日记'),
                 ),
               ),
               const PopupMenuDivider(),
@@ -156,13 +172,12 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 24.0), // Add some padding to the bottom
+        padding: const EdgeInsets.only(bottom: 24.0),
         children: [
           if (hasImages)
-            SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight),
-
+            SizedBox(
+                height: MediaQuery.of(context).padding.top + kToolbarHeight),
           if (hasImages) _buildImageViewer(),
-
           if (entry.address != null && entry.address!.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -172,20 +187,16 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
                 dense: true,
               ),
             ),
-
-          // Diary Text
           Padding(
             padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 8.0),
             child: Text(
               entry.text.isNotEmpty ? entry.text : '(这天没有写下任何文字)',
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontSize: 18,
-                height: 1.6,
-              ),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyLarge
+                  ?.copyWith(fontSize: 18, height: 1.6),
             ),
           ),
-
-          // Tags
           if (entry.tags.isNotEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
@@ -208,7 +219,9 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
-                  ...entry.aiAnalyses.map((analysis) => _buildAnalysisTile(analysis)).toList(),
+                  ...entry.aiAnalyses
+                      .map((analysis) => _buildAnalysisTile(analysis))
+                      .toList(),
                 ],
               ),
             ),
@@ -247,6 +260,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
       ),
     );
   }
+
   Widget _buildAnalysisTile(String analysisText) {
     return Card(
       elevation: 1,
@@ -255,7 +269,6 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
       child: ExpansionTile(
         leading: Icon(Icons.bookmark_border, color: Colors.amber.shade800),
         title: Text(
-          // 将分析内容的第一行作为标题预览
           analysisText.split('\n').first,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -263,15 +276,18 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         ),
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: MarkdownBody(
-        data: analysisText,
-        selectable: true,
-        styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-          p: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6),
-        ),
-          )
-          )
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: MarkdownBody(
+                data: analysisText,
+                selectable: true,
+                styleSheet:
+                MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                  p: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(height: 1.6),
+                ),
+              ))
         ],
       ),
     );

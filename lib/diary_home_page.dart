@@ -1,15 +1,18 @@
-// 文件: lib/diary_home_page.dart (已适配云端数据)
+// 文件: lib/diary_home_page.dart (已适配混合存储模式)
 
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:cached_network_image/cached_network_image.dart'; // <--- 新增导入
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'add_diary_page.dart';
 import 'diary_service.dart';
 import 'diary_view_page.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p; // VVV 1. 添加 path 包的导入 VVV
+import 'dart:io';
 
 class DiaryHomePage extends StatefulWidget {
   const DiaryHomePage({super.key});
@@ -29,7 +32,12 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
     _selectedDay = _focusedDay;
   }
 
-  // onDaySelected 方法保持不变
+  // VVV 2. 新增这个辅助方法，用于获取本地图片的完整路径 VVV
+  Future<String> _getLocalImagePath(String fileName) async {
+    final directory = await getApplicationDocumentsDirectory();
+    return p.join(directory.path, 'diary_images', fileName);
+  }
+
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     if (!isSameDay(_selectedDay, selectedDay)) {
       setState(() {
@@ -39,7 +47,6 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
     }
   }
 
-  // --- 核心修正点 1: 更新删除对话框的逻辑 ---
   void _showDeleteConfirmDialog(DiaryEntry entry) async {
     final bool? shouldDelete = await showDialog<bool>(
       context: context,
@@ -63,7 +70,6 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
       },
     );
     if (shouldDelete == true && mounted) {
-      // 使用 diaryId 替代 filePath
       await context.read<DiaryService>().moveEntryToTrash(entry.diaryId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -77,6 +83,8 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // VVV 3. 在 build 方法顶部获取 DiaryService 实例 VVV
+    final diaryService = context.watch<DiaryService>();
 
     return Scaffold(
       appBar: AppBar(
@@ -92,9 +100,8 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
         },
         child: const Icon(Icons.add),
       ),
-      // --- 核心修正点 2: 使用一个顶级的 StreamBuilder 来获取所有日记数据 ---
       body: StreamBuilder<List<DiaryEntry>>(
-        stream: context.watch<DiaryService>().getAllEntriesSortedStream(),
+        stream: diaryService.getAllEntriesSortedStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -105,14 +112,13 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
 
           final allEntries = snapshot.data ?? [];
 
-          // 筛选出当天选中的日记
           final selectedDayEntries = allEntries.where((entry) {
             return isSameDay(entry.date, _selectedDay);
           }).toList();
 
           return Column(
             children: [
-              // --- 日历部分 ---
+              // --- 日历部分 (无需修改) ---
               Container(
                 margin: const EdgeInsets.all(16.0),
                 decoration: BoxDecoration(
@@ -134,9 +140,7 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                   focusedDay: _focusedDay,
                   selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
                   calendarFormat: _calendarFormat,
-                  // --- 核心修正点 3: 更新日历事件加载器 ---
                   eventLoader: (day) {
-                    // 从所有日记中筛选出对应日期的日记作为事件标记
                     return allEntries.where((entry) => isSameDay(entry.date, day)).toList();
                   },
                   onDaySelected: _onDaySelected,
@@ -148,7 +152,6 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                   onPageChanged: (focusedDay) {
                     _focusedDay = focusedDay;
                   },
-                  // ... 日历样式部分保持不变 ...
                 ),
               ),
               const SizedBox(height: 8.0),
@@ -162,7 +165,6 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                   itemBuilder: (context, index) {
                     final entry = selectedDayEntries[index];
                     return Slidable(
-                      // --- 核心修正点 4: 使用 diaryId 作为 Key ---
                       key: Key(entry.diaryId),
                       endActionPane: ActionPane(
                         motion: const StretchMotion(),
@@ -188,9 +190,10 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // --- VVV 4. 这里的图片显示逻辑是核心修改点 VVV ---
                               if (entry.imagePaths.isNotEmpty)
-                              // --- 核心修正点 5: 使用 CachedNetworkImage 加载网络图片 ---
-                                CachedNetworkImage(
+                                diaryService.currentMode == StorageMode.cloud
+                                    ? CachedNetworkImage( // 云端模式
                                   imageUrl: entry.imagePaths.first,
                                   width: double.infinity,
                                   height: 150,
@@ -198,13 +201,31 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                                   placeholder: (context, url) => Container(
                                     height: 150,
                                     color: Colors.grey[200],
-                                    child: Center(child: CircularProgressIndicator()),
+                                    child: const Center(child: CircularProgressIndicator()),
                                   ),
                                   errorWidget: (context, url, error) => Container(
                                     height: 150,
                                     color: Colors.grey[200],
-                                    child: Center(child: Icon(Icons.broken_image)),
+                                    child: const Center(child: Icon(Icons.broken_image)),
                                   ),
+                                )
+                                    : FutureBuilder<String>( // 本地模式
+                                  future: _getLocalImagePath(entry.imagePaths.first),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.hasData) {
+                                      return Image.file(
+                                        File(snapshot.data!),
+                                        width: double.infinity,
+                                        height: 150,
+                                        fit: BoxFit.cover,
+                                      );
+                                    }
+                                    return Container(
+                                      height: 150,
+                                      color: Colors.grey[200],
+                                      child: const Center(child: CircularProgressIndicator()),
+                                    );
+                                  },
                                 ),
                               Padding(
                                 padding: const EdgeInsets.all(16.0),

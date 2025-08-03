@@ -17,10 +17,17 @@ import 'auth_gate.dart';
 import 'festival_service.dart';
 import 'notification_service.dart';
 import 'diary_home_page.dart';
+import 'dart:io';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() async {
   // 確保Flutter綁定已初始化
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
 
   // VVV 2. 在運行App之前，異步初始化Firebase VVV
   await Firebase.initializeApp(

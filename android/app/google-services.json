@@ -1,59 +1,26 @@
 {
   "project_info": {
-    "project_number": "531673123393",
-    "project_id": "mydiary20050114",
-    "storage_bucket": "mydiary20050114.firebasestorage.app"
+    "project_number": "230956985168",
+    "project_id": "mydiary050114",
+    "storage_bucket": "mydiary050114.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:531673123393:android:fdc1fe318f22895cc0d4c0",
+        "mobilesdk_app_id": "1:230956985168:android:a04a312852613959d65a55",
         "android_client_info": {
           "package_name": "com.example.my_new_diary"
         }
       },
-      "oauth_client": [
-        {
-          "client_id": "531673123393-f3586p6kuodoho2e9j5fv1v32n86uu75.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.my_new_diary",
-            "certificate_hash": "d5f4336398e2affd134d26cfba101f04e9a9d116"
-          }
-        },
-        {
-          "client_id": "531673123393-lqaaue41e2k8b469mo1ebm9uju1n88vu.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.example.my_new_diary",
-            "certificate_hash": "c246d60bcd9de2e77a5272926586467a99280cbb"
-          }
-        },
-        {
-          "client_id": "531673123393-854fi0eh5j97vmpek6ug8os465pg16ht.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
+      "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyC8D_ZEQn-PEuHUYpyV8QFv7wH3JsF2TpM"
+          "current_key": "AIzaSyD2jrtXr_-U1DzXzHITd7urJAE-V56GM3I"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "531673123393-854fi0eh5j97vmpek6ug8os465pg16ht.apps.googleusercontent.com",
-              "client_type": 3
-            },
-            {
-              "client_id": "531673123393-v8sgu2nnc4h3pfnddtam24l7objr5ksh.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.example.myNewDiary"
-              }
-            }
-          ]
+          "other_platform_oauth_client": []
         }
       }
     }
