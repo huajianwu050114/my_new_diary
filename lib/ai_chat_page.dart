@@ -7,6 +7,7 @@ import 'gemini_service_local.dart';
 import 'diary_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:uuid/uuid.dart';
+import 'package:my_new_diary/diary_model.dart';
 
 class AiChatPage extends StatefulWidget {
   final DiaryEntry entry;
@@ -191,7 +192,7 @@ class _AiChatPageState extends State<AiChatPage> {
       return;
     }
 
-    await context.read<DiaryService>().saveConversationAsAnalysis(_currentEntry!.filePath, formattedText);
+    await context.read<DiaryService>().saveConversationAsAnalysis(_currentEntry!.diaryId, formattedText);
 
     if(mounted) {
       setState(() => _selectedMessages.clear());

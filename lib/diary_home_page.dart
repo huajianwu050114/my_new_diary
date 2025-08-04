@@ -9,6 +9,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'add_diary_page.dart';
 import 'diary_service.dart';
 import 'diary_view_page.dart';
+import 'package:my_new_diary/diary_model.dart';
 
 class DiaryHomePage extends StatefulWidget {
   const DiaryHomePage({super.key});
@@ -70,7 +71,7 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
     );
     if (shouldDelete == true) {
       // <-- 使用 context.read 来调用服务方法，因为它在异步操作之后，且只调用一次
-      await context.read<DiaryService>().moveEntryToTrash(entry.filePath);
+      await context.read<DiaryService>().moveEntryToTrash(entry.diaryId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -212,7 +213,7 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                       itemBuilder: (context, index) {
                         final entry = entries[index];
                         return Slidable(
-                          key: Key(entry.filePath),
+                          key: Key(entry.diaryId),
                           endActionPane: ActionPane(
                             motion: const StretchMotion(),
                             children: [

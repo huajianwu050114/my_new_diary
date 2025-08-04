@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'diary_service.dart';
 import 'diary_view_page.dart';
 import 'dart:io';
+import 'package:my_new_diary/diary_model.dart';
 
 class LocationMemoriesPage extends StatefulWidget {
   const LocationMemoriesPage({super.key});
@@ -16,6 +17,7 @@ class LocationMemoriesPage extends StatefulWidget {
 
 class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
   Future<List<List<DiaryEntry>>>? _groupedEntriesFuture;
+  String? _selectedClusterId;
 
   @override
   void initState() {
@@ -74,7 +76,6 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
   // 构建顶部的地图
   Widget _buildMapView(List<List<DiaryEntry>> groupedEntries) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
     return SizedBox(
       height: MediaQuery.of(context).size.height * 0.4,
       child: FlutterMap(
@@ -84,48 +85,74 @@ class _LocationMemoriesPageState extends State<LocationMemoriesPage> {
             groupedEntries.first.first.longitude!,
           ),
           initialZoom: 10,
+          // VVV 2a. 添加 onTap 回调，点击地图空白处关闭弹窗 VVV
+          onTap: (_, __) {
+            setState(() {
+              _selectedClusterId = null;
+            });
+          },
         ),
         children: [
           TileLayer(
-            urlTemplate: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            subdomains: const ['a', 'b', 'c'],
+            urlTemplate: 'https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
+            subdomains: const ['1', '2', '3', '4'],
             userAgentPackageName: 'com.example.my_new_diary',
           ),
           MarkerLayer(
             markers: groupedEntries.map((cluster) {
               final firstEntry = cluster.first;
+              // 使用第一个日记的路径作为群组的唯一ID
+              final clusterId = firstEntry.diaryId;
+              final isSelected = _selectedClusterId == clusterId;
+
               return Marker(
                 point: LatLng(firstEntry.latitude!, firstEntry.longitude!),
-                width: 80,
-                height: 80,
-                child: GestureDetector(
-                  onTap: () => _showEntriesForCluster(context, cluster),
-                  child: Column(
-                    children: [
-                      Container(
+                width: 150, // 增大宽度以容纳弹窗
+                height: 100, // 增大高度以容纳弹窗
+                child: Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none, // 允许弹窗绘制到标记区域之外
+                  children: [
+                    // VVV 2b. 弹窗组件 (仅在被选中时显示) VVV
+                    if (isSelected)
+                      Positioned(
+                        bottom: 45, // 定位在数字标记的上方
+                        child: GestureDetector(
+                          onTap: () => _showEntriesForCluster(context, cluster),
+                          child: Card(
+                            elevation: 4,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              child: Text(
+                                firstEntry.address?.split(',').first ?? '未知地点',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    // VVV 2c. 数字标记本身 VVV
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          // 点击标记时，切换弹窗的显示状态
+                          _selectedClusterId = isSelected ? null : clusterId;
+                        });
+                      },
+                      child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                             color: Theme.of(context).primaryColor,
                             shape: BoxShape.circle,
-                            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(2,2))]
-                        ),
+                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(2, 2))]),
                         child: Text(
                           cluster.length.toString(),
                           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      Text(
-                        firstEntry.address?.split(',').first ?? '未知地点',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: isDarkMode ? Colors.white : Colors.black,
-                            fontWeight: FontWeight.bold,
-                            shadows: const [Shadow(color: Colors.white, blurRadius: 2)]
-                        ),
-                        textAlign: TextAlign.center,
-                      )
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               );
             }).toList(),

@@ -25,6 +25,7 @@ import 'diary_home_page.dart';
 import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 import 'add_diary_page.dart';
 import 'location_memories_page.dart';
+import 'package:my_new_diary/diary_model.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -250,15 +251,13 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
   Widget _buildHeader(BuildContext context) {
     final theme = Theme.of(context);
-    final themeProvider = context.watch<ThemeProvider>();
+    final isDarkMode = theme.brightness == Brightness.dark;
     final now = DateTime.now();
     final dayOfWeek = DateFormat('EEEE', 'zh_CN').format(now);
 
-    final List<Color> cardGradient = themeProvider.isDarkMode
-        ? [const Color(0xFF3A3A3A), const Color(0xFF2A2A2A)]
-        : [Colors.purple.shade200, Colors.pink.shade100];
-
-    final Color cardTextColor = themeProvider.isDarkMode ? Colors.white70 : Colors.white;
+    // VVV 关键修改：不再使用独立的渐变色，而是直接从主题获取颜色 VVV
+    final Color cardColor = isDarkMode ? theme.cardColor : theme.colorScheme.primaryContainer;
+    final Color cardTextColor = isDarkMode ? Colors.white.withOpacity(0.8) : theme.colorScheme.onPrimaryContainer;
 
     return Padding(
       padding: const EdgeInsets.all(20.0),
@@ -268,14 +267,26 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: cardGradient, begin: Alignment.topLeft, end: Alignment.bottomRight),
-              borderRadius: BorderRadius.circular(12.0),
-              boxShadow: [BoxShadow(color: theme.colorScheme.primary.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 4))],
+              // 使用从主题获取的纯色
+              color: cardColor,
+              borderRadius: BorderRadius.circular(15.0),
+              // 可以保留一个非常微妙的阴影或边框以增加质感
+              border: isDarkMode ? Border.all(color: const Color(0xFF30363D)) : null,
+              boxShadow: [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4)
+                ),
+              ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('${now.day}', style: TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: cardTextColor, height: 1)),
+                Text(
+                    '${now.day}',
+                    style: TextStyle(fontSize: 64, fontWeight: FontWeight.bold, color: cardTextColor, height: 1)
+                ),
                 const SizedBox(width: 16),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -338,10 +349,36 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final int daysUntil = festival['daysUntil'];
     final String dateFormatted = DateFormat('M月d日').format(festival['date']);
 
-    // --- FIX: Use the unified 'cardGradientColors' for all cards ---
-    final gradients = themeProvider.cardGradientColors;
-    final gradient = gradients[index % gradients.length];
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
 
+    final BoxDecoration cardDecoration;
+    if (isDarkMode) {
+      cardDecoration = BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        color: theme.cardColor,
+      );
+    } else {
+      final gradients = themeProvider.cardGradientColors;
+      final gradient = gradients[index % gradients.length];
+      cardDecoration = BoxDecoration(
+        borderRadius: BorderRadius.circular(15),
+        gradient: LinearGradient(
+          colors: gradient,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: gradient.last.withOpacity(0.5),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      );
+    }
+
+    // VVV 关键修正：确保 Container 的 child: Row(...) 及其内部组件是完整的 VVV
     return GestureDetector(
       onTap: () {
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FestivalsPage()));
@@ -349,21 +386,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
         padding: const EdgeInsets.all(16.0),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(15),
-          gradient: LinearGradient(
-            colors: gradient,
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: gradient.last.withOpacity(0.5),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
+        decoration: cardDecoration,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -506,22 +529,27 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   }
 
   Widget _buildCarousel(DiaryService diaryService) {
-    return FutureBuilder<List<DiaryEntry>>(
-      future: diaryService.getRecentEntriesWithImages(),
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      // 调用我们新的方法
+      future: diaryService.getRecentImagePathsWithEntries(),
       builder: (context, snapshot) {
         if (!snapshot.hasData || snapshot.data!.isEmpty) return const SizedBox.shrink();
         if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()));
 
+        final imagePairs = snapshot.data!;
         return cs.CarouselSlider.builder(
-          itemCount: snapshot.data!.length,
-          itemBuilder: (context, index, realIndex) => _buildCarouselItem(snapshot.data![index]),
+          itemCount: imagePairs.length, // 轮播图的数量现在是图片的总数
+          itemBuilder: (context, index, realIndex) => _buildCarouselItem(
+            imagePairs[index]['entry'] as DiaryEntry,
+            imagePairs[index]['imagePath'] as String,
+          ),
           options: cs.CarouselOptions(aspectRatio: 16 / 9, viewportFraction: 0.85, enlargeCenterPage: true, autoPlay: true),
         );
       },
     );
   }
 
-  Widget _buildCarouselItem(DiaryEntry entry) {
+  Widget _buildCarouselItem(DiaryEntry entry, String imagePath) {
     return GestureDetector(
       onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry))),
       child: Container(
@@ -531,7 +559,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Image.file(File(entry.imagePaths.first), fit: BoxFit.cover),
+              // 使用传入的、正确的 imagePath
+              Image.file(File(imagePath), fit: BoxFit.cover),
               Positioned(
                 bottom: 0.0, left: 0.0, right: 0.0,
                 child: Container(
@@ -581,11 +610,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (showMonthSeparator) _buildMonthSeparator(currentEntry.date),
-                Consumer<ThemeProvider>(
-                  builder: (context, themeProvider, child) {
-                    return _buildHistoryCard(currentEntry, index, themeProvider);
-                  },
-                ),
+                _buildHistoryCard(currentEntry, index),
               ],
             );
           },
@@ -594,19 +619,32 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  Widget _buildHistoryCard(DiaryEntry entry, int index, ThemeProvider themeProvider) {
-    final gradientList = themeProvider.cardGradientColors;
-    final currentGradient = gradientList[index % gradientList.length];
+  Widget _buildHistoryCard(DiaryEntry entry, int index) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
+    final textColor = isDarkMode ? Colors.white.withOpacity(0.95) : Colors.white;
+    final subTextColor = isDarkMode ? Colors.white.withOpacity(0.6) : Colors.white70;
+
+    final BoxDecoration cardDecoration;
+    if (isDarkMode) {
+      cardDecoration = BoxDecoration(
+        color: theme.cardColor,
+      );
+    } else {
+      final themeProvider = context.read<ThemeProvider>();
+      final gradientList = themeProvider.cardGradientColors;
+      final currentGradient = gradientList[index % gradientList.length];
+      cardDecoration = BoxDecoration(
+          gradient: LinearGradient(colors: currentGradient, begin: Alignment.topLeft, end: Alignment.bottomRight)
+      );
+    }
 
     return InkWell(
       onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry))),
       child: Card(
-        margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-        elevation: 4,
-        clipBehavior: Clip.antiAlias,
         child: Container(
-          decoration: BoxDecoration(gradient: LinearGradient(colors: currentGradient, begin: Alignment.topLeft, end: Alignment.bottomRight)),
+          decoration: cardDecoration,
           height: 120,
           child: Row(
             children: [
@@ -615,15 +653,14 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(DateFormat('d').format(entry.creationTime), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white70)),
-                    Text(DateFormat('MMMM', 'zh_CN').format(entry.creationTime), style: const TextStyle(fontSize: 14, color: Colors.white70)),
-                    Text(DateFormat('E', 'zh_CN').format(entry.creationTime), style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.7))),
+                    Text(DateFormat('d').format(entry.creationTime), style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: subTextColor)),
+                    Text(DateFormat('E', 'zh_CN').format(entry.creationTime), style: TextStyle(fontSize: 12, color: subTextColor)),
                     const SizedBox(height: 4),
-                    Text(DateFormat('HH:mm').format(entry.creationTime), style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.6))),
+                    Text(DateFormat('HH:mm').format(entry.creationTime), style: TextStyle(fontSize: 12, color: subTextColor.withOpacity(0.8))),
                   ],
                 ),
               ),
-              const VerticalDivider(width: 1, thickness: 1, indent: 16, endIndent: 16, color: Colors.white30),
+              VerticalDivider(width: 1, thickness: 1, indent: 16, endIndent: 16, color: isDarkMode ? Colors.white.withOpacity(0.2) : Colors.white30),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
@@ -631,7 +668,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                     entry.text.isNotEmpty ? entry.text : '(无文字内容)',
                     maxLines: 4,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.white.withOpacity(0.95), fontWeight: FontWeight.w400, fontSize: 15, height: 1.4),
+                    style: TextStyle(color: textColor, fontWeight: FontWeight.w400, fontSize: 15, height: 1.4),
                   ),
                 ),
               ),

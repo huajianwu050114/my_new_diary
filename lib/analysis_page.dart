@@ -8,6 +8,7 @@ import 'package:word_cloud/word_cloud.dart';
 import 'package:flutter_heatmap_calendar/flutter_heatmap_calendar.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // VVV 1. 导入 shared_preferences VVV
 import 'diary_service.dart';
+import 'package:my_new_diary/diary_model.dart';
 
 // AnalysisPage 类保持不变
 class AnalysisPage extends StatefulWidget {

@@ -9,10 +9,18 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'gemini_service_local.dart';
 import 'ai_chat_page.dart';
 import 'add_diary_page.dart';
+import 'package:my_new_diary/diary_model.dart';
+import 'gallery_page.dart';
 
 class DiaryViewPage extends StatefulWidget {
   final DiaryEntry entry;
-  const DiaryViewPage({super.key, required this.entry});
+  final String? highlightKeyword;
+
+  const DiaryViewPage({
+    super.key,
+    required this.entry,
+    this.highlightKeyword });
+
 
   @override
   State<DiaryViewPage> createState() => _DiaryViewPageState();
@@ -79,10 +87,59 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     );
   }
 
+  Widget _buildHighlightedText(String text, String keyword) {
+    // 在详情页，如果没传关键词，就直接显示普通文本
+    if (keyword.isEmpty) {
+      return Text(
+        text.isNotEmpty ? text : '(这天没有写下任何文字)',
+        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+          fontSize: 18,
+          height: 1.6,
+        ),
+      );
+    }
+
+    final List<TextSpan> spans = [];
+    final textLower = text.toLowerCase();
+    final keywordLower = keyword.toLowerCase();
+    int start = 0;
+    int indexOfKeyword;
+
+    while ((indexOfKeyword = textLower.indexOf(keywordLower, start)) != -1) {
+      if (indexOfKeyword > start) {
+        spans.add(TextSpan(text: text.substring(start, indexOfKeyword)));
+      }
+      spans.add(TextSpan(
+        text: text.substring(indexOfKeyword, indexOfKeyword + keyword.length),
+        style: TextStyle(
+          backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+          fontWeight: FontWeight.bold,
+        ),
+      ));
+      start = indexOfKeyword + keyword.length;
+    }
+
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start)));
+    }
+
+    // 返回 RichText，但没有 maxLines 和 overflow 限制
+    return RichText(
+      text: TextSpan(
+        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+          fontSize: 18,
+          height: 1.6,
+        ),
+        children: spans,
+      ),
+    );
+  }
+
   Future<void> _reloadData() async {
     // VVV 3. 使用 '!' 来安全地访问非空变量 VVV
-    final updatedEntry = await DiaryService.fromFile(File(_currentEntry!.filePath));
-    if (mounted) {
+    final diaryService = context.read<DiaryService>();
+    final updatedEntry = await diaryService.getEntryById(_currentEntry!.diaryId);
+    if (mounted && updatedEntry != null) {
       setState(() {
         _currentEntry = updatedEntry;
       });
@@ -112,7 +169,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
       },
     );
     if (confirmDelete == true && mounted) {
-      await context.read<DiaryService>().moveEntryToTrash(_currentEntry!.filePath);
+      await context.read<DiaryService>().moveEntryToTrash(_currentEntry!.diaryId);
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -121,32 +178,51 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
   Widget _buildImageViewer() {
     return AspectRatio(
-      aspectRatio: 16 / 9,
-      child: Stack(
-        children: [
-          PageView.builder(
-            itemCount: _currentEntry!.imagePaths.length,
-            onPageChanged: (index) {
-              setState(() {
-                _currentPage = index;
-              });
-            },
-            itemBuilder: (context, index) {
-              return Padding(
+        aspectRatio: 16 / 9,
+        child: Stack(
+          children: [
+        PageView.builder(
+        itemCount: _currentEntry!.imagePaths.length,
+          onPageChanged: (index) {
+            setState(() {
+              _currentPage = index;
+            });
+          },
+          itemBuilder: (context, index) {
+            final imagePath = _currentEntry!.imagePaths[index];
+
+            // VVV 关键修改：用 GestureDetector 包裹图片，使其可以被点击 VVV
+            return GestureDetector(
+              onTap: () {
+                // 点击后，导航到我们新的画廊页面
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => GalleryPage(
+                      imagePaths: _currentEntry!.imagePaths,
+                      initialIndex: index,
+                    ),
+                  ),
+                );
+              },
+              child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(15.0),
-                  child: Image.file(
-                    File(_currentEntry!.imagePaths[index]),
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        _buildImageErrorPlaceholder(),
+                child: Hero( // 添加 Hero 动画，让页面切换更平滑
+                  tag: imagePath,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(15.0),
+                    child: Image.file(
+                      File(imagePath),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          _buildImageErrorPlaceholder(),
+                    ),
                   ),
                 ),
-              );
-            },
-          ),
-          if (_currentEntry!.imagePaths.length > 1)
+              ),
+            );
+          },
+        ),
+        if (_currentEntry!.imagePaths.length > 1)
             Positioned(
               bottom: 16,
               left: 0,
@@ -255,13 +331,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
           _buildMoodIndicator(),
           Padding(
             padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 8.0),
-            child: Text(
-              entry.text.isNotEmpty ? entry.text : '(这天没有写下任何文字)',
-              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontSize: 18,
-                height: 1.6,
-              ),
-            ),
+            child: _buildHighlightedText(entry.text, widget.highlightKeyword ?? ''),
           ),
           if (entry.tags.isNotEmpty)
             Padding(

@@ -13,6 +13,8 @@ import 'dart:io'; // 导入 dart:io
 import 'package:permission_handler/permission_handler.dart';
 import 'package:archive/archive_io.dart';
 import 'dart:typed_data';
+import 'package:my_new_diary/diary_model.dart';
+import 'package:my_new_diary/migration_service.dart';
 
 
 class SettingsPage extends StatefulWidget {
@@ -27,6 +29,10 @@ class _SettingsPageState extends State<SettingsPage> {
   double _progressValue = 0.0;
   String _progressText = '';
 
+  bool _isMigrating = false;
+  bool _migrationDone = false;
+  String _migrationProgressText = '';
+
   bool _isReminderEnabled = false;
   TimeOfDay _reminderTime = const TimeOfDay(hour: 22, minute: 0);
 
@@ -34,6 +40,7 @@ class _SettingsPageState extends State<SettingsPage> {
   void initState() {
     super.initState();
     _loadSettings();
+    _checkMigrationStatus();
   }
 
   Future<void> _loadSettings() async {
@@ -44,6 +51,77 @@ class _SettingsPageState extends State<SettingsPage> {
       final minute = prefs.getInt('reminder_minute') ?? 0;
       _reminderTime = TimeOfDay(hour: hour, minute: minute);
     });
+  }
+
+  Future<void> _checkMigrationStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _migrationDone = prefs.getBool('migration_v2_done') ?? false;
+    });
+  }
+
+  // VVV 4. 添加执行迁移的方法
+  Future<void> _runMigration() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('数据迁移'),
+        content: const Text('这将把您所有的旧文件日记导入到新数据库中。这是一个一次性操作，是否现在开始？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('开始迁移')),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() {
+      _isMigrating = true;
+      _migrationProgressText = '正在查找旧文件...';
+    });
+
+    try {
+      final migrationService = MigrationService();
+      final diaryService = context.read<DiaryService>();
+      final oldEntries = await migrationService.getAllFileEntries();
+
+      if (oldEntries.isEmpty) {
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('没有找到任何旧的日记文件。')));
+      } else {
+        for (int i = 0; i < oldEntries.length; i++) {
+          final oldEntry = oldEntries[i];
+          setState(() {
+            _migrationProgressText = '正在迁移: ${i + 1} / ${oldEntries.length}';
+          });
+          await diaryService.addEntry(oldEntry.toNewDiaryEntry());
+          await Future.delayed(const Duration(milliseconds: 10)); // 避免UI卡顿
+        }
+      }
+
+      // 标记迁移已完成
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('migration_v2_done', true);
+      setState(() => _migrationDone = true);
+
+      if(mounted) {
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('迁移完成'),
+            content: Text('成功迁移 ${oldEntries.length} 篇日记到新数据库！'),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('好的')),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if(mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('迁移失败: $e')));
+    } finally {
+      setState(() => _isMigrating = false);
+    }
   }
 
   Future<void> _handleReminderSwitch(bool value) async {
@@ -155,7 +233,7 @@ class _SettingsPageState extends State<SettingsPage> {
         // 用恢复后的绝对路径替换掉相对路径
         map['imagePaths'] = newAbsoluteImagePaths;
 
-        final newEntry = DiaryEntry.fromMap(map, ''); // filePath 会由 addEntry 生成
+        final newEntry = DiaryEntry.fromMap(map); // filePath 会由 addEntry 生成
         await diaryService.addEntry(newEntry);
         importCount++;
       }
@@ -249,6 +327,15 @@ class _SettingsPageState extends State<SettingsPage> {
         children: [
           ListView(
             children: [
+              if (!_migrationDone) // 仅在未完成迁移时显示
+                ListTile(
+                  leading: Icon(Icons.upgrade_rounded, color: Theme.of(context).colorScheme.primary),
+                  title: const Text('迁移旧数据到数据库'),
+                  subtitle: const Text('（重要）请在首次升级后执行此操作'),
+                  onTap: _isMigrating ? null : _runMigration,
+                ),
+              if (!_migrationDone) const Divider(),
+
               ListTile(
                 leading: const Icon(Icons.notifications_outlined),
                 title: const Text('每日写作提醒'),
@@ -292,6 +379,25 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
+          if (_isMigrating)
+            Container(
+              color: Colors.black.withOpacity(0.6),
+              child: Center(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 20),
+                        Text(_migrationProgressText),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (_isExporting)
             Container(
               color: Colors.black.withOpacity(0.6),

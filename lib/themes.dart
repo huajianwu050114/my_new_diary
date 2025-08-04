@@ -1,64 +1,86 @@
-// file: lib/themes.dart (这是一个新文件)
+// file: lib/themes.dart
 
 import 'package:flutter/material.dart';
 
-// 定义一个枚举来表示不同的主题
-enum AppTheme {
-  dracula,
-  nord,
-  github,
+class AppThemes {
+  // --- 日间模式 (暂时保持不变) ---
+  static final ThemeData lightTheme = ThemeData(
+    brightness: Brightness.light,
+    primarySwatch: Colors.deepPurple,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: Colors.purple.shade100,
+      brightness: Brightness.light,
+    ),
+    useMaterial3: true,
+    fontFamily: 'MiSans',
+    scaffoldBackgroundColor: const Color(0xFFF8F7FA),
+    appBarTheme: AppBarTheme(
+      backgroundColor: Colors.purple.shade50.withOpacity(0.5),
+      elevation: 0,
+      centerTitle: true,
+    ),
+    cardTheme: CardThemeData(
+      elevation: 2.0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15.0),
+      ),
+      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+    ),
+    textTheme: TextTheme(
+      bodyMedium: const TextStyle(fontSize: 16.0, color: Colors.black87),
+      titleMedium: const TextStyle(fontSize: 16.0, fontWeight: FontWeight.w600),
+      bodySmall: TextStyle(fontSize: 12.0, color: Colors.grey[600]),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.deepPurple,
+      ),
+    ),
+  );
+
+  // --- VVV 全新设计的夜间模式 VVV ---
+  static final ThemeData darkTheme = ThemeData(
+    brightness: Brightness.dark,
+    fontFamily: 'MiSans',
+    useMaterial3: true,
+
+    // 核心颜色：使用更深的“近黑”色调
+    scaffoldBackgroundColor: const Color(0xFF0D1117), // 深空黑背景
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xFF58A6FF), // 静谧蓝作为主色调
+      brightness: Brightness.dark,
+      primary: const Color(0xFF58A6FF),
+      secondary: const Color(0xFF8B949E), // 中性灰色作为次要颜色
+      surface: const Color(0xFF161B22), // 炭灰色用于表面
+      onSurface: const Color(0xFFC9D1D9), // 柔和白文字
+    ),
+
+    // 卡片主题：使用比背景稍亮的纯色
+    cardTheme: CardThemeData(
+      color: const Color(0xFF161B22), // 炭灰色卡片
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(15.0),
+        side: const BorderSide(color: Color(0xFF30363D), width: 1), // 添加一个微妙的边框增加质感
+      ),
+      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+    ),
+
+    // 其他组件样式
+    appBarTheme: AppBarTheme(
+      backgroundColor: const Color(0xFF161B22), // 使用卡片/表面颜色
+      elevation: 0,
+      centerTitle: true,
+    ),
+    textTheme: TextTheme(
+      bodyMedium: TextStyle(fontSize: 16.0, color: Colors.white.withOpacity(0.87)),
+      titleMedium: TextStyle(fontSize: 16.0, fontWeight: FontWeight.w600, color: Colors.white.withOpacity(0.87)),
+      bodySmall: TextStyle(fontSize: 12.0, color: Colors.white.withOpacity(0.6)),
+    ),
+    dividerTheme: DividerThemeData(
+      color: const Color(0xFF30363D),
+    ),
+  );
 }
-
-// 将主题数据集中管理
-final appThemes = {
-  AppTheme.dracula: ThemeData(
-    brightness: Brightness.dark,
-    fontFamily: 'MiSans',
-    scaffoldBackgroundColor: const Color(0xFF282a36), // Dracula 背景色
-    primaryColor: const Color(0xFFbd93f9), // Dracula 紫色
-    colorScheme: const ColorScheme.dark(
-      primary: Color(0xFFbd93f9), // 紫色
-      secondary: Color(0xFF50fa7b), // 绿色
-      surface: Color(0xFF44475a), // Dracula 卡片/表面色
-      onPrimary: Colors.black,
-      onSecondary: Colors.black,
-      onSurface: Color(0xFFf8f8f2), // Dracula 文字颜色
-    ),
-    cardColor: const Color(0xFF44475a),
-    dividerColor: const Color(0xFF6272a4),
-  ),
-
-  AppTheme.nord: ThemeData(
-    brightness: Brightness.dark,
-    fontFamily: 'MiSans',
-    scaffoldBackgroundColor: const Color(0xFF2E3440), // Nord 背景色
-    primaryColor: const Color(0xFF88C0D0), // Nord 浅蓝色
-    colorScheme: const ColorScheme.dark(
-      primary: Color(0xFF88C0D0), // 浅蓝色
-      secondary: Color(0xFF81A1C1), // 蓝灰色
-      surface: Color(0xFF3B4252), // Nord 卡片/表面色
-      onPrimary: Colors.black,
-      onSecondary: Colors.black,
-      onSurface: Color(0xFFECEFF4), // Nord 文字颜色
-    ),
-    cardColor: const Color(0xFF3B4252),
-    dividerColor: const Color(0xFF4C566A),
-  ),
-
-  AppTheme.github: ThemeData(
-    brightness: Brightness.dark,
-    fontFamily: 'MiSans',
-    scaffoldBackgroundColor: const Color(0xFF0D1117), // GitHub 背景色
-    primaryColor: const Color(0xFF58A6FF), // GitHub 蓝色
-    colorScheme: const ColorScheme.dark(
-      primary: Color(0xFF58A6FF), // 蓝色
-      secondary: Color(0xFF3FB950), // 绿色
-      surface: Color(0xFF161B22), // GitHub 卡片/表面色
-      onPrimary: Colors.white,
-      onSecondary: Colors.white,
-      onSurface: Color(0xFFC9D1D9), // GitHub 文字颜色
-    ),
-    cardColor: const Color(0xFF161B22),
-    dividerColor: const Color(0xFF21262D),
-  ),
-};

@@ -7,6 +7,8 @@ import 'package:geocoding/geocoding.dart';
 import 'diary_service.dart';
 import 'map_selection_page.dart';
 import 'package:latlong2/latlong.dart' as latlong;
+import 'package:my_new_diary/diary_model.dart';
+
 
 class AddDiaryPage extends StatefulWidget {
   // VVV 1. 改造构造函数 VVV
@@ -68,6 +70,9 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
 
   // VVV 4. 改造保存方法，使其能处理两种模式 VVV
   void _saveDiary() async {
+    // 为防止异步操作后 context 不可用，先获取 service
+    final diaryService = context.read<DiaryService>();
+
     if (_tagController.text.trim().isNotEmpty) {
       setState(() => _tags.add(_tagController.text.trim()));
       _tagController.clear();
@@ -79,41 +84,50 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       return;
     }
 
-    if (_isEditMode) {
-      // --- 编辑模式的逻辑 ---
-      final updatedEntry = widget.entryToEdit!.copyWith(
-        text: text,
-        imagePaths: _imageFiles.map((f) => f.path).toList(),
-        mood: _selectedMood,
-        tags: _tags,
-        latitude: _latitude,
-        longitude: _longitude,
-        address: _address,
-      );
-      // 调用 service 的更新方法
-      await context.read<DiaryService>().updateEntry(updatedEntry);
-    } else {
-      // --- 新建模式的逻辑 (保持不变) ---
-      final newEntry = DiaryEntry(
-        filePath: '', // 新建时为空，由 service 生成
-        text: text,
-        imagePaths: _imageFiles.map((file) => file.path).toList(),
-        date: widget.selectedDate!,
-        creationTime: DateTime.now(),
-        mood: _selectedMood,
-        tags: _tags,
-        latitude: _latitude,
-        longitude: _longitude,
-        address: _address,
-      );
-      await context.read<DiaryService>().addEntry(newEntry);
-    }
+    // 使用 try-catch 块来捕获并打印任何潜在的错误
+    try {
+      if (_isEditMode) {
+        // --- 编辑模式 ---
+        final updatedEntry = widget.entryToEdit!.copyWith(
+          text: text,
+          imagePaths: _imageFiles.map((f) => f.path).toList(),
+          mood: _selectedMood,
+          tags: _tags,
+          latitude: _latitude,
+          longitude: _longitude,
+          address: _address,
+        );
+        await diaryService.updateEntry(updatedEntry);
+      } else {
+        // --- 新建模式 ---
+        final newEntry = DiaryEntry(
+          diaryId: '', // ID 为空，让 Service 自动生成
+          text: text,
+          imagePaths: _imageFiles.map((file) => file.path).toList(),
+          date: widget.selectedDate!,
+          creationTime: DateTime.now(),
+          mood: _selectedMood,
+          tags: _tags,
+          latitude: _latitude,
+          longitude: _longitude,
+          address: _address,
+        );
+        await diaryService.addEntry(newEntry);
+      }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
-      Navigator.of(context).pop();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      // 如果发生任何错误，打印出来并显示提示
+      print("保存日记时出错: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e')));
+      }
     }
   }
+
   Future<void> _pickImages() async {
     final ImagePicker picker = ImagePicker();
     final List<XFile> pickedFiles = await picker.pickMultipleMedia(imageQuality: 80);

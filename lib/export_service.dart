@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:archive/archive_io.dart'; // VVV 1. 导入 archive 包// VVV 2. 导入 path_provider 包';
 import 'package:path/path.dart' as p;
+import 'package:my_new_diary/diary_model.dart';
 
 typedef ExportProgressCallback = void Function(int current, int total);
 

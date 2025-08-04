@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'diary_service.dart';
 import 'diary_view_page.dart';
+import 'package:my_new_diary/diary_model.dart';
 
 class RecycleBinPage extends StatefulWidget {
   const RecycleBinPage({super.key});
@@ -90,7 +91,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
                         icon: const Icon(Icons.restore, color: Colors.green),
                         tooltip: '恢复',
                         onPressed: () {
-                          diaryService.restoreFromTrash(entry.filePath);
+                          diaryService.restoreFromTrash(entry.diaryId);
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('日记已恢复')),
                           );
@@ -103,7 +104,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
                         onPressed: () async {
                           final confirm = await _showDeleteConfirmDialog();
                           if (confirm) {
-                            diaryService.deletePermanently(entry.filePath);
+                            diaryService.deletePermanently(entry.diaryId);
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('日记已永久删除')),
                             );
