@@ -20,6 +20,7 @@ import 'diary_home_page.dart';
 import 'themes.dart';
 import 'dart:io';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'quill_test_page.dart';
 
 void main() async {
   // 確保Flutter綁定已初始化
@@ -71,7 +72,7 @@ class MyApp extends StatelessWidget {
       theme: AppThemes.lightTheme,
       darkTheme: AppThemes.darkTheme,
       themeMode: themeProvider.themeMode,
-      home: const AuthGate(),
+      home: const HomePage(),
       debugShowCheckedModeBanner: false,
     );
   }

@@ -11,6 +11,8 @@ import 'ai_chat_page.dart';
 import 'add_diary_page.dart';
 import 'package:my_new_diary/diary_model.dart';
 import 'gallery_page.dart';
+import 'package:flutter_quill/flutter_quill.dart';
+import 'dart:convert';
 
 class DiaryViewPage extends StatefulWidget {
   final DiaryEntry entry;
@@ -31,6 +33,8 @@ class DiaryViewPage extends StatefulWidget {
 class _DiaryViewPageState extends State<DiaryViewPage> {
   // VVV 1. 将 'late' 声明改为可空类型 'DiaryEntry?' VVV
   DiaryEntry? _currentEntry;
+  late QuillController _controller;
+  bool _isLoading = true;
   int _currentPage = 0;
   final GeminiServiceLocal _geminiService = GeminiServiceLocal();
 
@@ -39,6 +43,20 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     super.initState();
     // VVV 2. 在 initState 中初始化它 VVV
     _currentEntry = widget.entry;
+    _loadContent();
+  }
+
+  void _loadContent() {
+    // 从数据库的JSON字符串初始化 QuillController
+    try {
+      final doc = Document.fromJson(jsonDecode(_currentEntry!.text));
+      _controller = QuillController(document: doc, selection: const TextSelection.collapsed(offset: 0));
+    } catch (e) {
+      // 兼容旧的纯文本数据
+      final doc = Document()..insert(0, _currentEntry!.text);
+      _controller = QuillController(document: doc, selection: const TextSelection.collapsed(offset: 0));
+    }
+    setState(() => _isLoading = false);
   }
 
   Widget _buildMoodIndicator() {
@@ -320,13 +338,18 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
           if (hasImages) _buildImageViewer(),
           if (entry.address != null && entry.address!.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: ListTile(
-                leading: const Icon(Icons.location_on_outlined),
-                title: Text(entry.address!),
-                dense: true,
+              padding: const EdgeInsets.all(16.0),
+              child: QuillEditor.basic(
+                configurations: QuillEditorConfigurations(
+                  controller: _controller,
+                  readOnly: true, // 设置为只读
+                  showCursor: false,
+                  autoFocus: false,
+                  expands: false,
+                ),
               ),
             ),
+
 
           _buildMoodIndicator(),
           Padding(
