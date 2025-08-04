@@ -6,13 +6,7 @@ import 'package:provider/provider.dart';
 import 'gemini_service_local.dart';
 import 'diary_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-
-// Data structure to hold the chat message and its metadata
-class ChatMessage {
-  final Content content;
-  final Duration? thinkingTime;
-  ChatMessage(this.content, {this.thinkingTime});
-}
+import 'package:uuid/uuid.dart';
 
 class AiChatPage extends StatefulWidget {
   final DiaryEntry entry;
@@ -23,17 +17,54 @@ class AiChatPage extends StatefulWidget {
 }
 
 class _AiChatPageState extends State<AiChatPage> {
+  // --- Services & Controllers ---
   final GeminiServiceLocal _geminiService = GeminiServiceLocal();
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  final List<ChatMessage> _messages = [];
+  // --- State Variables ---
+  // VVV 1. MODIFICATION: Changed from 'late' to nullable 'DiaryEntry?' VVV
+  DiaryEntry? _currentEntry;
+  Conversation? _activeConversation;
   bool _isLoading = false;
+  final Set<Content> _selectedMessages = {};
 
   @override
   void initState() {
     super.initState();
-    _loadInitialAnalysis();
+    // VVV 2. MODIFICATION: Initialize the nullable variable. It's now guaranteed to be non-null after this point. VVV
+    _currentEntry = widget.entry;
+
+
+    if (_currentEntry!.conversations.isEmpty) {
+      _createNewConversation();
+    } else {
+      setState(() {
+        _activeConversation = _currentEntry!.conversations.first;
+      });
+    }
+  }
+
+  Future<void> _startAnalysisForConversation(Conversation conversation) async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    // 使用日记原文作为上下文
+    final (responseText, _) = await _geminiService.generateResponse([Content.text(_currentEntry!.text)]);
+
+    if (mounted) {
+      setState(() {
+        // 将日记原文和AI的首次回复加入该对话的历史记录
+        conversation.history.add(Content.text(_currentEntry!.text));
+        conversation.history.add(Content.model([TextPart(responseText ?? "抱歉，发生了错误...")]));
+        // 将日记的第一行作为对话标题
+        conversation.title = _currentEntry!.text.split('\n').first;
+        _isLoading = false;
+      });
+      _scrollToBottom();
+      await _saveConversations();
+    }
   }
 
   @override
@@ -43,56 +74,131 @@ class _AiChatPageState extends State<AiChatPage> {
     super.dispose();
   }
 
-  Future<void> _loadInitialAnalysis() async {
+  // --- Core Logic ---
+  // VVV 3. MODIFICATION: Use the '!' operator to assert that _currentEntry is not null. VVV
+
+  Conversation? get _getActiveConversation {
+    if (_activeConversation == null) return null;
+    // This is a safer way to find the conversation without causing an error.
+    for (final conversation in _currentEntry!.conversations) {
+      if (conversation.id == _activeConversation!.id) {
+        return conversation;
+      }
+    }
+    return null; // Return null if no matching conversation is found in the list.
+  }
+
+  void _createNewConversation() {
+    final newConversation = Conversation(
+      id: const Uuid().v4(),
+      title: '正在分析...', // 临时标题
+      history: [],
+    );
+    setState(() {
+      _currentEntry!.conversations.insert(0, newConversation);
+      _activeConversation = newConversation;
+    });
+
+    // 创建后立即开始分析
+    _startAnalysisForConversation(newConversation);
+  }
+
+  void _deleteConversation(String conversationId) {
+    setState(() {
+      _currentEntry!.conversations.removeWhere((c) => c.id == conversationId);
+      if (_activeConversation?.id == conversationId) {
+        _activeConversation = _currentEntry!.conversations.isNotEmpty ? _currentEntry!.conversations.first : null;
+      }
+    });
+    _saveConversations();
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _saveConversations() async {
+    await context.read<DiaryService>().updateEntry(_currentEntry!);
+  }
+
+  Future<void> _startInitialAnalysisForConversation(Conversation conversation) async {
     if (!mounted) return;
     setState(() => _isLoading = true);
-    final initialHistory = [Content.text(widget.entry.text)];
 
-    // FIX: Unpack the (String?, Duration) record into two separate variables.
-    final (responseText, duration) = await _geminiService.generateResponse(
-        initialHistory);
+    final (responseText, _) = await _geminiService.generateResponse([Content.text(_currentEntry!.text)]);
+
     if (mounted) {
       setState(() {
-        _messages.add(ChatMessage(Content.text(widget.entry.text)));
-        _messages.add(ChatMessage(Content.model(
-            [TextPart(responseText ?? "Sorry, an error occurred...")]),
-            thinkingTime: duration));
+        conversation.history.add(Content.text(_currentEntry!.text));
+        conversation.history.add(Content.model([TextPart(responseText ?? "抱歉，发生了错误...")]));
+        conversation.title = _currentEntry!.text.split('\n').first;
         _isLoading = false;
       });
       _scrollToBottom();
+      await _saveConversations();
     }
   }
 
   Future<void> _sendMessage() async {
-    if (_textController.text
-        .trim()
-        .isEmpty || _isLoading) return;
+    final conversation = _getActiveConversation;
+    if (_textController.text.trim().isEmpty || _isLoading || conversation == null) return;
+
     final message = _textController.text.trim();
     _textController.clear();
 
     final userMessage = Content.text(message);
     setState(() {
       _isLoading = true;
-      _messages.add(ChatMessage(userMessage));
+      conversation.history.add(userMessage);
     });
     _scrollToBottom();
 
-    final history = _messages.map((m) => m.content).toList();
-
-    // FIX: Unpack the record here as well.
-    final (responseText, duration) = await _geminiService.generateResponse(
-        history);
+    // VVV 3a. 关键修改：不再需要手动添加上下文 VVV
+    // 因为上下文（日记原文）已经是 history 的第一条消息了
+    final (responseText, _) = await _geminiService.generateResponse(conversation.history);
 
     if (mounted) {
       setState(() {
-        _messages.add(ChatMessage(Content.model(
-            [TextPart(responseText ?? "Sorry, an error occurred...")]),
-            thinkingTime: duration));
+        conversation.history.add(Content.model([TextPart(responseText ?? "抱歉，发生了错误...")]));
         _isLoading = false;
       });
       _scrollToBottom();
+      await _saveConversations();
     }
   }
+
+  Future<void> _saveSelectedAsAnalysis() async {
+    if (_selectedMessages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('请先勾选需要保存的内容。')));
+      return;
+    }
+
+    final conversation = _getActiveConversation;
+    if (conversation == null) return;
+
+    final sortedSelected = conversation.history.where((msg) => _selectedMessages.contains(msg)).toList();
+
+    // VVV 5a. 在保存的内容顶部加上对话标题 VVV
+    final String header = '**${conversation.title}**\n\n---\n\n';
+
+    final conversationBody = sortedSelected.map((content) {
+      final role = content.role == 'user' ? '**我:**' : '**AI:**';
+      final text = content.parts.whereType<TextPart>().map((p) => p.text).join('');
+      return '$role\n$text';
+    }).join('\n\n---\n\n');
+
+    final formattedText = header + conversationBody;
+
+    if (formattedText.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('没有可保存的对话。')));
+      return;
+    }
+
+    await context.read<DiaryService>().saveConversationAsAnalysis(_currentEntry!.filePath, formattedText);
+
+    if(mounted) {
+      setState(() => _selectedMessages.clear());
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已保存到AI分析记录！')));
+    }
+  }
+
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -101,37 +207,56 @@ class _AiChatPageState extends State<AiChatPage> {
     });
   }
 
-  Future<void> _saveAnalysis(String analysisText) async {
-    await context.read<DiaryService>().addAnalysisToEntry(widget.entry, analysisText);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Analysis saved!'), duration: Duration(seconds: 1)));
-  }
+
+  // --- UI Widgets ---
 
   @override
   Widget build(BuildContext context) {
+    final conversation = _getActiveConversation;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('与AI对话')),
+      key: _scaffoldKey,
+      appBar: AppBar(
+        title: Text(conversation?.title ?? '与AI对话'),
+        actions: [
+          // “追加勾选内容”按钮
+          IconButton(
+            icon: const Icon(Icons.bookmark_add_outlined), // 换一个更贴切的图标
+            tooltip: '保存勾选内容到分析记录',
+            onPressed: _selectedMessages.isEmpty ? null : _saveSelectedAsAnalysis, // 调用新方法
+          ),
+          // 打开侧边栏按钮
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            tooltip: '对话列表',
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
+        ],
+      ),
+      // VVV 侧边栏 VVV
+      endDrawer: _buildConversationDrawer(),
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
+            child: conversation == null
+                ? const Center(child: Text('没有活动的对话。'))
+                : ListView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(8.0),
-              itemCount: _messages.length,
+              itemCount: conversation.history.length,
               itemBuilder: (context, index) {
-                final message = _messages[index];
-                final isUser = message.content.role == 'user';
-                final isFirstMessage = index == 0;
-                final text = message.content.parts.whereType<TextPart>().map((p) => p.text).join('');
+                final message = conversation.history[index];
+                final isUser = message.role == 'user';
+                final text = message.parts.whereType<TextPart>().map((p) => p.text).join('');
 
-                if (isFirstMessage) {
+                if (index == 0 && isUser) {
                   return _buildDiaryContextCard(text);
                 }
 
                 return _buildChatBubble(
+                  message: message,
                   text: text,
                   isUser: isUser,
-                  thinkingTime: message.thinkingTime,
-                  onSave: () => _saveAnalysis(text),
                 );
               },
             ),
@@ -140,6 +265,124 @@ class _AiChatPageState extends State<AiChatPage> {
           _buildInputBar(),
         ],
       ),
+    );
+  }
+
+  /// 构建侧边栏
+  Widget _buildConversationDrawer() {
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.add_comment_outlined),
+              title: const Text('新建对话'),
+              onTap: () {
+                _createNewConversation();
+                Navigator.of(context).pop();
+              },
+            ),
+            const Divider(),
+            Expanded(
+              child: ListView.builder(
+                itemCount: _currentEntry!.conversations.length,
+                itemBuilder: (context, index) {
+                  final conv = _currentEntry!.conversations[index];
+                  final bool isActive = _activeConversation?.id == conv.id;
+                  return ListTile(
+                    leading: const Icon(Icons.forum_outlined),
+                    title: Text(
+                      conv.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    selected: isActive,
+                    selectedTileColor: Theme.of(context).primaryColor.withOpacity(0.1),
+                    onTap: () {
+                      setState(() => _activeConversation = conv);
+                      Navigator.of(context).pop();
+                    },
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                      onPressed: () => _deleteConversation(conv.id),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 构建带有勾选框的聊天气泡
+  Widget _buildChatBubble({required Content message, required String text, required bool isUser}) {
+    final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSelected = _selectedMessages.contains(message);
+
+    return Row(
+      mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // AI消息的勾选框在左边
+        if (!isUser)
+          Checkbox(
+            value: isSelected,
+            onChanged: (val) {
+              setState(() {
+                if (val == true) {
+                  _selectedMessages.add(message);
+                } else {
+                  _selectedMessages.remove(message);
+                }
+              });
+            },
+          ),
+
+        // 气泡本身
+        Align(
+          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: screenWidth * 0.65),
+            child: Card(
+              elevation: 2,
+              color: isUser ? theme.colorScheme.primary : theme.colorScheme.surfaceVariant,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
+                child: MarkdownBody(
+                  data: text,
+                  selectable: true,
+                  styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+                    p: theme.textTheme.bodyLarge?.copyWith(
+                      color: isUser ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
+                      fontSize: 16, height: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // 用户消息的勾选框在右边
+        if (isUser)
+          Checkbox(
+            value: isSelected,
+            onChanged: (val) {
+              setState(() {
+                if (val == true) {
+                  _selectedMessages.add(message);
+                } else {
+                  _selectedMessages.remove(message);
+                }
+              });
+            },
+          ),
+      ],
     );
   }
 
@@ -154,7 +397,7 @@ class _AiChatPageState extends State<AiChatPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("对话内容（你的日记）", style: Theme.of(context).textTheme.bodySmall),
+            Text("对话上下文 (你的日记)", style: Theme.of(context).textTheme.bodySmall),
             const Divider(height: 16),
             SelectableText(text, style: const TextStyle(height: 1.5)),
           ],
@@ -163,71 +406,10 @@ class _AiChatPageState extends State<AiChatPage> {
     );
   }
 
-  Widget _buildChatBubble({required String text, required bool isUser, Duration? thinkingTime, required VoidCallback onSave}) {
-    final theme = Theme.of(context);
-    // 获取屏幕宽度，用于计算气泡的最大宽度
-    final screenWidth = MediaQuery.of(context).size.width;
-
-    return Column(
-      crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      children: [
-        Align(
-          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-          // 【修正2】: 使用ConstrainedBox来限制气泡的最大宽度
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: screenWidth * 0.75, // 气泡最大宽度为屏幕的75%
-            ),
-            child: Card(
-              elevation: 2,
-              color: isUser ? theme.colorScheme.primary : theme.colorScheme.surfaceVariant,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-              child: Padding(
-                // 【修正1】: 增加了垂直和水平的内边距
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
-                child: SelectableText( // 或者您之前修改的MarkdownBody
-                  text,
-                  style: TextStyle(
-                    color: isUser ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant,
-                    fontSize: 16, // 可以适当调整字体大小
-                    height: 1.5,  // 增加行高，让多行文字也更舒适
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        // 下方的“思考耗时”和“保存”按钮部分保持不变
-        if (!isUser)
-          Padding(
-            padding: const EdgeInsets.only(left: 16.0, top: 4.0),
-            child: Row(
-              children: [
-                if (thinkingTime != null)
-                  Text(
-                    '思考耗时: ${(thinkingTime.inMilliseconds / 1000).toStringAsFixed(1)}s',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                const SizedBox(width: 16),
-                TextButton.icon(
-                  icon: const Icon(Icons.bookmark_add_outlined, size: 16),
-                  label: const Text('保存此条'),
-                  onPressed: onSave,
-                  style: TextButton.styleFrom(
-                    textStyle: const TextStyle(fontSize: 12),
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
+  // VVV 15. 修改 _buildChatBubble 定义，移除不再需要的参数 VVV
 
   Widget _buildInputBar() {
+    // This method remains the same
     final theme = Theme.of(context);
     return Padding(
       padding: EdgeInsets.fromLTRB(8, 8, 8, 8 + MediaQuery.of(context).padding.bottom),

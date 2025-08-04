@@ -8,6 +8,7 @@ import 'diary_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'gemini_service_local.dart';
 import 'ai_chat_page.dart';
+import 'add_diary_page.dart';
 
 class DiaryViewPage extends StatefulWidget {
   final DiaryEntry entry;
@@ -17,10 +18,76 @@ class DiaryViewPage extends StatefulWidget {
   State<DiaryViewPage> createState() => _DiaryViewPageState();
 }
 
+// file: lib/diary_view_page.dart
+
 class _DiaryViewPageState extends State<DiaryViewPage> {
-  // VVV 1. 添加状态来追踪当前图片页码 VVV
+  // VVV 1. 将 'late' 声明改为可空类型 'DiaryEntry?' VVV
+  DiaryEntry? _currentEntry;
   int _currentPage = 0;
   final GeminiServiceLocal _geminiService = GeminiServiceLocal();
+
+  @override
+  void initState() {
+    super.initState();
+    // VVV 2. 在 initState 中初始化它 VVV
+    _currentEntry = widget.entry;
+  }
+
+  Widget _buildMoodIndicator() {
+    final entry = _currentEntry!;
+    // 如果这篇日记没有设置心情，则不显示任何东西
+    if (entry.mood == null || entry.mood!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // 从 add_diary_page.dart 复制心情代码到文字的映射
+    const Map<String, String> moodMap = {
+      '1': '特别开心', '2': '很开心', '3': '有点开心', '4': '一般',
+      '5': '有点伤心', '6': '伤心', '7': '很伤心', '8': '崩溃', '0': '生病',
+    };
+
+    // 创建一个辅助函数来获取对应心情的图标
+    IconData _getMoodIcon(String moodCode) {
+      switch (moodCode) {
+        case '1': return Icons.sentiment_very_satisfied;
+        case '2': return Icons.sentiment_satisfied;
+        case '3': return Icons.mood;
+        case '4': return Icons.sentiment_neutral;
+        case '5': return Icons.sentiment_dissatisfied;
+        case '6': return Icons.sentiment_dissatisfied;
+        case '7': return Icons.sentiment_very_dissatisfied;
+        case '8': return Icons.mood_bad;
+        case '0': return Icons.sick;
+        default: return Icons.help_outline;
+      }
+    }
+
+    final moodText = moodMap[entry.mood!] ?? '未知心情';
+    final moodIcon = _getMoodIcon(entry.mood!);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Chip(
+          avatar: Icon(moodIcon, color: Theme.of(context).colorScheme.primary),
+          label: Text('今日心情: $moodText'),
+          backgroundColor: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.4),
+          side: BorderSide(color: Theme.of(context).colorScheme.primary.withOpacity(0.2)),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _reloadData() async {
+    // VVV 3. 使用 '!' 来安全地访问非空变量 VVV
+    final updatedEntry = await DiaryService.fromFile(File(_currentEntry!.filePath));
+    if (mounted) {
+      setState(() {
+        _currentEntry = updatedEntry;
+      });
+    }
+  }
 
   void _deleteDiary() async {
     final bool? confirmDelete = await showDialog<bool>(
@@ -44,24 +111,21 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         );
       },
     );
-
     if (confirmDelete == true && mounted) {
-      await context.read<DiaryService>().moveEntryToTrash(widget.entry.filePath);
+      await context.read<DiaryService>().moveEntryToTrash(_currentEntry!.filePath);
       if (mounted) {
         Navigator.of(context).pop();
       }
     }
   }
 
-  // VVV 2. 构建图片浏览器 VVV
   Widget _buildImageViewer() {
     return AspectRatio(
       aspectRatio: 16 / 9,
       child: Stack(
         children: [
-          // 可滑动的 PageView
           PageView.builder(
-            itemCount: widget.entry.imagePaths.length,
+            itemCount: _currentEntry!.imagePaths.length,
             onPageChanged: (index) {
               setState(() {
                 _currentPage = index;
@@ -73,23 +137,24 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(15.0),
                   child: Image.file(
-                    File(widget.entry.imagePaths[index]),
+                    File(_currentEntry!.imagePaths[index]),
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => _buildImageErrorPlaceholder(),
+                    errorBuilder: (context, error, stackTrace) =>
+                        _buildImageErrorPlaceholder(),
                   ),
                 ),
               );
             },
           ),
-          // 底部的页码指示器
-          if (widget.entry.imagePaths.length > 1)
+          if (_currentEntry!.imagePaths.length > 1)
             Positioned(
               bottom: 16,
               left: 0,
               right: 0,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(widget.entry.imagePaths.length, (index) {
+                children:
+                List.generate(_currentEntry!.imagePaths.length, (index) {
                   return Container(
                     width: 8,
                     height: 8,
@@ -111,30 +176,47 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
   @override
   Widget build(BuildContext context) {
-    final entry = widget.entry;
+    // VVV 4. 同样，在这里使用 '!' 来确保 entry 非空 VVV
+    final entry = _currentEntry!;
     final bool hasImages = entry.imagePaths.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
-        // ... (title, actions etc.)
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) async {
-              if (value == 'chat_with_ai') {
-                // Correct way to navigate to the AiChatPage widget
+              if (value == 'edit') { // VVV 2. 添加处理 'edit' 的逻辑 VVV
+                // 使用 await 等待编辑页面返回
                 await Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (context) => AiChatPage(entry: widget.entry),
+                    // 跳转到 AddDiaryPage，并把当前日记作为参数传过去
+                    builder: (context) =>
+                        AddDiaryPage(entryToEdit: _currentEntry),
                   ),
                 );
-                // Refresh the state when returning from the chat page
-                setState(() {});
+                // 编辑完成后，重新加载数据以刷新页面
+                _reloadData();
+              }else if (value == 'chat_with_ai') {
+                await Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => AiChatPage(entry: _currentEntry!),
+                  ),
+                );
+                _reloadData();
               } else if (value == 'delete') {
                 _deleteDiary();
               }
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               const PopupMenuItem<String>(
+                value: 'edit',
+                child: ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('编辑日记'),
+                ),
+              ),
+              const PopupMenuItem<String>(
+
                 value: 'chat_with_ai',
                 child: ListTile(
                   leading: Icon(Icons.auto_awesome_outlined),
@@ -154,13 +236,12 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 24.0), // Add some padding to the bottom
+        padding: const EdgeInsets.only(bottom: 24.0),
         children: [
           if (hasImages)
-            SizedBox(height: MediaQuery.of(context).padding.top + kToolbarHeight),
-
+            SizedBox(
+                height: MediaQuery.of(context).padding.top + kToolbarHeight),
           if (hasImages) _buildImageViewer(),
-
           if (entry.address != null && entry.address!.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -171,7 +252,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
               ),
             ),
 
-          // Diary Text
+          _buildMoodIndicator(),
           Padding(
             padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 8.0),
             child: Text(
@@ -182,43 +263,59 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
               ),
             ),
           ),
-
-          // Tags
           if (entry.tags.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
               child: Wrap(
                 spacing: 8.0,
                 runSpacing: 8.0,
-                children: entry.tags.map((tag) => Chip(label: Text(tag))).toList(),
+                children:
+                entry.tags.map((tag) => Chip(label: Text(tag))).toList(),
               ),
             ),
           if (entry.aiAnalyses.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(left: 16.0, top: 8, bottom: 8),
+                    padding:
+                    const EdgeInsets.only(left: 16.0, top: 8, bottom: 8),
                     child: Text(
                       "AI 分析记录 (${entry.aiAnalyses.length})",
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
-                  ...entry.aiAnalyses.map((analysis) => _buildAnalysisTile(analysis)).toList(),
+                  ...entry.aiAnalyses
+                      .map((analysis) => _buildAnalysisTile(analysis))
+                      .toList(),
                 ],
               ),
             ),
           Padding(
             padding: const EdgeInsets.only(top: 32, right: 24.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
                   '写于 ${DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime)}',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
+                // 如果存在 lastModifiedTime，就显示这一行
+                if (entry.lastModifiedTime != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      '修改于 ${DateFormat('yyyy-MM-dd HH:mm').format(entry.lastModifiedTime!)}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: 11, // 让修改时间稍微小一点
+                        color: Colors.grey, // 颜色变淡以作区分
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -245,6 +342,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
       ),
     );
   }
+
   Widget _buildAnalysisTile(String analysisText) {
     return Card(
       elevation: 1,
@@ -253,7 +351,6 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
       child: ExpansionTile(
         leading: Icon(Icons.bookmark_border, color: Colors.amber.shade800),
         title: Text(
-          // 将分析内容的第一行作为标题预览
           analysisText.split('\n').first,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -261,15 +358,18 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         ),
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: MarkdownBody(
-        data: analysisText,
-        selectable: true,
-        styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-          p: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6),
-        ),
-          )
-          )
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: MarkdownBody(
+                data: analysisText,
+                selectable: true,
+                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
+                    .copyWith(
+                  p: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(height: 1.6),
+                ),
+              ))
         ],
       ),
     );

@@ -1,18 +1,19 @@
-// file: lib/add_diary_page.dart
-
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:geolocator/geolocator.dart'; // VVV 1. Import new packages
+import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'diary_service.dart';
 import 'map_selection_page.dart';
-import 'package:latlong2/latlong.dart' as latlong;// flutter_map 使用 latlong2 包来处理坐标
+import 'package:latlong2/latlong.dart' as latlong;
 
 class AddDiaryPage extends StatefulWidget {
-  final DateTime selectedDate;
-  const AddDiaryPage({super.key, required this.selectedDate});
+  // VVV 1. 改造构造函数 VVV
+  final DateTime? selectedDate;  // 用于新建日记
+  final DiaryEntry? entryToEdit; // 用于编辑日记
+
+  const AddDiaryPage({super.key, this.selectedDate, this.entryToEdit});
 
   @override
   State<AddDiaryPage> createState() => _AddDiaryPageState();
@@ -29,11 +30,34 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
   final List<String> _tags = [];
   final TextEditingController _tagController = TextEditingController();
 
-  // VVV 2. Add state variables for location
   double? _latitude;
   double? _longitude;
   String? _address;
   bool _isFetchingLocation = false;
+
+  // VVV 2. 添加一个状态来判断当前是“编辑”还是“新建”模式 VVV
+  bool _isEditMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // VVV 3. 在初始化时，检查是否是编辑模式 VVV
+    if (widget.entryToEdit != null) {
+      setState(() {
+        _isEditMode = true;
+        final entry = widget.entryToEdit!;
+
+        // 用旧日记的数据填充所有控件
+        _textController.text = entry.text;
+        _imageFiles.addAll(entry.imagePaths.map((path) => File(path)));
+        _selectedMood = entry.mood;
+        _tags.addAll(entry.tags);
+        _latitude = entry.latitude;
+        _longitude = entry.longitude;
+        _address = entry.address;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -42,7 +66,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
     super.dispose();
   }
 
-  // VVV 3. Update save logic to include location
+  // VVV 4. 改造保存方法，使其能处理两种模式 VVV
   void _saveDiary() async {
     if (_tagController.text.trim().isNotEmpty) {
       setState(() => _tags.add(_tagController.text.trim()));
@@ -55,20 +79,36 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       return;
     }
 
-    final newEntry = DiaryEntry(
-      filePath: '',
-      text: text,
-      imagePaths: _imageFiles.map((file) => file.path).toList(),
-      date: widget.selectedDate,
-      creationTime: DateTime.now(),
-      mood: _selectedMood,
-      tags: _tags,
-      latitude: _latitude,
-      longitude: _longitude,
-      address: _address,
-    );
+    if (_isEditMode) {
+      // --- 编辑模式的逻辑 ---
+      final updatedEntry = widget.entryToEdit!.copyWith(
+        text: text,
+        imagePaths: _imageFiles.map((f) => f.path).toList(),
+        mood: _selectedMood,
+        tags: _tags,
+        latitude: _latitude,
+        longitude: _longitude,
+        address: _address,
+      );
+      // 调用 service 的更新方法
+      await context.read<DiaryService>().updateEntry(updatedEntry);
+    } else {
+      // --- 新建模式的逻辑 (保持不变) ---
+      final newEntry = DiaryEntry(
+        filePath: '', // 新建时为空，由 service 生成
+        text: text,
+        imagePaths: _imageFiles.map((file) => file.path).toList(),
+        date: widget.selectedDate!,
+        creationTime: DateTime.now(),
+        mood: _selectedMood,
+        tags: _tags,
+        latitude: _latitude,
+        longitude: _longitude,
+        address: _address,
+      );
+      await context.read<DiaryService>().addEntry(newEntry);
+    }
 
-    await context.read<DiaryService>().addEntry(newEntry);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
       Navigator.of(context).pop();

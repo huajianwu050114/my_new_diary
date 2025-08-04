@@ -4,7 +4,8 @@ import 'dart:async';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiServiceLocal {
-  static const _apiKey = String.fromEnvironment('API_KEY');
+  //static const _apiKey = String.fromEnvironment('API_KEY');
+  static const _apiKey = 'AIzaSyC3U9eB_VwvfbybGT6OCRe0ZIOEC22Tu6s';
 
   /// 核心方法：接收对话历史，返回AI的回复和思考时长
   Future<(String?, Duration)> generateResponse(List<Content> history) async {
