@@ -379,7 +379,7 @@ $responseText
       });
     }
     // 如果今天是周一，且还没有本周的信件
-    else if (true) { //now.weekday == DateTime.monday) {
+    else if  (now.weekday == DateTime.monday) {
       setState(() {
         _letterStatus = LetterStatus.readyToGenerate; // 状态：准备生成
       });
@@ -419,6 +419,7 @@ $responseText
       - 温柔地猜测我可能在忙于生活，或者遇到了什么挑战。
       - 不要给我压力，只需告诉我，无论何时想倾诉，你都在。
       - 以“你忠实的朋友，日记小精灵”结尾。
+      - **请使用Markdown格式进行排版，例如换行来分段，让信件更易读。**
       - 信件格式严格按照信件格式要求来，务必要让读者感受到亲切与温暖感
       """;
       } else {
