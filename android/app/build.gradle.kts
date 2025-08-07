@@ -1,7 +1,7 @@
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
-    id("com.google.gms.google-services")
+    //id("com.google.gms.google-services")
     // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -53,7 +53,7 @@ flutter {
 dependencies {
     // VVV 3. 在这里添加 Desugaring 库的依赖 VVV
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
-    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
+    //implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
 }
 
 configurations.all {

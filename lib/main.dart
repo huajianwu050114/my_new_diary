@@ -5,15 +5,15 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 
 // VVV 1. 導入Firebase核心套件和自動生成的設定檔 VVV
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
+//import 'package:firebase_core/firebase_core.dart';
+//import 'firebase_options.dart.bak';
 
 import 'diary_service.dart';
 import 'home_page.dart';
 import 'theme_provider.dart';
 import 'user_provider.dart';
 import 'favorites_provider.dart';
-import 'auth_gate.dart';
+//import 'auth_gate.dart.bak';
 import 'festival_service.dart';
 import 'notification_service.dart';
 import 'diary_home_page.dart';
@@ -33,9 +33,9 @@ void main() async {
   }
 
   // VVV 2. 在運行App之前，異步初始化Firebase VVV
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  //await Firebase.initializeApp(
+  //  options: DefaultFirebaseOptions.currentPlatform,
+  //);
 
   // 你其他的初始化程式碼
   await initializeDateFormatting('zh_CN', null);
@@ -71,7 +71,7 @@ class MyApp extends StatelessWidget {
       theme: AppThemes.lightTheme,
       darkTheme: AppThemes.darkTheme,
       themeMode: themeProvider.themeMode,
-      home: const AuthGate(),
+      home: const HomePage(),
       debugShowCheckedModeBanner: false,
     );
   }

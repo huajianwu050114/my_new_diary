@@ -1,5 +1,3 @@
-// file: lib/diary_home_page.dart
-
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -22,27 +20,65 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
   CalendarFormat _calendarFormat = CalendarFormat.month;
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
+  String? _inspirationForSelectedDay;
+
+  Map<DateTime, List<DiaryEntry>> _events = {};
+
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
+
+
+    // 页面加载时，获取当天日记的同时，也获取当天的灵感
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadAllEntriesForCalendar();
+    });
   }
 
-  @override
-  void dispose() {
-    super.dispose();
+  Future<void> _fetchDataForSelectedDay(DateTime day) async {
+    final diaryService = context.read<DiaryService>();
+    final inspiration = await diaryService.getInspirationForDay(day);
+    if (mounted) {
+      setState(() {
+        _inspirationForSelectedDay = inspiration;
+      });
+    }
+  }
+
+
+  Future<void> _loadAllEntriesForCalendar() async {
+    final diaryService = context.read<DiaryService>();
+    final allEntries = await diaryService.getAllEntriesSorted();
+    final Map<DateTime, List<DiaryEntry>> events = {};
+
+    for (var entry in allEntries) {
+      final dateOnly = DateTime.utc(entry.date.year, entry.date.month, entry.date.day);
+      if (events[dateOnly] == null) {
+        events[dateOnly] = [];
+      }
+      events[dateOnly]!.add(entry);
+    }
+    if (mounted) {
+      setState(() {
+        _events = events;
+      });
+    }
   }
 
   List<DiaryEntry> _getEntriesForDay(DateTime day) {
-    return [];
+    // 这个方法现在可以从我们预先加载好的 _events Map 中快速、同步地获取数据
+    final dateOnly = DateTime.utc(day.year, day.month, day.day);
+    return _events[dateOnly] ?? [];
   }
+
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     if (!isSameDay(_selectedDay, selectedDay)) {
       setState(() {
         _selectedDay = selectedDay;
-        _focusedDay = focusedDay;
-      });
+        _focusedDay = focusedDay;// 先清空，显示加载状态
+      });// 获取新选中日期的灵感
     }
   }
 
@@ -186,6 +222,7 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
           ),
           const SizedBox(height: 8.0),
 
+
           // --- 日记列表部分 ---
           Expanded(
             // <-- 5. 使用 Consumer 来监听 DiaryService 的变化
@@ -204,6 +241,7 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                       return Center(child: Text('加载失败: ${snapshot.error}'));
                     }
                     if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                      if (_inspirationForSelectedDay != null) return const SizedBox.shrink();
                       return const Center(child: Text('今天没有日记，快来写一篇吧！'));
                     }
 
@@ -212,77 +250,159 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                       itemCount: entries.length,
                       itemBuilder: (context, index) {
                         final entry = entries[index];
-                        return Slidable(
-                          key: Key(entry.diaryId),
-                          endActionPane: ActionPane(
-                            motion: const StretchMotion(),
-                            children: [
-                              SlidableAction(
-                                onPressed: (context) {
-                                  _showDeleteConfirmDialog(entry);
-                                },
-                                backgroundColor: const Color(0xFFFE4A49),
-                                foregroundColor: Colors.white,
-                                icon: Icons.delete,
-                                label: '删除',
-                              ),
-                            ],
-                          ),
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => DiaryViewPage(entry: entry),
+                        final bool isInspirationResponse = entry.text.trim().startsWith('> ## AI 灵感:');
+
+                        if (isInspirationResponse) {
+                          // If it's an inspiration response, return the purple card
+                          return _buildInspirationResponseCard(entry);
+                        } else {
+                          // Otherwise, return the standard slidable diary card
+                          return Slidable(
+                            key: Key(entry.diaryId),
+                            endActionPane: ActionPane(
+                              motion: const StretchMotion(),
+                              children: [
+                                SlidableAction(
+                                  onPressed: (context) {
+                                    _showDeleteConfirmDialog(entry);
+                                  },
+                                  backgroundColor: const Color(0xFFFE4A49),
+                                  foregroundColor: Colors.white,
+                                  icon: Icons.delete,
+                                  label: '删除',
                                 ),
-                              );
-                            },
-                            // <-- 6. 使用主题中的卡片样式
-                            child: Card(
-                              // margin, shape, clipBehavior 等已从 CardTheme 继承
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (entry.imagePaths.isNotEmpty)
-                                    Image.file(
-                                      File(entry.imagePaths.first), // 使用列表的第一张图
-                                      width: double.infinity,
-                                      height: 150, // 给一个固定高度，防止图片过大
-                                      fit: BoxFit.cover, // 用 cover 填充
-                                    ),
-                                  Padding(
-                                    padding: const EdgeInsets.all(16.0),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          entry.text.isNotEmpty ? entry.text : '(这篇日记没有写内容)',
-                                          // <-- 6. 使用主题中的文本样式
-                                          style: Theme.of(context).textTheme.bodyMedium,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        const SizedBox(height: 8.0),
-                                        Text(
-                                          DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime),
-                                          // <-- 6. 使用主题中的文本样式
-                                          style: Theme.of(context).textTheme.bodySmall,
-                                        ),
-                                      ],
-                                    ),
+                              ],
+                            ),
+                            child: InkWell(
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        DiaryViewPage(entry: entry),
                                   ),
-                                ],
+                                ).then((_) {
+                                  // After returning from the detail page, refresh the calendar and list data
+                                  _loadAllEntriesForCalendar();
+                                  _fetchDataForSelectedDay(_selectedDay!);
+                                });
+                              },
+                              child: Card(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (entry.imagePaths.isNotEmpty)
+                                      Image.file(
+                                        File(entry.imagePaths.first),
+                                        width: double.infinity,
+                                        height: 150,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(16.0),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            entry.text.isNotEmpty
+                                                ? entry.text
+                                                : '(这篇日记没有写内容)',
+                                            style: Theme.of(context).textTheme.bodyMedium,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 8.0),
+                                          Text(
+                                            DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime),
+                                            style: Theme.of(context).textTheme.bodySmall,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
-                    );
+                          );
+                        }
+                      }, // <-- The itemBuilder function ends here
+                    ); // <--
+
                   },
                 );
               },
             ),
           ),
         ],
+      ),
+    );
+  }
+  Widget _buildInspirationResponseCard(DiaryEntry entry) {
+    final theme = Theme.of(context);
+
+    // 1. 解析出AI灵感和用户回复
+    String aiPrompt = '';
+    String userResponse = entry.text; // 默认情况下，全部是回复
+
+    if (entry.text.contains('---')) {
+      final parts = entry.text.split('---');
+      // "> ## AI 灵感:\n> " 这部分需要去掉
+      aiPrompt = parts.first.replaceAll('> ## AI 灵感:', '').replaceAll('>', '').trim();
+      userResponse = parts.last.trim();
+    }
+
+    return Card(
+      // 2. 使用独特的颜色和边框来突出显示
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: theme.colorScheme.tertiary, width: 2),
+        borderRadius: BorderRadius.circular(15.0),
+      ),
+      child: InkWell(
+        onTap: () {
+          // 点击行为不变
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry)),
+          ).then((_) {
+            _loadAllEntriesForCalendar();
+          });
+        },
+        borderRadius: BorderRadius.circular(13.0), // 内部圆角要比外部小一点
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          // 3. 使用Column来垂直排列“问题”和“回答”
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // AI提问部分
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '“$aiPrompt”', // 加上引号
+                  style: TextStyle(
+                    fontStyle: FontStyle.italic,
+                    color: theme.textTheme.bodySmall?.color,
+                  ),
+                ),
+              ),
+
+              const Divider(height: 24),
+
+              // 您的回答部分
+              Text(
+                userResponse,
+                maxLines: 4, // 预览最多显示4行
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(height: 1.5),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -8,6 +8,10 @@ import 'diary_service.dart';
 import 'map_selection_page.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:my_new_diary/diary_model.dart';
+import 'ai_chat_page.dart';
+import 'dart:convert';
+import 'gemini_service_local.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 
 class AddDiaryPage extends StatefulWidget {
@@ -86,6 +90,9 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
 
     // 使用 try-catch 块来捕获并打印任何潜在的错误
     try {
+      // VVV 2. 声明 entryId 变量 VVV
+      String entryId;
+
       if (_isEditMode) {
         // --- 编辑模式 ---
         final updatedEntry = widget.entryToEdit!.copyWith(
@@ -98,6 +105,8 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
           address: _address,
         );
         await diaryService.updateEntry(updatedEntry);
+        // VVV 3. 获取已存在日记的ID VVV
+        entryId = updatedEntry.diaryId;
       } else {
         // --- 新建模式 ---
         final newEntry = DiaryEntry(
@@ -112,8 +121,15 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
           longitude: _longitude,
           address: _address,
         );
-        await diaryService.addEntry(newEntry);
+        // VVV 4. 获取新创建日记的ID VVV
+        // 注意：这里假设您的 addEntry 方法会返回创建后的 DiaryEntry 对象。
+        // 如果没有，您需要修改 diaryService.dart 中的 addEntry 方法。
+        final createdEntry = await diaryService.addEntry(newEntry);
+        entryId = createdEntry.diaryId;
       }
+
+      // 现在可以安全地调用AI分析了
+      _runAiAnalysis(entryId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
@@ -124,6 +140,54 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       print("保存日记时出错: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e')));
+      }
+    }
+  }
+
+
+
+  Future<void> _runAiAnalysis(String entryId) async {
+    final diaryService = context.read<DiaryService>();
+    final geminiService = GeminiServiceLocal(); // 你的Gemini服务实例 [cite: 768]
+
+    // 延迟一小会儿，确保数据库写入完成
+    await Future.delayed(const Duration(seconds: 1));
+
+    final entry = await diaryService.getEntryById(entryId);
+    if (entry == null || entry.text.isEmpty) return;
+
+    // 定义一个强大的Prompt，要求返回JSON
+    final prompt = """
+请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
+请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
+{
+  "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
+  "summary": "<大约50字的摘要>",
+  "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
+  "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
+  "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
+}
+
+日记内容如下:
+---
+${entry.text}
+""";
+
+    // 调用Gemini API
+    final (responseText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-2.5-pro');
+
+    if (responseText != null) {
+      try {
+        final decodedJson = jsonDecode(responseText);
+        final newMetadata = AiMetadata.fromJson(decodedJson);
+
+        // 将AI分析结果更新回数据库
+        final updatedEntry = entry.copyWith(aiMetadata: newMetadata);
+        await diaryService.updateEntry(updatedEntry);
+        print("AI分析已成功保存！");
+
+      } catch (e) {
+        print("解析AI返回的JSON失败: $e");
       }
     }
   }

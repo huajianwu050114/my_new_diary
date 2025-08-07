@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: ^3.8.1
@@ -58,10 +58,10 @@ dependencies:
   flutter_speed_dial: ^7.0.0
   share_plus: ^9.0.0
   permission_handler: ^11.3.1
-  firebase_core:   # 核心插件，必須有
-  firebase_auth:     # 用於用戶認證 (登入/註冊)
-  cloud_firestore: # 用於Firestore資料庫 (存日記文本、資訊)
-  firebase_storage:
+  #firebase_core:   # 核心插件，必須有
+  #firebase_auth:     # 用於用戶認證 (登入/註冊)
+  #cloud_firestore: # 用於Firestore資料庫 (存日記文本、資訊)
+  #firebase_storage:
   google_generative_ai: ^0.4.0
   flutter_markdown: ^0.7.1
   archive: ^4.0.7
@@ -69,6 +69,7 @@ dependencies:
   uuid: ^4.5.1
   sqflite_common_ffi: ^2.3.0
   photo_view: ^0.15.0
+  shimmer: ^3.0.0
   #firebase_vertexai: ^0.1.0+1
 
 

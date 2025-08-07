@@ -12,6 +12,7 @@ import 'add_diary_page.dart';
 import 'package:my_new_diary/diary_model.dart';
 import 'gallery_page.dart';
 
+
 class DiaryViewPage extends StatefulWidget {
   final DiaryEntry entry;
   final String? highlightKeyword;
@@ -41,8 +42,67 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     _currentEntry = widget.entry;
   }
 
+  Widget _buildProactiveQuestionCard(DiaryEntry entry) {
+    // 确保 aiMetadata 和 proactiveQuestion 都存在且不为空
+    if (entry.aiMetadata?.proactiveQuestion == null || entry.aiMetadata!.proactiveQuestion!.isEmpty) {
+      return const SizedBox.shrink(); // 如果没有问题，则不显示任何东西
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: InkWell(
+          onTap: () {
+            // 点击卡片直接进入AI聊天页面
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => AiChatPage(entry: entry),
+              ),
+            ).then((_) => _reloadData()); // 从聊天页面返回后，刷新数据
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  entry.aiMetadata!.proactiveQuestion!,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    height: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Text(
+                      '与AI继续聊聊',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.arrow_forward,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildMoodIndicator() {
     final entry = _currentEntry!;
+
     // 如果这篇日记没有设置心情，则不显示任何东西
     if (entry.mood == null || entry.mood!.isEmpty) {
       return const SizedBox.shrink();
@@ -250,11 +310,69 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     );
   }
 
+  Widget _buildAiAnalysisSection(AiMetadata aiMeta) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Card(
+        elevation: 0,
+        color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.auto_awesome_outlined, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Text("AI的悄悄话", style: Theme.of(context).textTheme.titleMedium),
+                ],
+              ),
+              const Divider(height: 24),
+
+              // 展示AI识别的情绪
+              if (aiMeta.detectedEmotion != null && aiMeta.detectedEmotion!.isNotEmpty) ...[
+                Text("我感觉到，你的心情似乎是...", style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 4),
+                Chip(label: Text(aiMeta.detectedEmotion!)),
+                const SizedBox(height: 16),
+              ],
+
+              // 展示AI生成的摘要
+              if (aiMeta.summary != null && aiMeta.summary!.isNotEmpty) ...[
+                Text("这篇日记的核心是...", style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 4),
+                Text(aiMeta.summary!, style: const TextStyle(height: 1.5, fontStyle: FontStyle.italic)),
+                const SizedBox(height: 16),
+              ],
+
+              // 展示AI识别的主题
+              if (aiMeta.detectedThemes.isNotEmpty) ...[
+                Text("你提到了这些主题...", style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8.0,
+                  children: aiMeta.detectedThemes.map((theme) => Chip(label: Text(theme))).toList(),
+                )
+              ],
+
+              // 还可以增加一个按钮，让用户从建议标题中选择一个来更新日记
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+
+
   @override
   Widget build(BuildContext context) {
     // VVV 4. 同样，在这里使用 '!' 来确保 entry 非空 VVV
     final entry = _currentEntry!;
+    final aiMeta = entry.aiMetadata;
     final bool hasImages = entry.imagePaths.isNotEmpty;
+    final bool isInspirationResponse = entry.text.trim().startsWith('> ## AI 灵感:');
     return Scaffold(
       appBar: AppBar(
         actions: [
@@ -318,6 +436,8 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
             SizedBox(
                 height: MediaQuery.of(context).padding.top + kToolbarHeight),
           if (hasImages) _buildImageViewer(),
+          if (aiMeta != null)
+            _buildAiAnalysisSection(aiMeta),
           if (entry.address != null && entry.address!.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -330,8 +450,32 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
           _buildMoodIndicator(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 8.0),
-            child: _buildHighlightedText(entry.text, widget.highlightKeyword ?? ''),
+            padding: const EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 8.0),
+            child: isInspirationResponse
+                ? // 如果是灵感回复，使用带背景的卡片
+            Card(
+              color: Theme.of(context).colorScheme.tertiaryContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                // 使用 MarkdownBody 来正确渲染格式
+                child: MarkdownBody(
+                  data: entry.text,
+                  selectable: true,
+                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                    p: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onTertiaryContainer,
+                      height: 1.6,
+                    ),
+                    blockquoteDecoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                ),
+              ),
+            )
+                : // 如果是普通日记，保持原样
+            _buildHighlightedText(entry.text, widget.highlightKeyword ?? ''),
           ),
           if (entry.tags.isNotEmpty)
             Padding(
@@ -344,6 +488,9 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
                 entry.tags.map((tag) => Chip(label: Text(tag))).toList(),
               ),
             ),
+          if (entry.aiMetadata != null)
+            _buildAiAnalysisSection(entry.aiMetadata!),
+          _buildProactiveQuestionCard(entry),
           if (entry.aiAnalyses.isNotEmpty)
             Padding(
               padding:

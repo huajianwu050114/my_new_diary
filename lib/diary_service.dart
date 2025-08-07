@@ -13,14 +13,177 @@ import 'package:path/path.dart' as p;
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import 'gemini_service_local.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 class DiaryService extends ChangeNotifier {
   final dbHelper = DatabaseHelper.instance;
 
   // --- 核心 CRUD 操作 ---
 
+  Future<List<DiaryEntry>> getMonthlyAnniversaryEntries() async {
+    final db = await dbHelper.database;
+    final now = DateTime.now();
+    // 格式化日期为 'DD'，只匹配“日”
+    final dayOfMonth = DateFormat('dd').format(now);
+
+    // 使用 SQLite 的 strftime 函数来匹配“日”，但不匹配当前年月
+    final maps = await db.query(
+      DatabaseHelper.table,
+      // 查询条件：日匹配，但年月不完全匹配，且未被删除
+      where: "strftime('%d', date) = ? AND strftime('%Y-%m', date) != ? AND isDeleted = ?",
+      whereArgs: [dayOfMonth, DateFormat('yyyy-MM').format(now), 0],
+      orderBy: 'date DESC', // 按日期倒序，让最近的月份排在前面
+    );
+    return maps.map((map) => DiaryEntry.fromMap(map)).toList();
+  }
+
+  Future<List<DiaryEntry>> getHundredDayAnniversaries() async {
+    final db = await dbHelper.database;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day); // 确保只比较日期，忽略时间
+
+    final List<DiaryEntry> foundEntries = [];
+
+    // 我们可以查找过去多个百日纪念，例如100天, 200天, 300天...
+    // 这里我们先查找到1000天前，您可以根据需要调整
+    for (int i = 1; i <= 10; i++) {
+      final daysAgo = i * 100;
+      final targetDate = today.subtract(Duration(days: daysAgo));
+      final targetDateString = targetDate.toIso8601String().substring(0, 10);
+
+      // 查询数据库中是否有正好在那一天写的日记
+      final maps = await db.query(
+        DatabaseHelper.table,
+        where: "date LIKE ? AND isDeleted = ?",
+        whereArgs: ['$targetDateString%', 0],
+      );
+
+      if (maps.isNotEmpty) {
+        // 如果找到了，将那天的所有日记都添加进来
+        foundEntries.addAll(maps.map((map) => DiaryEntry.fromMap(map)));
+      }
+    }
+
+    return foundEntries;
+  }
+
+  Future<List<DiaryEntry>> getEntriesForDateRange(DateTimeRange dateRange) async {
+    // This method simply uses your existing search functionality
+    return await searchEntries(dateRange: dateRange);
+  }
+
+  Future<void> saveDailyInspiration(DateTime date, String prompt) async {
+    final db = await dbHelper.database;
+    final dateString = DateFormat('yyyy-MM-dd').format(date);
+    await db.insert(
+      'daily_inspirations',
+      {
+        'date': dateString,
+        'prompt': prompt,
+        'creationTime': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace, // 如果当天已有，则覆盖
+    );
+    notifyListeners(); // 通知UI刷新
+  }
+
+  Future<String?> getInspirationForDay(DateTime day) async {
+    final db = await dbHelper.database;
+    final dateString = DateFormat('yyyy-MM-dd').format(day);
+    final maps = await db.query(
+      'daily_inspirations',
+      where: 'date = ?',
+      whereArgs: [dateString],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      return maps.first['prompt'] as String?;
+    }
+    return null;
+  }
+
+  // In lib/diary_service.dart -> inside DiaryService class
+
+// VVV 用这个全新的、完全由AI驱动的版本替换旧方法 VVV
+  Future<Map<String, String>> generatePersonalizedPrompt({required String modelName}) async {
+    final geminiService = GeminiServiceLocal();
+    final daysSinceLast = await getDaysSinceLastEntry();
+
+    String prompt;
+    String promptType;
+
+    // --- 逻辑分支 1: 全新用户 (一篇日记都还没写) ---
+    if (daysSinceLast >= 999) {
+      promptType = 'inspiration';
+      prompt = """
+    你是一个非常友善和热情的“日记小精灵”。我是你的新朋友，第一次打开这个日记本。
+    请为我生成一句充满欢迎意味、能鼓励我开始写第一篇日记的、简短而独特的话。
+    让它听起来像一个真诚的邀请。只返回邀请内容本身，不要有额外文字。
+    """;
+    }
+    // --- 逻辑分支 2: 超过2天没写日记，触发“关心”模式 ---
+    else if (daysSinceLast > 2) {
+      promptType = 'check_in';
+      prompt = """
+    你是一个温暖、充满同理心的“日记小精灵”，也是我的朋友。
+    我已经 $daysSinceLast 天没有写日记了。请为我生成一句简短、温柔的关心问候。
+
+    严格规则：
+    1. 直接以朋友的口吻对我说话。
+    2. 不要催促我写日记，只需表达关心和想念。
+    3. 保持在1-2句话之内。
+    4. 只返回关心的内容本身，不要有任何额外文字。
+    """;
+    }
+    // --- 逻辑分支 3: 活跃用户，正常提供“灵感” ---
+    else {
+      promptType = 'inspiration';
+      final recentEntries = await getRecentEntriesWithImages(limit: 5);
+
+      if (recentEntries.isEmpty) {
+        // 如果近期没有带图片的日记，给一个通用的创意提示
+        prompt = """
+      你是一位富有创意的伙伴。请为我生成一个简短、深刻且开放的写作问题，
+      这个问题应该能激发我去探索一些日常之外的思考。
+      只返回问题本身。
+      """;
+      } else {
+        // 如果有近期日记，生成个性化提示
+        final buffer = StringBuffer();
+        buffer.writeln("这是我最近几天的日记摘要：\n");
+        for (final entry in recentEntries) {
+          buffer.writeln("- 日期: ${DateFormat('yyyy-MM-dd').format(entry.date)}, 内容: ${entry.text.substring(0, (entry.text.length > 100) ? 100 : entry.text.length)}...");
+        }
+        prompt = """
+      你是一位创作伙伴，你的任务是根据我最近的日记，为我生成一个简短、深刻、且能激发写作灵感的**问题**。
+
+      严格规则:
+      1. 你的回答必须是一个问题。
+      2. 你的回答只能是一个问题，不能包含任何解释、场景、介绍或其他多余的文字。
+      3. 问题要与我最近的日记内容相关，但要能引导我从新的角度思考。
+
+      我的近期日记摘要如下：
+      ${buffer.toString()}
+      """;
+      }
+    }
+
+    // --- 统一的AI调用和返回处理 ---
+    try {
+      final (responseText, _) = await geminiService.generateResponse(
+        [Content.text(prompt)],
+        modelName: modelName,
+      );
+      return {'type': promptType, 'text': responseText?.replaceAll('"', '').trim() ?? '发生了一个小错误，但没关系，我依然在这里。'};
+    } catch (e) {
+      print("生成AI提示失败: $e");
+      return {'type': promptType, 'text': '哎呀，连接时出了点小问题，稍后再试试吧！'};
+    }
+  }
+
   /// 添加一篇新日记到数据库
-  Future<void> addEntry(DiaryEntry entry) async {
+  Future<DiaryEntry> addEntry(DiaryEntry entry) async { // VVV 1. 修改返回类型 VVV
     final db = await dbHelper.database;
     // 确保每篇日记都有一个唯一的ID
     final entryWithId = entry.diaryId.isEmpty
@@ -32,6 +195,63 @@ class DiaryService extends ChangeNotifier {
       conflictAlgorithm: ConflictAlgorithm.replace, // 如果ID已存在，则替换
     );
     notifyListeners();
+    return entryWithId; // VVV 2. 返回带有ID的日记对象 VVV
+  }
+
+
+  Future<void> saveAiReflection(String type, String content) async {
+    final db = await dbHelper.database;
+    final todayString = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    await db.insert(
+      'ai_reflections',
+      {
+        'reflectionType': type,
+        'reflectionContent': content,
+        'generationDate': todayString,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<String?> getTodaysReflection(String type) async {
+    final db = await dbHelper.database;
+    final todayString = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final maps = await db.query(
+      'ai_reflections',
+      where: 'reflectionType = ? AND generationDate = ?',
+      whereArgs: [type, todayString],
+      limit: 1,
+    );
+    if (maps.isNotEmpty) {
+      return maps.first['reflectionContent'] as String?;
+    }
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> getAllAiReflections() async {
+    final db = await dbHelper.database;
+    return await db.query('ai_reflections', orderBy: 'generationDate DESC');
+  }
+
+  Future<void> saveWeeklyLetter(String letterContent) async {
+    print("--- DEBUG: Attempting to save weekly letter... ---");
+    try {
+      final db = await dbHelper.database;
+      final id = await db.insert('weekly_letters', {
+        'letterContent': letterContent,
+        'generationDate': DateTime.now().toIso8601String(),
+      });
+      print("--- DEBUG: Weekly letter saved successfully to database with ID: $id. ---");
+      notifyListeners();
+    } catch (e) {
+      // 如果这里有任何错误，我们就能在控制台看到
+      print("--- DEBUG: FAILED to save weekly letter. Error: $e ---");
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getAllWeeklyLetters() async {
+    final db = await dbHelper.database;
+    return await db.query('weekly_letters', orderBy: 'generationDate DESC');
   }
 
   Future<List<Map<String, dynamic>>> getRecentImagePathsWithEntries({int limit = 10}) async {
@@ -108,7 +328,7 @@ class DiaryService extends ChangeNotifier {
       DatabaseHelper.table,
       where: whereSql,
       whereArgs: whereArgs,
-      orderBy: 'creationTime DESC',
+      orderBy: 'date DESC, creationTime DESC',
     );
 
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
@@ -159,15 +379,46 @@ class DiaryService extends ChangeNotifier {
 // 需要 'package:intl/intl.dart' for DateFormat
 
   Future<List<DiaryEntry>> getRecentEntriesWithImages({int limit = 5}) async {
+    print("--- DEBUG: Attempting to get recent entries for AI prompt... ---");
+    try {
+      final db = await dbHelper.database;
+      final maps = await db.query(
+        DatabaseHelper.table,
+        where: "imagePaths != '[]' AND isDeleted = ?",
+        whereArgs: [0],
+        orderBy: 'date DESC, creationTime DESC',
+        limit: limit,
+      );
+      print("--- DEBUG: Successfully queried recent entries. Found ${maps.length} items. ---");
+      return maps.map((map) => DiaryEntry.fromMap(map)).toList();
+    } catch (e) {
+      print("--- DEBUG: FAILED to get recent entries. Error: $e ---");
+      // 发生错误时返回一个空列表，避免整个流程卡死
+      return [];
+    }
+  }
+
+  Future<int> getDaysSinceLastEntry() async {
     final db = await dbHelper.database;
     final maps = await db.query(
       DatabaseHelper.table,
-      where: "imagePaths != '[]' AND isDeleted = ?", // '[]' 是空列表的JSON字符串
+      where: 'isDeleted = ?',
       whereArgs: [0],
-      orderBy: 'creationTime DESC',
-      limit: limit,
+      orderBy: 'date DESC', // 按日记日期排序
+      limit: 1, // 只取最新的一篇
     );
-    return maps.map((map) => DiaryEntry.fromMap(map)).toList();
+
+    if (maps.isEmpty) {
+      return 999; // 如果一篇日记都没有，返回一个很大的数
+    }
+
+    final lastEntryDate = DateTime.parse(maps.first['date'] as String);
+    final today = DateTime.now();
+    // 只比较日期，忽略时间
+    final lastDateOnly = DateTime(lastEntryDate.year, lastEntryDate.month, lastEntryDate.day);
+    final todayOnly = DateTime(today.year, today.month, today.day);
+
+    return todayOnly.difference(lastDateOnly).inDays;
   }
 
   // file: lib/diary_service.dart -> inside DiaryService class
@@ -248,7 +499,7 @@ class DiaryService extends ChangeNotifier {
       DatabaseHelper.table,
       where: 'isDeleted = ?',
       whereArgs: [0],
-      orderBy: 'creationTime DESC',
+      orderBy: 'date DESC, creationTime DESC',
     );
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
@@ -262,7 +513,7 @@ class DiaryService extends ChangeNotifier {
       DatabaseHelper.table,
       where: 'date LIKE ? AND isDeleted = ?',
       whereArgs: ['$dayString%', 0],
-      orderBy: 'creationTime DESC',
+      orderBy: 'date DESC, creationTime DESC',
     );
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
@@ -297,7 +548,7 @@ class DiaryService extends ChangeNotifier {
       DatabaseHelper.table,
       where: 'isDeleted = ?',
       whereArgs: [1],
-      orderBy: 'creationTime DESC',
+      orderBy: 'date DESC, creationTime DESC',
     );
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
@@ -310,6 +561,16 @@ class DiaryService extends ChangeNotifier {
       whereArgs: [diaryId],
     );
     notifyListeners();
+  }
+
+  Future<void> deleteWeeklyLetter(int id) async {
+    final db = await dbHelper.database;
+    await db.delete(
+      'weekly_letters',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    notifyListeners(); // 通知UI刷新
   }
 
   // --- AI 相关功能 ---

@@ -31,6 +31,10 @@ class _AiChatPageState extends State<AiChatPage> {
   bool _isLoading = false;
   final Set<Content> _selectedMessages = {};
 
+  // VVV 1. 添加这两个新的状态变量 VVV
+  String _selectedChatModel = 'gemini-2.5-pro'; // 默认使用专业模型
+  final List<String> _availableModels = const ['gemini-2.5-flash', 'gemini-2.5-pro'];
+
   @override
   void initState() {
     super.initState();
@@ -52,7 +56,10 @@ class _AiChatPageState extends State<AiChatPage> {
     setState(() => _isLoading = true);
 
     // 使用日记原文作为上下文
-    final (responseText, _) = await _geminiService.generateResponse([Content.text(_currentEntry!.text)]);
+    final (responseText, _) = await _geminiService.generateResponse(
+      [Content.text(_currentEntry!.text)],
+      modelName: _selectedChatModel, // <-- VVV 使用状态变量
+    );
 
     if (mounted) {
       setState(() {
@@ -123,7 +130,10 @@ class _AiChatPageState extends State<AiChatPage> {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
-    final (responseText, _) = await _geminiService.generateResponse([Content.text(_currentEntry!.text)]);
+    final (responseText, _) = await _geminiService.generateResponse(
+      [Content.text(_currentEntry!.text)],
+      modelName: _selectedChatModel, // VVV Use the state variable here
+    );
 
     if (mounted) {
       setState(() {
@@ -153,7 +163,10 @@ class _AiChatPageState extends State<AiChatPage> {
 
     // VVV 3a. 关键修改：不再需要手动添加上下文 VVV
     // 因为上下文（日记原文）已经是 history 的第一条消息了
-    final (responseText, _) = await _geminiService.generateResponse(conversation.history);
+    final (responseText, _) = await _geminiService.generateResponse(
+      conversation.history,
+      modelName: _selectedChatModel, // <-- VVV 使用状态变量
+    );
 
     if (mounted) {
       setState(() {
@@ -225,6 +238,42 @@ class _AiChatPageState extends State<AiChatPage> {
             icon: const Icon(Icons.bookmark_add_outlined), // 换一个更贴切的图标
             tooltip: '保存勾选内容到分析记录',
             onPressed: _selectedMessages.isEmpty ? null : _saveSelectedAsAnalysis, // 调用新方法
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: DropdownButton<String>(
+              value: _selectedChatModel,
+              items: _availableModels.map((String model) {
+                return DropdownMenuItem<String>(
+                  value: model,
+                  // 为了显示简洁，我们只显示 pro 或 flash
+                  child: Text(
+                    model.contains('pro') ? 'Pro' : 'Flash',
+                    style: TextStyle(
+                      color: Theme.of(context).appBarTheme.foregroundColor,
+                    ),
+                  ),
+                );
+              }).toList(),
+              onChanged: (String? newModel) {
+                if (newModel != null) {
+                  setState(() {
+                    _selectedChatModel = newModel;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('模型已切换为: $newModel'),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                }
+              },
+              underline: const SizedBox(), // 隐藏下划线
+              icon: Icon(
+                Icons.model_training,
+                color: Theme.of(context).appBarTheme.foregroundColor,
+              ),
+            ),
           ),
           // 打开侧边栏按钮
           IconButton(

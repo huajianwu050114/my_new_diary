@@ -63,6 +63,40 @@ Content _contentFromJson(Map<String, dynamic> json) {
 
   return Content(role ?? 'model', parts);
 }
+class AiMetadata {
+  final List<String> suggestedTitles;
+  final String? summary;
+  final String? detectedEmotion;
+  final List<String> detectedThemes;
+  final String? proactiveQuestion;
+
+  AiMetadata({
+    this.suggestedTitles = const [],
+    this.summary,
+    this.detectedEmotion,
+    this.detectedThemes = const [],
+    this.proactiveQuestion,
+  });
+
+  // fromJson and toJson methods
+  factory AiMetadata.fromJson(Map<String, dynamic> json) {
+    return AiMetadata(
+      suggestedTitles: List<String>.from(json['suggestedTitles'] ?? []),
+      summary: json['summary'],
+      detectedEmotion: json['detectedEmotion'],
+      detectedThemes: List<String>.from(json['detectedThemes'] ?? []),
+      proactiveQuestion: json['proactiveQuestion'],
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'suggestedTitles': suggestedTitles,
+    'summary': summary,
+    'detectedEmotion': detectedEmotion,
+    'detectedThemes': detectedThemes,
+    'proactiveQuestion': proactiveQuestion,
+  };
+}
 
 class DiaryEntry {
   final String diaryId;
@@ -79,6 +113,8 @@ class DiaryEntry {
   final List<String> aiAnalyses;
   final List<Conversation> conversations;
   final bool isDeleted;
+  final AiMetadata? aiMetadata;
+
 
   DiaryEntry({
     required this.diaryId,
@@ -95,6 +131,8 @@ class DiaryEntry {
     this.aiAnalyses = const [],
     this.conversations = const [],
     this.isDeleted = false,
+    this.aiMetadata,
+    // 添加到构造函数
   });
 
   DiaryEntry copyWith({
@@ -112,6 +150,7 @@ class DiaryEntry {
     List<String>? aiAnalyses,
     List<Conversation>? conversations,
     bool? isDeleted,
+    AiMetadata? aiMetadata,
   }) {
     return DiaryEntry(
       diaryId: diaryId ?? this.diaryId,
@@ -128,8 +167,10 @@ class DiaryEntry {
       aiAnalyses: aiAnalyses ?? this.aiAnalyses,
       conversations: conversations ?? this.conversations,
       isDeleted: isDeleted ?? this.isDeleted,
+      aiMetadata: aiMetadata ?? this.aiMetadata,
     );
   }
+
 
   // 从数据库的 Map 记录创建 DiaryEntry 对象
   factory DiaryEntry.fromMap(Map<String, dynamic> map) {
@@ -147,6 +188,7 @@ class DiaryEntry {
       tags: (jsonDecode(map['tags']) as List<dynamic>).cast<String>(),
       aiAnalyses: (jsonDecode(map['aiAnalyses']) as List<dynamic>).cast<String>(),
       conversations: (jsonDecode(map['conversations']) as List<dynamic>).map((c) => Conversation.fromJson(c)).toList(),
+      aiMetadata: map['aiMetadata'] != null ? AiMetadata.fromJson(jsonDecode(map['aiMetadata'])) : null,
       isDeleted: map['isDeleted'] == 1,
     );
   }
@@ -167,6 +209,7 @@ class DiaryEntry {
       'tags': jsonEncode(tags),
       'aiAnalyses': jsonEncode(aiAnalyses),
       'conversations': jsonEncode(conversations.map((c) => c.toJson()).toList()),
+      'aiMetadata': aiMetadata != null ? jsonEncode(aiMetadata!.toJson()) : null,
       'isDeleted': isDeleted ? 1 : 0,
     };
   }
