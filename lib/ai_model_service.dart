@@ -15,8 +15,8 @@ enum AiFeature {
 class AiModelService extends ChangeNotifier {
   // 2. 在这里列举您希望在App中使用的所有模型
   final List<String> availableModels = const [
-    'gemini-1.5-flash-latest',
-    'gemini-1.5-pro-latest',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
     // 如果未来有其他模型，可以加在这里
   ];
 

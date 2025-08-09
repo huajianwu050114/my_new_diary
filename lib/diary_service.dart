@@ -87,22 +87,30 @@ class DiaryService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> saveDailyInspiration(DateTime date, String prompt) async {
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
+// VVVV  用这个新版本替换旧的 saveDailyInspiration VVVV
+// 它现在接收一个 Map<String, dynamic> 并将其编码为 JSON 字符串进行存储
+  Future<void> saveDailyInspiration(DateTime date, Map<String, dynamic> promptData) async {
     final db = await dbHelper.database;
     final dateString = DateFormat('yyyy-MM-dd').format(date);
+    final promptJson = jsonEncode(promptData); // 将整个 Map 编码为 JSON 字符串
+
     await db.insert(
       'daily_inspirations',
       {
         'date': dateString,
-        'prompt': prompt,
+        'prompt': promptJson, // 存储 JSON 字符串
         'creationTime': DateTime.now().toIso8601String(),
       },
-      conflictAlgorithm: ConflictAlgorithm.replace, // 如果当天已有，则覆盖
+      conflictAlgorithm: ConflictAlgorithm.replace,
     );
-    notifyListeners(); // 通知UI刷新
+    notifyListeners();
   }
 
-  Future<String?> getInspirationForDay(DateTime day) async {
+// VVVV  用这个新版本替换旧的 getInspirationForDay VVVV
+// 它现在返回 Future<Map<String, dynamic>?> 并会自动解码 JSON
+  Future<Map<String, dynamic>?> getInspirationForDay(DateTime day) async {
     final db = await dbHelper.database;
     final dateString = DateFormat('yyyy-MM-dd').format(day);
     final maps = await db.query(
@@ -111,8 +119,15 @@ class DiaryService extends ChangeNotifier {
       whereArgs: [dateString],
       limit: 1,
     );
+
     if (maps.isNotEmpty) {
-      return maps.first['prompt'] as String?;
+      try {
+        // 从数据库取出 JSON 字符串并解码回 Map
+        return jsonDecode(maps.first['prompt'] as String) as Map<String, dynamic>;
+      } catch (e) {
+        print("解码每日灵感缓存失败: $e");
+        return null; // 如果解码失败，返回null，让程序重新获取
+      }
     }
     return null;
   }
@@ -120,6 +135,8 @@ class DiaryService extends ChangeNotifier {
   // In lib/diary_service.dart -> inside DiaryService class
 
 // VVV 用这个全新的、完全由AI驱动的版本替换旧方法 VVV
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
   Future<Map<String, dynamic>> generatePersonalizedPrompt({required String modelName}) async {
     final geminiService = GeminiServiceLocal();
     final daysSinceLast = await getDaysSinceLastEntry();
@@ -128,8 +145,9 @@ class DiaryService extends ChangeNotifier {
     String promptType;
     bool requiresJsonResponse = false;
 
+    // 这部分的 prompt 构建逻辑保持不变
     if (daysSinceLast >= 999) {
-      promptType = 'welcome'; // 改为 welcome 类型
+      promptType = 'welcome';
       prompt = """
     你是一个非常友善和热情的“日记小精灵”。我是你的新朋友，第一次打开这个日记本。
     请为我生成一句充满欢迎意味、能鼓励我开始写第一篇日记的、简短而独特的话。
@@ -147,18 +165,18 @@ class DiaryService extends ChangeNotifier {
     4. 只返回关心的内容本身，不要有任何额外文字。
     """;
     } else {
-      // VVVV 核心修改在这里 VVVV
       promptType = 'inspiration';
-      requiresJsonResponse = true; // 标记这个请求需要解析JSON
+      requiresJsonResponse = true;
       final recentEntries = await getRecentEntriesWithImages(limit: 5);
       final buffer = StringBuffer();
-      buffer.writeln("这是我最近几天的日记摘要：\n");
-      for (final entry in recentEntries) {
-        buffer.writeln("- 日期: ${DateFormat('yyyy-MM-dd').format(entry.date)}, 内容: ${entry.text.substring(0, (entry.text.length > 100) ? 100 : entry.text.length)}...");
+      if (recentEntries.isNotEmpty) {
+        buffer.writeln("这是我最近几天的日记摘要：\n");
+        for (final entry in recentEntries) {
+          buffer.writeln("- 日期: ${DateFormat('yyyy-MM-dd').format(entry.date)}, 内容: ${entry.text.substring(0, (entry.text.length > 100) ? 100 : entry.text.length)}...");
+        }
       }
-
       prompt = """
-    你是一位富有创意的写作伙伴。根据我最近的日记，为我生成一个写作灵感。
+    你是一位富有创意的写作伙伴。根据我最近的日记(如果为空则随机生成)，为我生成一个写作灵感。
     请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
     {
       "question": "<这里是一个与我日记相关、能激发深度思考的开放式问题>",
@@ -175,26 +193,33 @@ class DiaryService extends ChangeNotifier {
         [Content.text(prompt)],
         modelName: modelName,
       );
-
       if (responseText == null || responseText.isEmpty) {
         throw Exception('AI did not return a response.');
       }
-
       if (requiresJsonResponse) {
-        // 如果需要JSON，就解析它
-        final jsonResponse = jsonDecode(responseText);
+        // VVVV  核心修正：新增的JSON清洗逻辑 VVVV
+        String cleanedJson = responseText.trim();
+        if (cleanedJson.startsWith("```json")) {
+          cleanedJson = cleanedJson.substring(7);
+          if (cleanedJson.endsWith("```")) {
+            cleanedJson = cleanedJson.substring(0, cleanedJson.length - 3);
+          }
+        }
+        cleanedJson = cleanedJson.trim();
+        // ^^^^ 清洗逻辑结束 ^^^^
+
+        final jsonResponse = jsonDecode(cleanedJson); // 解析清洗后的字符串
         return {
           'type': promptType,
           'question': jsonResponse['question'],
           'sampleAnswer': jsonResponse['sampleAnswer'],
         };
       } else {
-        // 否则，按旧方式返回
         return {'type': promptType, 'text': responseText.replaceAll('"', '').trim()};
       }
     } catch (e) {
       print("生成AI提示失败: $e");
-      // 返回一个安全的、用户友好的错误信息
+      // 错误处理部分保持不变
       if (requiresJsonResponse) {
         return {
           'type': promptType,

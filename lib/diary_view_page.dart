@@ -43,11 +43,9 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
   }
 
   Widget _buildProactiveQuestionCard(DiaryEntry entry) {
-    // 确保 aiMetadata 和 proactiveQuestion 都存在且不为空
     if (entry.aiMetadata?.proactiveQuestion == null || entry.aiMetadata!.proactiveQuestion!.isEmpty) {
-      return const SizedBox.shrink(); // 如果没有问题，则不显示任何东西
+      return const SizedBox.shrink();
     }
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Card(
@@ -55,12 +53,9 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         child: InkWell(
           onTap: () {
-            // 点击卡片直接进入AI聊天页面
             Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => AiChatPage(entry: entry),
-              ),
-            ).then((_) => _reloadData()); // 从聊天页面返回后，刷新数据
+              MaterialPageRoute(builder: (context) => AiChatPage(entry: entry)),
+            ).then((_) => _reloadData());
           },
           borderRadius: BorderRadius.circular(12),
           child: Padding(
@@ -68,28 +63,21 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  entry.aiMetadata!.proactiveQuestion!,
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    height: 1.6,
+                // VVVV 核心修改：将问题改为 MarkdownBody VVVV
+                MarkdownBody(
+                  data: entry.aiMetadata!.proactiveQuestion!,
+                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                    p: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.6),
                   ),
                 ),
+                // ^^^^ 修改结束 ^^^^
                 const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text(
-                      '与AI继续聊聊',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    Text('与AI继续聊聊', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
                     const SizedBox(width: 8),
-                    Icon(
-                      Icons.arrow_forward,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
+                    Icon(Icons.arrow_forward, color: Theme.of(context).colorScheme.primary),
                   ],
                 )
               ],
@@ -329,34 +317,33 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
                 ],
               ),
               const Divider(height: 24),
-
-              // 展示AI识别的情绪
               if (aiMeta.detectedEmotion != null && aiMeta.detectedEmotion!.isNotEmpty) ...[
                 Text("我感觉到，你的心情似乎是...", style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 4),
                 Chip(label: Text(aiMeta.detectedEmotion!)),
                 const SizedBox(height: 16),
               ],
-
-              // 展示AI生成的摘要
+              // VVVV 核心修改：将摘要部分改为 MarkdownBody VVVV
               if (aiMeta.summary != null && aiMeta.summary!.isNotEmpty) ...[
                 Text("这篇日记的核心是...", style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 4),
-                Text(aiMeta.summary!, style: const TextStyle(height: 1.5, fontStyle: FontStyle.italic)),
+                MarkdownBody(
+                  data: aiMeta.summary!,
+                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                    p: const TextStyle(height: 1.5, fontStyle: FontStyle.italic),
+                  ),
+                ),
                 const SizedBox(height: 16),
               ],
-
-              // 展示AI识别的主题
+              // ^^^^ 修改结束 ^^^^
               if (aiMeta.detectedThemes.isNotEmpty) ...[
                 Text("你提到了这些主题...", style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8.0,
                   children: aiMeta.detectedThemes.map((theme) => Chip(label: Text(theme))).toList(),
-                )
+                ),
               ],
-
-              // 还可以增加一个按钮，让用户从建议标题中选择一个来更新日记
             ],
           ),
         ),
@@ -368,174 +355,182 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
   @override
   Widget build(BuildContext context) {
-    // VVV 4. 同样，在这里使用 '!' 来确保 entry 非空 VVV
-    final entry = _currentEntry!;
-    final aiMeta = entry.aiMetadata;
-    final bool hasImages = entry.imagePaths.isNotEmpty;
-    final bool isInspirationResponse = entry.text.trim().startsWith('> ## AI 灵感:');
     return Scaffold(
-      appBar: AppBar(
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: (value) async {
-              if (value == 'edit') { // VVV 2. 添加处理 'edit' 的逻辑 VVV
-                // 使用 await 等待编辑页面返回
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    // 跳转到 AddDiaryPage，并把当前日记作为参数传过去
-                    builder: (context) =>
-                        AddDiaryPage(entryToEdit: _currentEntry),
-                  ),
-                );
-                // 编辑完成后，重新加载数据以刷新页面
-                _reloadData();
-              }else if (value == 'chat_with_ai') {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => AiChatPage(entry: _currentEntry!),
-                  ),
-                );
-                _reloadData();
-              } else if (value == 'delete') {
-                _deleteDiary();
-              }
-            },
-            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-              const PopupMenuItem<String>(
-                value: 'edit',
-                child: ListTile(
-                  leading: Icon(Icons.edit_outlined),
-                  title: Text('编辑日记'),
-                ),
-              ),
-              const PopupMenuItem<String>(
+      // 我们不再需要常规的 AppBar，因为它现在由 _buildSliverAppBar 管理
+      body: CustomScrollView(
+        slivers: [
+          // 第一个 Sliver 是我们新创建的 AppBar
+          _buildSliverAppBar(),
 
-                value: 'chat_with_ai',
-                child: ListTile(
-                  leading: Icon(Icons.auto_awesome_outlined),
-                  title: Text('与AI交流'),
-                ),
-              ),
-              const PopupMenuDivider(),
-              const PopupMenuItem<String>(
-                value: 'delete',
-                child: ListTile(
-                  leading: Icon(Icons.delete_outline),
-                  title: Text('删除日记'),
-                ),
-              ),
-            ],
-          ),
+          // 第二个 Sliver 将包含页面的所有其他内容
+          _buildSliverContent(),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.only(bottom: 24.0),
-        children: [
-          if (hasImages)
-            SizedBox(
-                height: MediaQuery.of(context).padding.top + kToolbarHeight),
-          if (hasImages) _buildImageViewer(),
-          if (aiMeta != null)
-            _buildAiAnalysisSection(aiMeta),
-          if (entry.address != null && entry.address!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: ListTile(
-                leading: const Icon(Icons.location_on_outlined),
-                title: Text(entry.address!),
-                dense: true,
-              ),
-            ),
+    );
+  }
 
-          _buildMoodIndicator(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 8.0),
-            child: isInspirationResponse
-                ? // 如果是灵感回复，使用带背景的卡片
-            Card(
-              color: Theme.of(context).colorScheme.tertiaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                // 使用 MarkdownBody 来正确渲染格式
-                child: MarkdownBody(
-                  data: entry.text,
-                  selectable: true,
-                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                    p: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onTertiaryContainer,
-                      height: 1.6,
-                    ),
-                    blockquoteDecoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                ),
-              ),
-            )
-                : // 如果是普通日记，保持原样
-            _buildHighlightedText(entry.text, widget.highlightKeyword ?? ''),
-          ),
-          if (entry.tags.isNotEmpty)
-            Padding(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-              child: Wrap(
-                spacing: 8.0,
-                runSpacing: 8.0,
-                children:
-                entry.tags.map((tag) => Chip(label: Text(tag))).toList(),
-              ),
-            ),
-          if (entry.aiMetadata != null)
-            _buildAiAnalysisSection(entry.aiMetadata!),
+  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState
+
+  Widget _buildSliverContent() {
+    final theme = Theme.of(context);
+    final entry = _currentEntry!;
+
+    // --- 解析日记内容 ---
+    String mainContent = entry.text;
+    String? aiSampleAnswer;
+    const String separator = "---AI_SAMPLE_ANSWER---";
+
+    if (entry.text.contains(separator)) {
+      final parts = entry.text.split(separator);
+      mainContent = parts[0].trim();
+      aiSampleAnswer = parts.length > 1 ? parts[1].trim() : null;
+    }
+
+    // SliverList 承载了所有的卡片和小部件
+    return SliverList(
+      delegate: SliverChildListDelegate(
+        [
+          // AI 元数据分析卡片
+          if (entry.aiMetadata != null) _buildAiAnalysisSection(entry.aiMetadata!),
+
+          // 主动提问卡片
           _buildProactiveQuestionCard(entry),
-          if (entry.aiAnalyses.isNotEmpty)
-            Padding(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding:
-                    const EdgeInsets.only(left: 16.0, top: 8, bottom: 8),
-                    child: Text(
-                      "AI 分析记录 (${entry.aiAnalyses.length})",
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
-                  ...entry.aiAnalyses
-                      .map((analysis) => _buildAnalysisTile(analysis))
-                      .toList(),
-                ],
-              ),
-            ),
+
+          // 心情和地点等元信息
           Padding(
-            padding: const EdgeInsets.only(top: 32, right: 24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Wrap(
+              spacing: 8.0,
+              runSpacing: 8.0,
               children: [
-                Text(
-                  '写于 ${DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime)}',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                // 如果存在 lastModifiedTime，就显示这一行
-                if (entry.lastModifiedTime != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Text(
-                      '修改于 ${DateFormat('yyyy-MM-dd HH:mm').format(entry.lastModifiedTime!)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: 11, // 让修改时间稍微小一点
-                        color: Colors.grey, // 颜色变淡以作区分
-                      ),
-                    ),
+                if (entry.mood != null) _buildMoodIndicator(),
+                if (entry.address != null && entry.address!.isNotEmpty)
+                  Chip(
+                    avatar: const Icon(Icons.location_on_outlined, size: 16),
+                    label: Text(entry.address!),
                   ),
               ],
             ),
           ),
+
+          // 主要日记内容
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 8.0),
+            child: MarkdownBody(
+              data: mainContent,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+                p: theme.textTheme.bodyLarge?.copyWith(height: 1.6),
+                blockquoteDecoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+
+          // VVVV  新增的折叠区域 (使用 ExpansionTile) VVVV
+          if (aiSampleAnswer != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: ExpansionTile(
+                title: const Text("看看AI会怎么写..."),
+                leading: Icon(Icons.auto_awesome_outlined, color: theme.colorScheme.secondary),
+                backgroundColor: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+                collapsedBackgroundColor: theme.colorScheme.surfaceVariant.withOpacity(0.5),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                collapsedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: MarkdownBody(
+                      data: "> $aiSampleAnswer", // 以引用块样式展示
+                      selectable: true,
+                      styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+                        p: theme.textTheme.bodyMedium?.copyWith(
+                          height: 1.5,
+                          fontStyle: FontStyle.italic,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // 标签、AI分析记录和时间戳
+          if (entry.tags.isNotEmpty) _buildTags(),
+          if (entry.aiAnalyses.isNotEmpty) _buildAiAnalysisRecords(),
+          _buildTimestamps(),
+        ],
+      ),
+    );
+  }
+
+
+
+
+  Widget _buildTags() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Wrap(
+        spacing: 8.0,
+        runSpacing: 4.0,
+        children: _currentEntry!.tags.map((tag) => Chip(label: Text(tag))).toList(),
+      ),
+    );
+  }
+
+  Widget _buildAiAnalysisRecords() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 8.0, top: 8, bottom: 8),
+            child: Text("AI 分析记录 (${_currentEntry!.aiAnalyses.length})", style: Theme.of(context).textTheme.titleMedium),
+          ),
+          ..._currentEntry!.aiAnalyses.map((analysis) => _buildAnalysisTile(analysis)).toList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnalysisTile(String analysisText) {
+    return Card(
+      elevation: 1,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: ExpansionTile(
+        leading: Icon(Icons.bookmark_border, color: Colors.amber.shade800),
+        title: Text(analysisText.split('\n').first, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: MarkdownBody(data: analysisText, selectable: true, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6))),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimestamps() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 32, right: 24.0, bottom: 24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text('写于 ${DateFormat('yyyy-MM-dd HH:mm').format(_currentEntry!.creationTime)}', style: Theme.of(context).textTheme.bodySmall),
+          if (_currentEntry!.lastModifiedTime != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Text(
+                '修改于 ${DateFormat('yyyy-MM-dd HH:mm').format(_currentEntry!.lastModifiedTime!)}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(fontSize: 11, color: Colors.grey),
+              ),
+            ),
         ],
       ),
     );
@@ -543,10 +538,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
   Widget _buildImageErrorPlaceholder() {
     return Container(
-      decoration: BoxDecoration(
-        color: Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(15.0),
-      ),
+      decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(15.0)),
       child: const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -560,35 +552,57 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     );
   }
 
-  Widget _buildAnalysisTile(String analysisText) {
-    return Card(
-      elevation: 1,
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: ExpansionTile(
-        leading: Icon(Icons.bookmark_border, color: Colors.amber.shade800),
-        title: Text(
-          analysisText.split('\n').first,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+  Widget _buildSliverAppBar() {
+    final entry = _currentEntry!;
+    final hasImages = entry.imagePaths.isNotEmpty;
+
+    return SliverAppBar(
+      expandedHeight: hasImages ? 250.0 : 0, // 有图片时展开高度为250，否则不展开
+      floating: false, // 不会滑出视图
+      pinned: true, // 向上滚动时，标题栏会固定在顶部
+      stretch: true, // 允许下拉时图片被拉伸
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      foregroundColor: Theme.of(context).colorScheme.onBackground,
+      actions: [
+        PopupMenuButton<String>(
+          onSelected: (value) async {
+            if (value == 'edit') {
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => AddDiaryPage(entryToEdit: _currentEntry)),
+              );
+              _reloadData();
+            } else if (value == 'chat_with_ai') {
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => AiChatPage(entry: _currentEntry!)),
+              );
+              _reloadData();
+            } else if (value == 'delete') {
+              _deleteDiary();
+            }
+          },
+          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+            const PopupMenuItem<String>(
+              value: 'edit',
+              child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('编辑日记')),
+            ),
+            const PopupMenuItem<String>(
+              value: 'chat_with_ai',
+              child: ListTile(leading: Icon(Icons.auto_awesome_outlined), title: Text('与AI交流')),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem<String>(
+              value: 'delete',
+              child: ListTile(leading: Icon(Icons.delete_outline), title: Text('删除日记')),
+            ),
+          ],
         ),
-        children: <Widget>[
-          Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: MarkdownBody(
-                data: analysisText,
-                selectable: true,
-                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
-                    .copyWith(
-                  p: Theme.of(context)
-                      .textTheme
-                      .bodyMedium
-                      ?.copyWith(height: 1.6),
-                ),
-              ))
-        ],
-      ),
+      ],
+      flexibleSpace: hasImages
+          ? FlexibleSpaceBar(
+        stretchModes: const [StretchMode.zoomBackground],
+        background: _buildImageViewer(), // 我们将图片浏览器放在这里
+      )
+          : null,
     );
   }
 }

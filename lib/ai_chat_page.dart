@@ -437,6 +437,8 @@ class _AiChatPageState extends State<AiChatPage> {
     );
   }
 
+  // 文件位置: lib/ai_chat_page.dart -> _AiChatPageState
+
   Widget _buildDiaryContextCard(String text) {
     return Card(
       elevation: 0,
@@ -450,7 +452,15 @@ class _AiChatPageState extends State<AiChatPage> {
           children: [
             Text("对话上下文 (你的日记)", style: Theme.of(context).textTheme.bodySmall),
             const Divider(height: 16),
-            SelectableText(text, style: const TextStyle(height: 1.5)),
+            // VVVV 核心修改：使用 MarkdownBody 代替 SelectableText VVVV
+            MarkdownBody(
+              data: text,
+              selectable: true,
+              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                p: const TextStyle(height: 1.5),
+              ),
+            ),
+            // ^^^^ 修改结束 ^^^^
           ],
         ),
       ),

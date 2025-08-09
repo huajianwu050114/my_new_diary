@@ -66,10 +66,21 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
 
   Future<void> _fetchDataForSelectedDay(DateTime day) async {
     final diaryService = context.read<DiaryService>();
-    final inspiration = await diaryService.getInspirationForDay(day);
+
+    // 1. 从 service 获取的数据现在是一个 Map
+    final Map<String, dynamic>? inspirationMap = await diaryService.getInspirationForDay(day);
+
     if (mounted) {
+      String? inspirationText;
+      if (inspirationMap != null) {
+        // 2. 从 Map 中安全地提取出问题文本
+        //    它可能是 'question' 字段，也可能是 'text' 字段
+        inspirationText = inspirationMap['question'] as String? ?? inspirationMap['text'] as String?;
+      }
+
       setState(() {
-        _inspirationForSelectedDay = inspiration;
+        // 3. 将提取出的文本（String）赋值给状态变量
+        _inspirationForSelectedDay = inspirationText;
       });
     }
   }

@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'diary_service.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class LettersArchivePage extends StatefulWidget {
   const LettersArchivePage({super.key});
@@ -16,73 +15,14 @@ class LettersArchivePage extends StatefulWidget {
 }
 
 class _LettersArchivePageState extends State<LettersArchivePage> {
-  String _selectedModel = 'gemini-1.5-pro-latest';
-  final List<String> _availableModels = const ['gemini-1.5-flash-latest', 'gemini-1.5-pro-latest'];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadModelSelection();
-  }
-
-  Future<void> _loadModelSelection() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _selectedModel = prefs.getString('weekly_letter_model') ?? 'gemini-1.5-pro-latest';
-    });
-  }
-
-  Future<void> _saveModelSelection(String model) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('weekly_letter_model', model);
-    setState(() {
-      _selectedModel = model;
-    });
-  }
-
-  void _showModelSelectionDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return SimpleDialog(
-          title: const Text('选择信件生成模型'),
-          children: _availableModels.map((model) {
-            return RadioListTile<String>(
-              title: Text(model.contains('pro') ? '专业模型 (高质量)' : '快速模型 (高效率)'),
-              value: model,
-              groupValue: _selectedModel,
-              onChanged: (value) {
-                if (value != null) {
-                  _saveModelSelection(value);
-                  Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('模型设置已保存！')),
-                  );
-                }
-              },
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final diaryService = context.watch<DiaryService>();
     return Scaffold(
       appBar: AppBar(
         title: const Text('精灵信箱'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.model_training_outlined),
-            tooltip: '设置生成模型',
-            onPressed: _showModelSelectionDialog,
-          ),
-        ],
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
-        // ... (The FutureBuilder and ListView.builder code remains the same as before)
         future: diaryService.getAllWeeklyLetters(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -96,7 +36,41 @@ class _LettersArchivePageState extends State<LettersArchivePage> {
             padding: const EdgeInsets.all(8.0),
             itemCount: letters.length,
             itemBuilder: (context, index) {
-              // ... (The Slidable card logic remains the same)
+              final letter = letters[index];
+              final date = DateTime.parse(letter['generationDate']);
+              return Slidable(
+                key: ValueKey(letter['id']),
+                endActionPane: ActionPane(
+                  motion: const StretchMotion(),
+                  children: [
+                    SlidableAction(
+                      onPressed: (context) async {
+                        await diaryService.deleteWeeklyLetter(letter['id']);
+                        // No need to call setState here as FutureBuilder will refetch
+                      },
+                      backgroundColor: Colors.redAccent,
+                      foregroundColor: Colors.white,
+                      icon: Icons.delete_forever,
+                      label: '删除',
+                    ),
+                  ],
+                ),
+                child: Card(
+                  child: ExpansionTile(
+                    title: Text("来自 ${DateFormat('yyyy年M月d日').format(date)} 的信"),
+                    leading: const Icon(Icons.mark_email_read_outlined),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: MarkdownBody(
+                          data: letter['letterContent'],
+                          selectable: true,
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+              );
             },
           );
         },

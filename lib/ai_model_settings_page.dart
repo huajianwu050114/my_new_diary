@@ -46,7 +46,7 @@ class AiModelSettingsPage extends StatelessWidget {
                     return DropdownMenuItem<String>(
                       value: model,
                       child: Text(
-                        model.replaceAll('-latest', '').replaceAll('gemini-1.5-', ''),
+                        model.replaceAll('-latest', '').replaceAll('gemini-2.5-', ''),
                         style: const TextStyle(fontSize: 14),
                       ),
                     );
