@@ -9,6 +9,7 @@ import 'diary_service.dart';
 import 'diary_view_page.dart';
 import 'package:my_new_diary/diary_model.dart';
 
+
 class DiaryHomePage extends StatefulWidget {
   const DiaryHomePage({super.key});
 
@@ -23,6 +24,7 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
   String? _inspirationForSelectedDay;
 
   Map<DateTime, List<DiaryEntry>> _events = {};
+  Set<String> _checkInDates = {};
 
   @override
   void initState() {
@@ -32,8 +34,34 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
 
     // 页面加载时，获取当天日记的同时，也获取当天的灵感
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadAllEntriesForCalendar();
+      _loadCalendarData(_focusedDay);
     });
+  }
+
+  Future<void> _loadCalendarData(DateTime month) async {
+    final diaryService = context.read<DiaryService>();
+    // 并行获取日记和签到数据
+    final results = await Future.wait([
+      diaryService.getAllEntriesSorted(),
+      diaryService.getCheckInsForMonth(month),
+    ]);
+
+    final allEntries = results[0] as List<DiaryEntry>;
+    final checkIns = results[1] as Set<String>;
+
+    final Map<DateTime, List<DiaryEntry>> events = {};
+    for (var entry in allEntries) {
+      final dateOnly = DateTime.utc(entry.date.year, entry.date.month, entry.date.day);
+      if (events[dateOnly] == null) events[dateOnly] = [];
+      events[dateOnly]!.add(entry);
+    }
+
+    if (mounted) {
+      setState(() {
+        _events = events;
+        _checkInDates = checkIns;
+      });
+    }
   }
 
   Future<void> _fetchDataForSelectedDay(DateTime day) async {
@@ -72,15 +100,20 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
     return _events[dateOnly] ?? [];
   }
 
-
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
     if (!isSameDay(_selectedDay, selectedDay)) {
       setState(() {
         _selectedDay = selectedDay;
-        _focusedDay = focusedDay;// 先清空，显示加载状态
-      });// 获取新选中日期的灵感
+        _focusedDay = focusedDay;
+        // VVVV 注意：这里不再有 CalendarBuilders 参数 VVVV
+      });
+      // 在 setState 外部调用数据加载
+      _fetchDataForSelectedDay(selectedDay);
+      _loadCalendarData(focusedDay);
     }
   }
+
+
 
   void _showDeleteConfirmDialog(DiaryEntry entry) async {
     final bool? shouldDelete = await showDialog<bool>(
@@ -217,6 +250,45 @@ class _DiaryHomePageState extends State<DiaryHomePage> {
                   color: theme.colorScheme.secondary.withOpacity(0.7),
                   shape: BoxShape.circle,
                 ),
+              ),
+              calendarBuilders: CalendarBuilders(
+                markerBuilder: (context, date, events) {
+                  final dateString = DateFormat('yyyy-MM-dd').format(date);
+                  final hasCheckIn = _checkInDates.contains(dateString);
+                  final hasDiaryEntry = events.isNotEmpty;
+
+                  if (!hasCheckIn && !hasDiaryEntry) {
+                    return null;
+                  }
+
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (hasDiaryEntry)
+                        Positioned(
+                          bottom: 5,
+                          child: Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.secondary.withOpacity(0.7),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                      if (hasCheckIn)
+                        Positioned(
+                          top: 2,
+                          right: 2,
+                          child: Icon(
+                            Icons.check_circle, // <-- 修改为小勾图标
+                            color: Colors.green.shade600,
+                            size: 12,
+                          ),
+                        ),
+                    ],
+                  );
+                },
               ),
             ),
           ),

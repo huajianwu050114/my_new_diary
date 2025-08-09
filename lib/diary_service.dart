@@ -73,6 +73,20 @@ class DiaryService extends ChangeNotifier {
     return await searchEntries(dateRange: dateRange);
   }
 
+  Future<void> addCheckIn(DateTime date) async {
+    final db = await dbHelper.database;
+    final dateString = DateFormat('yyyy-MM-dd').format(date);
+    // Insert the date into the 'daily_check_ins' table.
+    // If a record for that date already exists, it will be ignored.
+    await db.insert(
+      'daily_check_ins',
+      {'date': dateString},
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+    // Notify listeners (like the calendar) that data has changed.
+    notifyListeners();
+  }
+
   Future<void> saveDailyInspiration(DateTime date, String prompt) async {
     final db = await dbHelper.database;
     final dateString = DateFormat('yyyy-MM-dd').format(date);
@@ -106,81 +120,134 @@ class DiaryService extends ChangeNotifier {
   // In lib/diary_service.dart -> inside DiaryService class
 
 // VVV 用这个全新的、完全由AI驱动的版本替换旧方法 VVV
-  Future<Map<String, String>> generatePersonalizedPrompt({required String modelName}) async {
+  Future<Map<String, dynamic>> generatePersonalizedPrompt({required String modelName}) async {
     final geminiService = GeminiServiceLocal();
     final daysSinceLast = await getDaysSinceLastEntry();
 
     String prompt;
     String promptType;
+    bool requiresJsonResponse = false;
 
-    // --- 逻辑分支 1: 全新用户 (一篇日记都还没写) ---
     if (daysSinceLast >= 999) {
-      promptType = 'inspiration';
+      promptType = 'welcome'; // 改为 welcome 类型
       prompt = """
     你是一个非常友善和热情的“日记小精灵”。我是你的新朋友，第一次打开这个日记本。
     请为我生成一句充满欢迎意味、能鼓励我开始写第一篇日记的、简短而独特的话。
     让它听起来像一个真诚的邀请。只返回邀请内容本身，不要有额外文字。
     """;
-    }
-    // --- 逻辑分支 2: 超过2天没写日记，触发“关心”模式 ---
-    else if (daysSinceLast > 2) {
+    } else if (daysSinceLast > 2) {
       promptType = 'check_in';
       prompt = """
     你是一个温暖、充满同理心的“日记小精灵”，也是我的朋友。
     我已经 $daysSinceLast 天没有写日记了。请为我生成一句简短、温柔的关心问候。
-
     严格规则：
     1. 直接以朋友的口吻对我说话。
     2. 不要催促我写日记，只需表达关心和想念。
     3. 保持在1-2句话之内。
     4. 只返回关心的内容本身，不要有任何额外文字。
     """;
-    }
-    // --- 逻辑分支 3: 活跃用户，正常提供“灵感” ---
-    else {
+    } else {
+      // VVVV 核心修改在这里 VVVV
       promptType = 'inspiration';
+      requiresJsonResponse = true; // 标记这个请求需要解析JSON
       final recentEntries = await getRecentEntriesWithImages(limit: 5);
-
-      if (recentEntries.isEmpty) {
-        // 如果近期没有带图片的日记，给一个通用的创意提示
-        prompt = """
-      你是一位富有创意的伙伴。请为我生成一个简短、深刻且开放的写作问题，
-      这个问题应该能激发我去探索一些日常之外的思考。
-      只返回问题本身。
-      问的问题不要太抽象了，要落到实处
-      """;
-      } else {
-        // 如果有近期日记，生成个性化提示
-        final buffer = StringBuffer();
-        buffer.writeln("这是我最近几天的日记摘要：\n");
-        for (final entry in recentEntries) {
-          buffer.writeln("- 日期: ${DateFormat('yyyy-MM-dd').format(entry.date)}, 内容: ${entry.text.substring(0, (entry.text.length > 100) ? 100 : entry.text.length)}...");
-        }
-        prompt = """
-      你是一位创作伙伴，你的任务是根据我最近的日记，为我生成一个简短、深刻、且能激发写作灵感的**问题**。
-
-      严格规则:
-      1. 你的回答必须是一个问题。
-      2. 你的回答只能是一个问题，不能包含任何解释、场景、介绍或其他多余的文字。
-      3. 问题要与我最近的日记内容相关，但要能引导我从新的角度思考。
-
-      我的近期日记摘要如下：
-      ${buffer.toString()}
-      """;
+      final buffer = StringBuffer();
+      buffer.writeln("这是我最近几天的日记摘要：\n");
+      for (final entry in recentEntries) {
+        buffer.writeln("- 日期: ${DateFormat('yyyy-MM-dd').format(entry.date)}, 内容: ${entry.text.substring(0, (entry.text.length > 100) ? 100 : entry.text.length)}...");
       }
+
+      prompt = """
+    你是一位富有创意的写作伙伴。根据我最近的日记，为我生成一个写作灵感。
+    请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
+    {
+      "question": "<这里是一个与我日记相关、能激发深度思考的开放式问题>",
+      "sampleAnswer": "<这里是你模仿我的口吻，对上面这个问题写的一段简短、充满创意和情感的示例回答，大约50-80字>"
     }
 
-    // --- 统一的AI调用和返回处理 ---
+    我的近期日记摘要如下：
+    ${buffer.toString()}
+    """;
+    }
+
     try {
       final (responseText, _) = await geminiService.generateResponse(
         [Content.text(prompt)],
         modelName: modelName,
       );
-      return {'type': promptType, 'text': responseText?.replaceAll('"', '').trim() ?? '发生了一个小错误，但没关系，我依然在这里。'};
+
+      if (responseText == null || responseText.isEmpty) {
+        throw Exception('AI did not return a response.');
+      }
+
+      if (requiresJsonResponse) {
+        // 如果需要JSON，就解析它
+        final jsonResponse = jsonDecode(responseText);
+        return {
+          'type': promptType,
+          'question': jsonResponse['question'],
+          'sampleAnswer': jsonResponse['sampleAnswer'],
+        };
+      } else {
+        // 否则，按旧方式返回
+        return {'type': promptType, 'text': responseText.replaceAll('"', '').trim()};
+      }
     } catch (e) {
       print("生成AI提示失败: $e");
-      return {'type': promptType, 'text': '哎呀，连接时出了点小问题，稍后再试试吧！'};
+      // 返回一个安全的、用户友好的错误信息
+      if (requiresJsonResponse) {
+        return {
+          'type': promptType,
+          'question': '哎呀，连接时出了点小问题，稍后再试试吧！',
+          'sampleAnswer': '我的思绪也暂时卡住了...',
+        };
+      } else {
+        return {'type': 'error', 'text': '哎呀，连接时出了点小问题，稍后再试试吧！'};
+      }
     }
+  }
+
+  /// 2. 获取指定月份的所有签到日期 (用于日历标记)
+  Future<Set<String>> getCheckInsForMonth(DateTime month) async {
+    final db = await dbHelper.database;
+    final monthString = DateFormat('yyyy-MM').format(month);
+    final maps = await db.query(
+      'daily_check_ins',
+      where: "strftime('%Y-%m', date) = ?",
+      whereArgs: [monthString],
+    );
+    return maps.map((map) => map['date'] as String).toSet();
+  }
+
+  /// 3. 计算当前连续签到天数 (用于激励)
+  Future<int> getConsecutiveCheckInDays() async {
+    final db = await dbHelper.database;
+    var consecutiveDays = 0;
+    var currentDate = DateTime.now();
+
+    // 检查今天是否签到
+    var dateString = DateFormat('yyyy-MM-dd').format(currentDate);
+    var maps = await db.query('daily_check_ins', where: 'date = ?', whereArgs: [dateString]);
+
+    if (maps.isNotEmpty) {
+      consecutiveDays++;
+      currentDate = currentDate.subtract(const Duration(days: 1));
+    }
+
+    // 从昨天开始循环检查
+    while (true) {
+      dateString = DateFormat('yyyy-MM-dd').format(currentDate);
+      maps = await db.query('daily_check_ins', where: 'date = ?', whereArgs: [dateString]);
+
+      if (maps.isNotEmpty) {
+        consecutiveDays++;
+        currentDate = currentDate.subtract(const Duration(days: 1));
+      } else {
+        break; // 一旦中断就停止计数
+      }
+    }
+
+    return consecutiveDays;
   }
 
   /// 添加一篇新日记到数据库

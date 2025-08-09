@@ -35,6 +35,9 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'letters_archive_page.dart';
 import 'package:shimmer/shimmer.dart';
 import 'reflections_archive_page.dart';
+import 'package:animate_do/animate_do.dart';
+import 'check_in_dialog.dart';
+
 
 enum LetterStatus {
   notAvailable,
@@ -153,12 +156,13 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   String _currentSource = "";
   bool _isLoadingQuote = true;
 
-  Map<String, String>? _aiWritingPrompt;
-  bool _isLoadingPrompt = false; // VVV 1. 初始状态改为 false
+  Map<String, dynamic>? _aiWritingPrompt; // <--- 修正1: 类型已从 Map<String, String>? 改为 Map<String, dynamic>?
+  bool _isLoadingPrompt = false;    // VVV 1. 初始状态改为 false
   String _selectedInspirationModel = 'gemini-2.5-flash'; // 默认使用快速模型
   final List<String> _availableModels = const ['gemini-2.5-flash', 'gemini-2.5-pro'];
   bool _isRespondingToPrompt = false; //
   final TextEditingController _promptResponseController = TextEditingController();
+  bool _isAiAnswerExpanded = false;
 
   LetterStatus _letterStatus = LetterStatus.notAvailable;
   String? _weeklyLetterContent;
@@ -174,6 +178,32 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     super.initState();
     // VVV 3. 将所有初始化逻辑放入一个新的方法中 VVV
     _pageDataFuture = _loadPageData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleDailyCheckIn();
+    });
+  }
+  Future<void> _handleDailyCheckIn() async {
+    final prefs = await SharedPreferences.getInstance();
+    final todayString = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final lastLaunchDate = prefs.getString('last_launch_date');
+
+    if (lastLaunchDate != todayString) {
+      // 当天第一次启动，显示弹窗
+      final bool? checkInSuccess = await showDialog<bool>(
+        context: context,
+        builder: (context) => const CheckInDialog(),
+      );
+
+      // 无论用户是否签到，都更新启动日期，确保弹窗一天只出现一次
+      await prefs.setString('last_launch_date', todayString);
+
+      // 如果签到成功，可以给一个小的反馈
+      if (checkInSuccess == true && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('签到成功！又是元气满满的一天！')),
+        );
+      }
+    }
   }
 
   // VVV 4. 创建新的页面数据加载方法 VVV
@@ -311,50 +341,54 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   // In lib/home_page.dart -> class _HomePageContentState
 
 // VVV 用这个修正后的版本，完整替换现有的方法 VVV
+  // 文件位置: lib/home_page.dart -> _HomePageContentState
+
   Future<void> _saveInspirationResponse() async {
     final responseText = _promptResponseController.text.trim();
-    // VVV 1. 这里的检查要改为检查 Map 中的 'text' VVV
-    if (responseText.isEmpty || _aiWritingPrompt == null || _aiWritingPrompt!['text']!.isEmpty) return;
 
-    final diaryService = context.read<DiaryService>();
+    // VVVV  核心修正：更智能地获取灵感原文 VVVV
+    final promptText = _aiWritingPrompt?['question'] ?? _aiWritingPrompt?['text'];
 
-    // 2. 将“灵感”和“回复”格式化为一篇完整的日记内容
-    final fullDiaryText = """
+    // VVVV  核心修正：使用新的 promptText 变量来做检查 VVVV
+    if (responseText.isEmpty || promptText == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('回复内容不能为空哦')));
+      return;
+    }
+
+    try {
+      final diaryService = context.read<DiaryService>();
+
+      // VVVV  核心修正：使用新的 promptText 变量来构建日记 VVVV
+      final fullDiaryText = """
 > ## AI 灵感:
-> ${_aiWritingPrompt!['text']!}
+> $promptText
 
 ---
 
 $responseText
 """;
+      final newEntry = DiaryEntry(diaryId: '', text: fullDiaryText, date: DateTime.now(), creationTime: DateTime.now());
+      await diaryService.addEntry(newEntry);
 
-    // 3. 创建一篇新的日记条目
-    final newEntry = DiaryEntry(
-      diaryId: '',
-      text: fullDiaryText,
-      date: DateTime.now(),
-      creationTime: DateTime.now(),
-    );
+      // 保存灵感本身到数据库（用于日历等处显示）
+      await diaryService.saveDailyInspiration(DateTime.now(), promptText);
 
-    // 4. 将新日记添加到数据库
-    await diaryService.addEntry(newEntry);
+      _promptResponseController.clear();
+      setState(() {
+        _isRespondingToPrompt = false;
+        _aiWritingPrompt = null;
+      });
 
-    // 5. 同时，将这个灵感“收藏”到日历页
-    // VVV 3. 这里的 _aiWritingPrompt 也需要改为传递 Map 中的 'text' VVV
-    await diaryService.saveDailyInspiration(DateTime.now(), _aiWritingPrompt!['text']!);
-
-    // 6. 重置UI状态
-    _promptResponseController.clear();
-    setState(() {
-      _isRespondingToPrompt = false;
-      _aiWritingPrompt = null;
       _fetchAiWritingPrompt();
-    });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('灵感回复已保存为一篇新日记！')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('灵感回复已保存为一篇新日记！')));
+      }
+    } catch (e) {
+      print("--- 保存日记失败 --- \nError: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败，错误: $e')));
+      }
     }
   }
 
@@ -379,7 +413,8 @@ $responseText
       });
     }
     // 如果今天是周一，且还没有本周的信件
-    else if  (now.weekday == DateTime.monday) {
+    else if (now.weekday == DateTime.monday)
+    {
       setState(() {
         _letterStatus = LetterStatus.readyToGenerate; // 状态：准备生成
       });
@@ -599,14 +634,41 @@ $responseText
 
   Future<void> _fetchAiWritingPrompt() async {
     if (!mounted) return;
-    setState(() => _isLoadingPrompt = true);
+    setState(() {
+      _isLoadingPrompt = true;
+      _isAiAnswerExpanded = false; // VVV 新增：重置展开状态 VVV
+    });
+
     final diaryService = context.read<DiaryService>();
-    final promptData = await diaryService.generatePersonalizedPrompt(modelName: _selectedInspirationModel); // VVV 变量名修改 VVV
-    if (mounted) {
-      setState(() {
-        _aiWritingPrompt = promptData; // VVV 存储整个Map VVV
-        _isLoadingPrompt = false;
-      });
+    final today = DateTime.now();
+
+    // 1. 先尝试从数据库获取今天的灵感
+    final String? cachedPrompt = await diaryService.getInspirationForDay(today);
+
+    if (cachedPrompt != null && cachedPrompt.isNotEmpty) {
+      // 2. 如果数据库中存在，直接使用它
+      if (mounted) {
+        setState(() {
+          // 我们将它包装成与AI返回时相同的格式
+          _aiWritingPrompt = {'type': 'inspiration', 'text': cachedPrompt};
+          _isLoadingPrompt = false;
+        });
+      }
+    } else {
+      // 3. 如果数据库中没有，才向AI请求新的灵感
+      final promptData = await diaryService.generatePersonalizedPrompt(modelName: _selectedInspirationModel);
+      if (mounted) {
+        // 4. 获取到新灵感后，先将其保存到数据库
+        if (promptData['text'] != null && promptData['text']!.isNotEmpty) {
+          await diaryService.saveDailyInspiration(today, promptData['text']!);
+        }
+
+        // 5. 更新UI
+        setState(() {
+          _aiWritingPrompt = promptData;
+          _isLoadingPrompt = false;
+        });
+      }
     }
   }
 
@@ -805,7 +867,7 @@ $responseText
             itemCount: festivals.length,
             itemBuilder: (context, index, realIndex) {
               // Pass the entire ThemeProvider to the card builder
-              return _buildFestivalCard(festivals[index], index, themeProvider);
+              return _buildFestivalCard(festivals[index], index);
             },
             options: cs.CarouselOptions(
               height: 160,
@@ -826,41 +888,15 @@ $responseText
   // ... inside the _HomePageContentState class ...
 
   // VVV Use this to replace the old _buildFestivalCard method VVV
-  Widget _buildFestivalCard(Map<String, dynamic> festival, int index,
-      ThemeProvider themeProvider) {
+  Widget _buildFestivalCard(Map<String, dynamic> festival, int index) {
     final int daysUntil = festival['daysUntil'];
     final String dateFormatted = DateFormat('M月d日').format(festival['date']);
-
     final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
 
-    final BoxDecoration cardDecoration;
-    if (isDarkMode) {
-      cardDecoration = BoxDecoration(
-        borderRadius: BorderRadius.circular(15),
-        color: theme.cardColor,
-      );
-    } else {
-      final gradients = themeProvider.cardGradientColors;
-      final gradient = gradients[index % gradients.length];
-      cardDecoration = BoxDecoration(
-        borderRadius: BorderRadius.circular(15),
-        gradient: LinearGradient(
-          colors: gradient,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: gradient.last.withOpacity(0.5),
-            blurRadius: 10,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      );
-    }
+    // 使用来自 ColorScheme 的颜色，而不是固定的渐变色
+    final cardColor = theme.colorScheme.primaryContainer;
+    final textColor = theme.colorScheme.onPrimaryContainer;
 
-    // VVV 关键修正：确保 Container 的 child: Row(...) 及其内部组件是完整的 VVV
     return GestureDetector(
       onTap: () {
         Navigator.of(context).push(
@@ -869,7 +905,17 @@ $responseText
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 10),
         padding: const EdgeInsets.all(16.0),
-        decoration: cardDecoration,
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(15),
+          boxShadow: [
+            BoxShadow(
+              color: cardColor.withOpacity(0.5),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -879,26 +925,24 @@ $responseText
               children: [
                 Text(
                   festival['name'],
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: textColor,
                     fontSize: 22,
                     fontWeight: FontWeight.bold,
-                    shadows: [Shadow(color: Colors.black26, blurRadius: 2)],
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   dateFormatted,
-                  style: TextStyle(
-                      color: Colors.white.withOpacity(0.8), fontSize: 14),
+                  style: TextStyle(color: textColor.withOpacity(0.8), fontSize: 14),
                 ),
               ],
             ),
             Text(
               daysUntil == 0 ? '今天' : '$daysUntil\n天后',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: textColor,
                 fontSize: 26,
                 fontWeight: FontWeight.w300,
                 height: 1.2,
@@ -1221,8 +1265,10 @@ $responseText
 
             final bool isInspirationResponse = currentEntry.text.trim().startsWith('> ## AI 灵感:');
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            return FadeInUp(
+                duration: const Duration(milliseconds: 500),
+            child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (showMonthSeparator) _buildMonthSeparator(currentEntry.date),
                 if (isInspirationResponse)
@@ -1230,7 +1276,7 @@ $responseText
                 else
                   _buildHistoryCard(currentEntry, index),
               ],
-            );
+            ));
           },
         );
       },
@@ -1239,36 +1285,23 @@ $responseText
 
   Widget _buildHistoryCard(DiaryEntry entry, int index) {
     final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
 
-    final textColor = isDarkMode ? Colors.white.withOpacity(0.95) : Colors
-        .white;
-    final subTextColor = isDarkMode ? Colors.white.withOpacity(0.6) : Colors
-        .white70;
+    // The Card widget will now automatically get its color and shape from the CardTheme
+    // we defined in lib/themes.dart. We no longer need custom decoration here.
 
-    final BoxDecoration cardDecoration;
-    if (isDarkMode) {
-      cardDecoration = BoxDecoration(
-        color: theme.cardColor,
-      );
-    } else {
-      final themeProvider = context.read<ThemeProvider>();
-      final gradientList = themeProvider.cardGradientColors;
-      final currentGradient = gradientList[index % gradientList.length];
-      cardDecoration = BoxDecoration(
-          gradient: LinearGradient(colors: currentGradient,
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight)
-      );
-    }
+    // We derive text colors from the theme to ensure they are always readable.
+    final textColor = theme.colorScheme.onSurface;
+    final subTextColor = theme.colorScheme.onSurface.withOpacity(0.7);
 
     return InkWell(
       onTap: () =>
           Navigator.of(context).push(MaterialPageRoute(
               builder: (context) => DiaryViewPage(entry: entry))),
+      // Use the Card's default splash effect by wrapping it in InkWell
+      borderRadius: BorderRadius.circular(15.0),
       child: Card(
-        child: Container(
-          decoration: cardDecoration,
+        // No custom decoration needed here anymore.
+        child: SizedBox(
           height: 120,
           child: Row(
             children: [
@@ -1294,8 +1327,7 @@ $responseText
                   thickness: 1,
                   indent: 16,
                   endIndent: 16,
-                  color: isDarkMode ? Colors.white.withOpacity(0.2) : Colors
-                      .white30),
+                  color: theme.dividerColor), // Use the theme's divider color
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
@@ -1303,7 +1335,7 @@ $responseText
                     entry.text.isNotEmpty ? entry.text : '(无文字内容)',
                     maxLines: 4,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: textColor,
+                    style: TextStyle(color: textColor, // Use theme-aware color
                         fontWeight: FontWeight.w400,
                         fontSize: 15,
                         height: 1.4),
@@ -1331,224 +1363,170 @@ $responseText
 
   // In lib/home_page.dart -> inside _HomePageContentState class
 
+  // lib/home_page.dart -> _HomePageContentState
+
   Widget _buildAiPromptCard() {
-    final promptType = _aiWritingPrompt?['type'] ?? 'inspiration';
-    final promptText = _aiWritingPrompt?['text'] ?? '';
-    // 状态一：正在加载 -> 显示骨架屏
     if (_isLoadingPrompt) {
       return _buildAiPromptPlaceholder();
     }
 
-    // 状态二：已获取灵感 -> 显示带“回复”和“实时切换模型”功能的卡片
-    if (_aiWritingPrompt != null && _aiWritingPrompt!.isNotEmpty) {
+    if (_aiWritingPrompt != null) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
         child: Card(
           elevation: 2.0,
           color: Theme.of(context).colorScheme.tertiaryContainer,
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // --- 顶部区域：显示灵感 ---
-                Text(
-                  promptType == 'check_in' ? '来自小精灵的关心' : '每日灵感',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onTertiaryContainer,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                MarkdownBody(
-                  data: promptText,
-                  styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                    p: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.onTertiaryContainer,
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // --- 交互区域：根据是否处于“回复模式”进行切换 ---
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  transitionBuilder: (Widget child, Animation<double> animation) {
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SizeTransition(
-                        sizeFactor: animation,
-                        axis: Axis.vertical,
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: _isRespondingToPrompt
-                      ? // VVV “回复灵感”模式 VVV
-                  Column(
-                    key: const ValueKey('responding'),
-                    children: [
-                      const Divider(),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _promptResponseController,
-                        autofocus: true,
-                        maxLines: 5,
-                        decoration: InputDecoration(
-                          hintText: '在此写下你的思绪...',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                          fillColor: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.5),
-                          filled: true,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            child: const Text('取消'),
-                            onPressed: () => setState(() => _isRespondingToPrompt = false),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton(
-                            onPressed: _saveInspirationResponse,
-                            child: const Text('保存回复'),
-                          ),
-                        ],
-                      )
-                    ],
-                  )
-                      : // VVV “展示灵感”模式 VVV
-                  Row(
-                    key: const ValueKey('showing'),
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      // 模型选择
-                      DropdownButton<String>(
-                        value: _selectedInspirationModel,
-                        items: _availableModels.map((String model) {
-                          return DropdownMenuItem<String>(
-                            value: model,
-                            child: Text(
-                              model.contains('pro') ? '专业模型' : '快速模型',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Theme.of(context).colorScheme.onTertiaryContainer,
-                              ),
-                            ),
-                          );
-                        }).toList(),
-
-                        onChanged: (String? newModel) {
-                          if (newModel != null && newModel != _selectedInspirationModel) {
-                            setState(() {
-                              _selectedInspirationModel = newModel;
-                            });
-                            // 切换后立即使用新模型重新获取灵感
-                            _fetchAiWritingPrompt();
-                          }
-                        },
-                        underline: const SizedBox(),
-                        icon: Icon(
-                          Icons.model_training_outlined,
-                          size: 20,
-                          color: Theme.of(context).colorScheme.onTertiaryContainer.withOpacity(0.7),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.refresh_outlined),
-                        tooltip: '换个提示',
-                        onPressed: _fetchAiWritingPrompt,
-                        color: Theme.of(context).colorScheme.onTertiaryContainer.withOpacity(0.7),
-                      ),
-                      const Spacer(),
-                      // 收藏按钮
-                      IconButton(
-                        icon: const Icon(Icons.bookmark_add_outlined),
-                        tooltip: '收藏今日灵感',
-                        onPressed: () {
-                          if (_aiWritingPrompt != null) {
-                            // VVV 确保这里使用的是 _aiWritingPrompt!['text']! VVV
-                            context.read<DiaryService>().saveDailyInspiration(DateTime.now(), _aiWritingPrompt!['text']!);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('今日灵感已收藏到日历页！'), duration: Duration(seconds: 2)),
-                            );
-                          }
-                        },
-                      ),
-                      // “动笔写写”按钮
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        label: const Text('动笔写写'),
-                        onPressed: () {
-                          setState(() {
-                            _isRespondingToPrompt = true;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            // 使用动画切换器来平滑地在“灵感视图”和“回复视图”之间切换
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: _isRespondingToPrompt
+                  ? _buildResponseView(_aiWritingPrompt!['question'] ?? '')
+                  : _buildInspirationView(
+                _aiWritingPrompt!['type'],
+                _aiWritingPrompt!['question'] ?? _aiWritingPrompt!['text'] ?? '',
+                _aiWritingPrompt!['sampleAnswer'],
+              ),
             ),
           ),
         ),
       );
     }
 
-    // 状态三：初始状态，未加载 -> 显示带模型选择器的“获取灵感”按钮
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      child: Card(
-        color: Theme.of(context).colorScheme.surfaceVariant,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 12, 20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Row(
-                children: [
-                  Icon(Icons.auto_awesome_outlined),
-                  SizedBox(width: 12),
-                  Text("获取今日份AI灵感", style: TextStyle(fontWeight: FontWeight.bold)),
-                ],
-              ),
-              Row(
-                children: [
-                  DropdownButton<String>(
-                    value: _selectedInspirationModel,
-                    items: _availableModels.map((String model) {
-                      return DropdownMenuItem<String>(
-                        value: model,
-                        child: Text(
-                          model.contains('pro') ? '专业' : '快速',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (String? newModel) {
-                      if (newModel != null) {
-                        setState(() {
-                          _selectedInspirationModel = newModel;
-                        });
-                      }
-                    },
-                    underline: const SizedBox(),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    icon: const Icon(Icons.arrow_forward_rounded),
-                    onPressed: _fetchAiWritingPrompt,
-                    tooltip: '开始生成',
-                  ),
-                ],
-              ),
-            ],
+    // 如果没有灵感，则不显示任何内容
+    return const SizedBox.shrink();
+  }
+
+// VVVV 方法 2: 构建“灵感展示”视图的辅助方法 VVVV
+  Widget _buildInspirationView(String type, String questionText, String? sampleAnswerText) {
+    final title = type == 'check_in' ? '来自小精灵的关心' : (type == 'welcome' ? '来自小精灵的欢迎' : '每日灵感');
+
+    return Column(
+      key: const ValueKey('inspiration_view'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onTertiaryContainer)),
+        const SizedBox(height: 8),
+        MarkdownBody(
+          data: questionText,
+          styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+            p: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.onTertiaryContainer, height: 1.5),
           ),
         ),
-      ),
+        if (sampleAnswerText != null) ...[
+          const SizedBox(height: 12),
+          // 使用 AnimatedSize 来实现平滑的展开和收起动画
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            child: _isAiAnswerExpanded
+                ? Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
+              child: MarkdownBody(data: sampleAnswerText, styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(p: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.onTertiaryContainer, fontStyle: FontStyle.italic, height: 1.5))),
+            )
+                : const SizedBox.shrink(),
+          ),
+        ],
+        const Divider(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (sampleAnswerText != null)
+              TextButton.icon(
+                onPressed: () {
+                  setState(() => _isAiAnswerExpanded = !_isAiAnswerExpanded);
+                },
+                icon: Icon(_isAiAnswerExpanded ? Icons.unfold_less : Icons.unfold_more, size: 20),
+                label: Text(_isAiAnswerExpanded ? '收起' : 'AI示例'),
+              ),
+            const Spacer(),
+            // 这里是模型选择和刷新按钮
+            DropdownButton<String>(
+              value: _selectedInspirationModel,
+              items: _availableModels.map((String model) => DropdownMenuItem<String>(value: model, child: Text(model.contains('pro') ? '专业' : '快速', style: TextStyle(fontSize: 14, color: Theme.of(context).colorScheme.onTertiaryContainer)))).toList(),
+              onChanged: (String? newModel) {
+                if (newModel != null && newModel != _selectedInspirationModel) {
+                  setState(() => _selectedInspirationModel = newModel);
+                  _fetchAiWritingPrompt();
+                }
+              },
+              underline: const SizedBox(),
+              icon: Icon(Icons.model_training_outlined, size: 20, color: Theme.of(context).colorScheme.onTertiaryContainer.withOpacity(0.7)),
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh_outlined),
+              tooltip: '换个提示',
+              onPressed: _fetchAiWritingPrompt,
+              color: Theme.of(context).colorScheme.onTertiaryContainer.withOpacity(0.7),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('动笔'),
+              onPressed: () => setState(() => _isRespondingToPrompt = true),
+            ),
+          ],
+        ),
+      ],
     );
   }
+
+// VVVV 方法 3: 构建“用户回复”视图的辅助方法 VVVV
+  // 文件位置: lib/home_page.dart -> _HomePageContentState
+
+  Widget _buildResponseView(String questionText) {
+    return Column(
+      key: const ValueKey('response_view'),
+      crossAxisAlignment: CrossAxisAlignment.start, // 整体左对齐
+      children: [
+        // VVVV  全新的引导语/问题回顾区域 VVVV
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12.0),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.05), // 使用一个柔和的背景色
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              "回应灵感: \"$questionText\"", // 完整显示问题
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        ),
+        // ^^^^ 引导语区域结束 ^^^^
+
+        TextField(
+          controller: _promptResponseController,
+          autofocus: true,
+          maxLines: 5,
+          decoration: InputDecoration(
+            hintText: '在此写下你的思绪...',
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            fillColor: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.5),
+            filled: true,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton(child: const Text('取消'), onPressed: () => setState(() => _isRespondingToPrompt = false)),
+            const SizedBox(width: 8),
+            ElevatedButton(onPressed: _saveInspirationResponse, child: const Text('保存回复')),
+          ],
+        ),
+      ],
+    );
+  }
+
+// VVVV  新增的辅助方法2: 构建用户回复视图 VVVV
+
 
   Widget _buildInspirationResponseHistoryCard(DiaryEntry entry) {
     final theme = Theme.of(context);
@@ -1776,38 +1754,34 @@ class AppDrawer extends StatelessWidget {
                 },
                 child: DrawerHeader(
                   decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: themeProvider.isDarkMode
-                          ? [const Color(0xFF3A3A3A), const Color(0xFF2A2A2A)]
-                          : [Colors.purple.shade200, Colors.pink.shade100],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
+                    // 使用来自 ColorScheme 的 surfaceVariant 颜色，它会根据主题自动变化
+                    color: Theme.of(context).colorScheme.surfaceVariant,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       CircleAvatar(
                         radius: 35,
-                        backgroundColor: Colors.white.withOpacity(0.3),
+                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
                         backgroundImage: userProvider.avatarPath != null
                             ? FileImage(File(userProvider.avatarPath!))
                             : null,
                         child: userProvider.avatarPath == null
-                            ? const Icon(Icons.person, size: 40, color: Colors.white)
+                            ? Icon(Icons.person, size: 40, color: Theme.of(context).colorScheme.onPrimaryContainer)
                             : null,
                       ),
                       const SizedBox(height: 12),
                       Text(
                         userProvider.nickname,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: Colors.white,
+                          // 确保文字颜色也能适应主题
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
-                ),
+                )
               ),
               ListTile(
                 leading: const Icon(Icons.home_outlined),
@@ -1929,16 +1903,6 @@ class AppDrawer extends StatelessWidget {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (context) => const SettingsPage()),
                   );
-                },
-              ),
-              SwitchListTile(
-                title: const Text('夜间模式'),
-                secondary: Icon(
-                  themeProvider.isDarkMode ? Icons.nightlight_round : Icons.wb_sunny_outlined,
-                ),
-                value: themeProvider.isDarkMode,
-                onChanged: (bool value) {
-                  context.read<ThemeProvider>().toggleTheme(value);
                 },
               ),
             ],

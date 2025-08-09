@@ -6,7 +6,7 @@ import 'dart:io';
 class DatabaseHelper {
   static const _databaseName = "MyDiary.db";
   // VVV 1. 数据库版本号 +1 VVV
-  static const _databaseVersion = 3;
+  static const _databaseVersion = 4;
 
   static const table = 'diaries';
   // ... 其他列名 ...
@@ -70,7 +70,17 @@ class DatabaseHelper {
     // 2. 继续创建我们在版本2和版本3中新增的表
     await _createV2Tables(db);
     await _createV3Tables(db);
+    await _createV4Tables(db);
   }
+
+  Future<void> _createV4Tables(Database db) async {
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS daily_check_ins (
+      date TEXT PRIMARY KEY -- 日期作为主键, 格式 'YYYY-MM-DD'
+    )
+  ''');
+  }
+
 
   Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
@@ -79,6 +89,9 @@ class DatabaseHelper {
     // VVV 3. 添加版本3的升级逻辑 VVV
     if (oldVersion < 3) {
       await _createV3Tables(db);
+    }
+    if (oldVersion < 4) {
+      await _createV4Tables(db);
     }
   }
 

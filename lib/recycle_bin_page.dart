@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'diary_service.dart';
 import 'diary_view_page.dart';
 import 'package:my_new_diary/diary_model.dart';
+import 'package:animate_do/animate_do.dart';
 
 class RecycleBinPage extends StatefulWidget {
   const RecycleBinPage({super.key});
@@ -68,50 +69,51 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
             itemCount: entries.length,
             itemBuilder: (context, index) {
               final entry = entries[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: ListTile(
-                  title: Text(
-                    entry.text.isNotEmpty ? entry.text : '(无文字内容)',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime)),
-                  onTap: () {
-                    // 在回收站里也可以查看日记详情
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry)),
-                    );
-                  },
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // 恢复按钮
-                      IconButton(
-                        icon: const Icon(Icons.restore, color: Colors.green),
-                        tooltip: '恢复',
-                        onPressed: () {
-                          diaryService.restoreFromTrash(entry.diaryId);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('日记已恢复')),
-                          );
-                        },
-                      ),
-                      // 永久删除按钮
-                      IconButton(
-                        icon: const Icon(Icons.delete_forever, color: Colors.red),
-                        tooltip: '永久删除',
-                        onPressed: () async {
-                          final confirm = await _showDeleteConfirmDialog();
-                          if (confirm) {
-                            diaryService.deletePermanently(entry.diaryId);
+              return FadeInUp(
+                duration: const Duration(milliseconds: 500),
+                delay: Duration(milliseconds: index * 50), // 添加一个小的延迟，产生逐个出现的效果
+                child: Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: ListTile(
+                    title: Text(
+                      entry.text.isNotEmpty ? entry.text : '(无文字内容)',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime)),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry)),
+                      );
+                    },
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.restore, color: Colors.green),
+                          tooltip: '恢复',
+                          onPressed: () {
+                            diaryService.restoreFromTrash(entry.diaryId);
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('日记已永久删除')),
+                              const SnackBar(content: Text('日记已恢复')),
                             );
-                          }
-                        },
-                      ),
-                    ],
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_forever, color: Colors.red),
+                          tooltip: '永久删除',
+                          onPressed: () async {
+                            final confirm = await _showDeleteConfirmDialog();
+                            if (confirm) {
+                              diaryService.deletePermanently(entry.diaryId);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('日记已永久删除')),
+                              );
+                            }
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );

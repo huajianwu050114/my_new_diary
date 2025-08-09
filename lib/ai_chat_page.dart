@@ -372,6 +372,7 @@ class _AiChatPageState extends State<AiChatPage> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isSelected = _selectedMessages.contains(message);
 
+
     return Row(
       mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.center,

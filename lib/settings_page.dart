@@ -15,6 +15,9 @@ import 'package:archive/archive_io.dart';
 import 'dart:typed_data';
 import 'package:my_new_diary/diary_model.dart';
 import 'package:my_new_diary/migration_service.dart';
+import 'theme_options.dart';
+import 'themes.dart';
+import 'theme_provider.dart';
 
 
 class SettingsPage extends StatefulWidget {
@@ -356,6 +359,17 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               const Divider(),
               // VVV 在这里添加新列表项 VVV
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.color_lens_outlined),
+                title: const Text('主题与外观'),
+                onTap: () {
+                  showModalBottomSheet(
+                    context: context,
+                    builder: (context) => const ThemeSelectionSheet(),
+                  );
+                },
+              ),
               ListTile(
                 leading: const Icon(Icons.block_flipped),
                 title: const Text('词云停用词管理'),
@@ -428,6 +442,111 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
         ],
       ),
+    );
+  }
+}
+class ThemeSelectionSheet extends StatelessWidget {
+  const ThemeSelectionSheet({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ThemeProvider>(
+      builder: (context, provider, child) {
+        return Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: ListView(
+            children: [
+              // --- 主题模式选择 ---
+              Text('主题模式', style: Theme.of(context).textTheme.titleLarge),
+              SegmentedButton<ThemeMode>(
+                segments: const [
+                  ButtonSegment(value: ThemeMode.light, label: Text('日间')),
+                  ButtonSegment(value: ThemeMode.dark, label: Text('夜间')),
+                  ButtonSegment(value: ThemeMode.system, label: Text('跟随系统')),
+                ],
+                selected: {provider.themeMode},
+                onSelectionChanged: (newSelection) {
+                  provider.setThemeMode(newSelection.first);
+                },
+              ),
+              const SizedBox(height: 24),
+
+              // --- 浅色主题选择 ---
+              Text('日间模式主题', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: provider.availableLightThemes.map((theme) {
+                  final isSelected = provider.lightTheme.name == theme.name;
+                  return GestureDetector(
+                    onTap: () => provider.setLightTheme(theme),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: theme.seedColor,
+                            shape: BoxShape.circle,
+                            border: isSelected
+                                ? Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 3)
+                                : null,
+                          ),
+                          child: isSelected
+                              ? const Icon(Icons.check, color: Colors.white)
+                              : null,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(theme.name, style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 24),
+
+              // --- 深色主题选择 ---
+              Text('夜间模式主题', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: provider.availableDarkThemes.map((theme) {
+                  final isSelected = provider.darkTheme.name == theme.name;
+                  return GestureDetector(
+                    onTap: () => provider.setDarkTheme(theme),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: theme.seedColor,
+                            shape: BoxShape.circle,
+                            border: isSelected
+                                ? Border.all(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 3)
+                                : null,
+                          ),
+                          child: isSelected
+                              ? Icon(Icons.check, color: Theme.of(context).colorScheme.onPrimary)
+                              : null,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(theme.name, style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

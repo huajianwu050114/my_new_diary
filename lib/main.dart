@@ -68,8 +68,8 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: '我的日记',
       // VVV 3. 使用新文件中的主题 VVV
-      theme: AppThemes.lightTheme,
-      darkTheme: AppThemes.darkTheme,
+      theme: AppThemes.fromAppTheme(themeProvider.lightTheme),
+      darkTheme: AppThemes.fromAppTheme(themeProvider.darkTheme),
       themeMode: themeProvider.themeMode,
       home: const HomePage(),
       debugShowCheckedModeBanner: false,
