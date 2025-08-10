@@ -12,6 +12,9 @@ import 'ai_chat_page.dart';
 import 'dart:convert';
 import 'gemini_service_local.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:speech_to_text/speech_to_text.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:animate_do/animate_do.dart';
 
 
 class AddDiaryPage extends StatefulWidget {
@@ -43,10 +46,16 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
 
   // VVV 2. 添加一个状态来判断当前是“编辑”还是“新建”模式 VVV
   bool _isEditMode = false;
+  bool _isPrivate = false;
+  final SpeechToText _speechToText = SpeechToText();
+  bool _speechEnabled = false;
+  bool _isListening = false;
+  _SpokenSegment? _pendingTidyUpSegment;
 
   @override
   void initState() {
     super.initState();
+    _initSpeech();
     // VVV 3. 在初始化时，检查是否是编辑模式 VVV
     if (widget.entryToEdit != null) {
       setState(() {
@@ -61,6 +70,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
         _latitude = entry.latitude;
         _longitude = entry.longitude;
         _address = entry.address;
+        _isPrivate = entry.isPrivate;
       });
     }
   }
@@ -69,6 +79,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
   void dispose() {
     _textController.dispose();
     _tagController.dispose();
+    _speechToText.stop();
     super.dispose();
   }
 
@@ -103,6 +114,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
           latitude: _latitude,
           longitude: _longitude,
           address: _address,
+          isPrivate: _isPrivate,
         );
         await diaryService.updateEntry(updatedEntry);
         // VVV 3. 获取已存在日记的ID VVV
@@ -120,6 +132,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
           latitude: _latitude,
           longitude: _longitude,
           address: _address,
+          isPrivate: _isPrivate,
         );
         // VVV 4. 获取新创建日记的ID VVV
         // 注意：这里假设您的 addEntry 方法会返回创建后的 DiaryEntry 对象。
@@ -144,50 +157,189 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
     }
   }
 
+  void _initSpeech() async {
+    var status = await Permission.microphone.status;
+    if (status.isDenied) {
+      await Permission.microphone.request();
+    }
+    _speechEnabled = await _speechToText.initialize();
+    if (mounted) setState(() {});
+  }
 
+  void _toggleListening() {
+    if (_pendingTidyUpSegment != null) {
+      setState(() => _pendingTidyUpSegment = null);
+    }
+    if (_isListening) {
+      _stopListening();
+    } else {
+      _startListening();
+    }
+  }
+
+  void _startListening() {
+    if (!_speechEnabled) return;
+
+    final cursorPosition = _textController.selection.baseOffset;
+    final textBeforeCursor = _textController.text.substring(0, cursorPosition);
+    final textAfterCursor = _textController.text.substring(cursorPosition);
+
+    _speechToText.listen(
+      onResult: (result) {
+        if(mounted) {
+          setState(() {
+            _textController.text = textBeforeCursor + ' ' + result.recognizedWords + textAfterCursor;
+            _textController.selection = TextSelection.fromPosition(
+              TextPosition(offset: (textBeforeCursor + ' ' + result.recognizedWords).length),
+            );
+          });
+        }
+      },
+      localeId: 'zh_CN',
+    );
+    if (mounted) setState(() => _isListening = true);
+  }
+
+  void _stopListening() async {
+    await _speechToText.stop();
+
+    final lastRecognizedText = _speechToText.lastRecognizedWords;
+    if (lastRecognizedText.trim().isNotEmpty) {
+      final fullText = _textController.text;
+      final startIndex = fullText.lastIndexOf(lastRecognizedText);
+      if (startIndex != -1) {
+        setState(() {
+          _pendingTidyUpSegment = _SpokenSegment(
+            startIndex: startIndex,
+            rawText: lastRecognizedText,
+          );
+        });
+      }
+    }
+    if (mounted) setState(() => _isListening = false);
+  }
+
+  // --- VVV 新增：执行AI润色和弹出对比框的逻辑 VVV ---
+  Future<void> _performTidyUp() async {
+    if (_pendingTidyUpSegment == null) return;
+    final segment = _pendingTidyUpSegment!;
+
+    setState(() => _pendingTidyUpSegment = null);
+    showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+
+    final geminiService = GeminiServiceLocal();
+    final prompt = """你是一位语言润色大师。请将以下这段口语化的文本，优化成一段更加书面化、更连贯的文字。请注意：1. 忠实于原文的核心意思和情感。2. 修正语法，移除不必要的口头禅（如 '嗯', '啊', '那个'）。3. 不要添加任何原文没有的信息。4. 只返回优化后的文本。需要优化的口语文本如下:---${segment.rawText}""";
+
+    final (processedText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-1.5-flash');
+
+    Navigator.of(context).pop();
+
+    if (processedText != null && !processedText.startsWith("ERROR:")) {
+      final bool? shouldApply = await showDialog<bool>(
+        context: context,
+        builder: (_) => AiTidyUpComparisonDialog(originalText: segment.rawText, suggestedText: processedText),
+      );
+
+      if (shouldApply == true) {
+        final originalFullText = _textController.text;
+        final textBefore = originalFullText.substring(0, segment.startIndex);
+        final textAfter = originalFullText.substring(segment.startIndex + segment.rawText.length);
+
+        final newText = textBefore + processedText + textAfter;
+        _textController.text = newText;
+        _textController.selection = TextSelection.fromPosition(TextPosition(offset: (textBefore + processedText).length));
+      }
+    } else {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI 润色失败，请稍后重试。')));
+    }
+  }
+
+
+
+  // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState
 
   Future<void> _runAiAnalysis(String entryId) async {
+    // 检查是否为私密，如果是，则跳过（根据我们之前的约定）
+    if (_isPrivate) {
+      print("日记为私密，跳过AI分析。");
+      return;
+    }
+
     final diaryService = context.read<DiaryService>();
-    final geminiService = GeminiServiceLocal(); // 你的Gemini服务实例 [cite: 768]
+    final geminiService = GeminiServiceLocal();
 
-    // 延迟一小会儿，确保数据库写入完成
+    // 延迟一秒，确保数据库写入完成
     await Future.delayed(const Duration(seconds: 1));
-
     final entry = await diaryService.getEntryById(entryId);
-    if (entry == null || entry.text.isEmpty) return;
 
-    // 定义一个强大的Prompt，要求返回JSON
+    if (entry == null || entry.text.isEmpty) {
+      print("无法获取刚保存的日记或日记内容为空，跳过AI分析。");
+      return;
+    }
+
     final prompt = """
-请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
-请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
-{
-  "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
-  "summary": "<大约50字的摘要>",
-  "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
-  "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
-  "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
-}
+  请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
+  请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
+  {
+    "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
+    "summary": "<大约50字的摘要>",
+    "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
+    "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
+    "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
+  }
+  日记内容如下:
+  ---
+  ${entry.text}
+  """;
 
-日记内容如下:
----
-${entry.text}
-""";
-
-    // 调用Gemini API
     final (responseText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-2.5-pro');
 
-    if (responseText != null) {
+    if (responseText != null && responseText.isNotEmpty) {
       try {
-        final decodedJson = jsonDecode(responseText);
-        final newMetadata = AiMetadata.fromJson(decodedJson);
+        // 清洗可能存在的Markdown标记
+        String cleanedJson = responseText.trim();
+        if (cleanedJson.startsWith("```json")) {
+          cleanedJson = cleanedJson.substring(7);
+          if (cleanedJson.endsWith("```")) {
+            cleanedJson = cleanedJson.substring(0, cleanedJson.length - 3);
+          }
+        }
+        cleanedJson = cleanedJson.trim();
 
-        // 将AI分析结果更新回数据库
+        final decodedJson = jsonDecode(cleanedJson);
+        final newMetadata = AiMetadata.fromJson(decodedJson);
         final updatedEntry = entry.copyWith(aiMetadata: newMetadata);
         await diaryService.updateEntry(updatedEntry);
-        print("AI分析已成功保存！");
 
+        print("AI分析已成功保存！");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('AI悄悄话已生成！'), backgroundColor: Colors.green),
+          );
+        }
       } catch (e) {
+        // VVVV 核心修改：如果解析失败，弹出错误提示 VVVV
         print("解析AI返回的JSON失败: $e");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('生成AI悄悄话失败: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 10), // 持续时间长一点方便查看
+            ),
+          );
+        }
+      }
+    } else {
+      // VVVV 核心修改：如果AI没有返回任何内容，也弹出提示 VVVV
+      print("AI未能返回有效内容，无法生成悄悄话。");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('AI未能返回有效内容，无法生成悄悄话。'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -289,39 +441,94 @@ ${entry.text}
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('写下今天的故事'),
+        title: Text(_isEditMode ? '编辑日记' : '写下今天的故事'),
         actions: [
+          // VVVV 核心修改：将开关移到这里 VVVV
+          Tooltip(
+            message: _isPrivate ? '设为公开日记' : '设为私密日记',
+            child: Switch(
+              value: _isPrivate,
+              onChanged: (bool value) {
+                setState(() {
+                  _isPrivate = value;
+                });
+              },
+              activeTrackColor: Colors.deepPurple.shade200,
+              activeColor: Colors.deepPurple,
+            ),
+          ),
           IconButton(icon: const Icon(Icons.save_alt_outlined), tooltip: '保存', onPressed: _saveDiary),
+          const SizedBox(width: 8), // 增加一点边距
         ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            // ... _buildMoodSelector remains unchanged ...
             _buildMoodSelector(),
             const Divider(height: 32),
-            _buildLocationSelector(), // VVV 6. Add the location widget to the layout
+            _buildLocationSelector(),
             const Divider(height: 32),
-            // ... _buildTagEditor remains unchanged ...
             Text('添加标签', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
             _buildTagEditor(),
             const Divider(height: 32),
-            // ... _buildImageGrid remains unchanged ...
+
+            // VVVV 核心修改：之前这里的 SwitchListTile 已被移除 VVVV
+
             _buildImageGrid(),
             const SizedBox(height: 16),
-            // ... TextField remains unchanged ...
             TextField(
               controller: _textController,
               maxLines: 10,
+              onChanged: (text) { // 当用户手动输入时，自动隐藏润色建议
+                if (_pendingTidyUpSegment != null) {
+                  setState(() => _pendingTidyUpSegment = null);
+                }
+              },
               decoration: InputDecoration(
                 hintText: '今天有什么新鲜事...',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 contentPadding: const EdgeInsets.all(12),
+                suffixIcon: _buildVoiceIcon(),
               ),
             ),
+            _buildAiTidyUpCard(),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVoiceIcon() {
+    return IconButton(
+      icon: Icon(_isListening ? Icons.mic_off : Icons.mic),
+      color: _isListening ? Theme.of(context).colorScheme.primary : Colors.grey,
+      tooltip: '语音输入',
+      onPressed: _speechEnabled ? _toggleListening : null,
+    );
+  }
+
+  // VVV 新增：构建AI建议卡片的辅助方法 VVV
+  Widget _buildAiTidyUpCard() {
+    if (_pendingTidyUpSegment == null) return const SizedBox.shrink();
+
+    return FadeInUp(
+      duration: const Duration(milliseconds: 300),
+      child: Card(
+        margin: const EdgeInsets.only(top: 12.0),
+        color: Theme.of(context).colorScheme.tertiaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+          child: Row(
+            children: [
+              Icon(Icons.auto_awesome_outlined, color: Theme.of(context).colorScheme.onTertiaryContainer),
+              const SizedBox(width: 12),
+              Expanded(child: Text('需要AI帮你整理刚才说的话吗？', style: TextStyle(color: Theme.of(context).colorScheme.onTertiaryContainer))),
+              TextButton(onPressed: () => setState(() => _pendingTidyUpSegment = null), child: const Text('忽略')),
+              FilledButton(onPressed: _performTidyUp, child: const Text('一键润色')),
+            ],
+          ),
         ),
       ),
     );
@@ -487,6 +694,50 @@ ${entry.text}
           ],
         );
       },
+    );
+  }
+}
+
+class _SpokenSegment {
+  final int startIndex;
+  final String rawText;
+  _SpokenSegment({required this.startIndex, required this.rawText});
+}
+
+class AiTidyUpComparisonDialog extends StatelessWidget {
+  final String originalText;
+  final String suggestedText;
+
+  const AiTidyUpComparisonDialog({
+    super.key,
+    required this.originalText,
+    required this.suggestedText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('AI 修改建议'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('原文:', style: theme.textTheme.labelMedium),
+            const SizedBox(height: 4),
+            Container(width: double.maxFinite, padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: theme.colorScheme.surfaceVariant.withOpacity(0.3), borderRadius: BorderRadius.circular(8), border: Border.all(color: theme.dividerColor)), child: Text(originalText)),
+            const SizedBox(height: 16),
+            Text('AI 建议:', style: theme.textTheme.labelMedium),
+            const SizedBox(height: 4),
+            Container(width: double.maxFinite, padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: theme.colorScheme.primaryContainer.withOpacity(0.3), borderRadius: BorderRadius.circular(8), border: Border.all(color: theme.colorScheme.primary)), child: Text(suggestedText)),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('取消')),
+        FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('应用修改')),
+      ],
     );
   }
 }

@@ -36,6 +36,7 @@ import 'reflections_archive_page.dart';
 import 'search_page.dart';
 import 'settings_page.dart';
 import 'diary_view_page.dart';
+import 'statistics_page.dart';
 
 // 临时的枚举，确保代码完整性
 enum LetterStatus {
@@ -137,6 +138,14 @@ class AppDrawer extends StatelessWidget {
               ),
               ListTile(leading: const Icon(Icons.home_outlined), title: const Text('主页'), onTap: () => Navigator.pop(context)),
               ListTile(leading: const Icon(Icons.analytics_outlined), title: const Text('统计分析'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const AnalysisPage()))),
+              ListTile(
+                leading: const Icon(Icons.insights_outlined), // 新图标
+                title: const Text('写作统计'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.of(context).push(MaterialPageRoute(builder: (context) => const StatisticsPage()));
+                },
+              ),
               ListTile(leading: const Icon(Icons.map_outlined), title: const Text('足迹地图'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LocationMemoriesPage()))),
               ListTile(leading: const Icon(Icons.favorite_outline), title: const Text('我的收藏'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const FavoritesPage()))),
               ListTile(leading: const Icon(Icons.all_inbox_outlined), title: const Text('精灵信箱'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LettersArchivePage()))),
@@ -288,7 +297,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         _weeklyLetterContent = letter;
         _letterStatus = LetterStatus.available;
       });
-    } else if (true)//(now.weekday == DateTime.monday)
+    } else if (now.weekday == DateTime.monday)
     {
       setState(() => _letterStatus = LetterStatus.readyToGenerate);
     } else {

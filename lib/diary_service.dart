@@ -31,7 +31,7 @@ class DiaryService extends ChangeNotifier {
     final maps = await db.query(
       DatabaseHelper.table,
       // 查询条件：日匹配，但年月不完全匹配，且未被删除
-      where: "strftime('%d', date) = ? AND strftime('%Y-%m', date) != ? AND isDeleted = ?",
+      where: "strftime('%d', date) = ? AND strftime('%Y-%m', date) != ? AND isDeleted = 0 AND isPrivate = 0",
       whereArgs: [dayOfMonth, DateFormat('yyyy-MM').format(now), 0],
       orderBy: 'date DESC', // 按日期倒序，让最近的月份排在前面
     );
@@ -55,7 +55,7 @@ class DiaryService extends ChangeNotifier {
       // 查询数据库中是否有正好在那一天写的日记
       final maps = await db.query(
         DatabaseHelper.table,
-        where: "date LIKE ? AND isDeleted = ?",
+        where: "date LIKE ? AND isDeleted = 0 AND isPrivate = 0",
         whereArgs: ['$targetDateString%', 0],
       );
 
@@ -69,8 +69,18 @@ class DiaryService extends ChangeNotifier {
   }
 
   Future<List<DiaryEntry>> getEntriesForDateRange(DateTimeRange dateRange) async {
-    // This method simply uses your existing search functionality
-    return await searchEntries(dateRange: dateRange);
+    final db = await dbHelper.database;
+    final maps = await db.query(
+      DatabaseHelper.table,
+      // 这个查询永远不会包含私密日记
+      where: 'date BETWEEN ? AND ? AND isDeleted = 0 AND isPrivate = 0',
+      whereArgs: [
+        dateRange.start.toIso8601String(),
+        dateRange.end.add(const Duration(days: 1)).toIso8601String()
+      ],
+      orderBy: 'date DESC, creationTime DESC',
+    );
+    return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
 
   Future<void> addCheckIn(DateTime date) async {
@@ -248,31 +258,111 @@ class DiaryService extends ChangeNotifier {
   Future<int> getConsecutiveCheckInDays() async {
     final db = await dbHelper.database;
     var consecutiveDays = 0;
-    var currentDate = DateTime.now();
+    // 为了避免时区问题，我们只取年、月、日
+    var now = DateTime.now();
+    var dateToCheck = DateTime(now.year, now.month, now.day);
 
-    // 检查今天是否签到
-    var dateString = DateFormat('yyyy-MM-dd').format(currentDate);
-    var maps = await db.query('daily_check_ins', where: 'date = ?', whereArgs: [dateString]);
-
-    if (maps.isNotEmpty) {
-      consecutiveDays++;
-      currentDate = currentDate.subtract(const Duration(days: 1));
-    }
-
-    // 从昨天开始循环检查
     while (true) {
-      dateString = DateFormat('yyyy-MM-dd').format(currentDate);
-      maps = await db.query('daily_check_ins', where: 'date = ?', whereArgs: [dateString]);
+      // 1. 将日期格式化为 'YYYY-MM-DD' 以便在数据库中查询
+      final dateString = DateFormat('yyyy-MM-dd').format(dateToCheck);
 
+      // 2. 查询当天是否存在签到记录
+      final maps = await db.query(
+        'daily_check_ins',
+        where: 'date = ?',
+        whereArgs: [dateString],
+        limit: 1,
+      );
+
+      // 3. 如果找到了记录，天数+1，然后将检查日期向前推一天
       if (maps.isNotEmpty) {
         consecutiveDays++;
-        currentDate = currentDate.subtract(const Duration(days: 1));
+        dateToCheck = dateToCheck.subtract(const Duration(days: 1));
       } else {
-        break; // 一旦中断就停止计数
+        // 4. 如果某一天没有找到记录，说明连续签到中断，立刻停止循环
+        break;
       }
     }
 
     return consecutiveDays;
+  }
+
+  Future<Map<String, dynamic>> getStatistics() async {
+    final db = await dbHelper.database;
+    final allEntries = await getAllEntriesSorted(); // 获取所有非私密、未删除的日记
+
+    // 1. 总日记篇数
+    final totalEntries = allEntries.length;
+
+    // 2. 总字数
+    int totalWordCount = 0;
+    for (var entry in allEntries) {
+      totalWordCount += entry.text.length;
+    }
+
+    // 3. 总签到天数
+    final totalCheckIns = (await db.query('daily_check_ins')).length;
+
+    // 4. 最长连续写作天数
+    int longestStreak = 0;
+    int currentStreak = 0;
+    if (allEntries.isNotEmpty) {
+      // 提取所有唯一的写作日期并排序
+      final uniqueDates = allEntries.map((e) => DateTime(e.date.year, e.date.month, e.date.day)).toSet().toList();
+      uniqueDates.sort((a, b) => b.compareTo(a)); // 按日期从近到远排序
+
+      for (int i = 0; i < uniqueDates.length; i++) {
+        if (i == 0) {
+          currentStreak = 1;
+        } else {
+          // 检查当前日期是否比前一个日期刚好早一天
+          if (uniqueDates[i-1].difference(uniqueDates[i]).inDays == 1) {
+            currentStreak++;
+          } else {
+            // 如果中断，则重置计数
+            currentStreak = 1;
+          }
+        }
+        if (currentStreak > longestStreak) {
+          longestStreak = currentStreak;
+        }
+      }
+    }
+
+    // 5. 心情分布
+    final Map<String, int> moodCounts = {};
+    for (var entry in allEntries) {
+      if (entry.mood != null) {
+        moodCounts.update(entry.mood!, (value) => value + 1, ifAbsent: () => 1);
+      }
+    }
+
+    // 6. 写作时段分布
+    final Map<String, int> timeOfDayCounts = {
+      '清晨 (5-8点)': 0,
+      '上午 (8-12点)': 0,
+      '下午 (12-18点)': 0,
+      '晚上 (18-22点)': 0,
+      '深夜 (22-5点)': 0,
+    };
+    for (var entry in allEntries) {
+      final hour = entry.creationTime.hour;
+      if (hour >= 5 && hour < 8) timeOfDayCounts['清晨 (5-8点)'] = timeOfDayCounts['清晨 (5-8点)']! + 1;
+      else if (hour >= 8 && hour < 12) timeOfDayCounts['上午 (8-12点)'] = timeOfDayCounts['上午 (8-12点)']! + 1;
+      else if (hour >= 12 && hour < 18) timeOfDayCounts['下午 (12-18点)'] = timeOfDayCounts['下午 (12-18点)']! + 1;
+      else if (hour >= 18 && hour < 22) timeOfDayCounts['晚上 (18-22点)'] = timeOfDayCounts['晚上 (18-22点)']! + 1;
+      else timeOfDayCounts['深夜 (22-5点)'] = timeOfDayCounts['深夜 (22-5点)']! + 1;
+    }
+
+    // 将所有结果打包到一个 Map 中返回
+    return {
+      'totalEntries': totalEntries,
+      'totalWordCount': totalWordCount,
+      'totalCheckIns': totalCheckIns,
+      'longestStreak': longestStreak,
+      'moodCounts': moodCounts,
+      'timeOfDayCounts': timeOfDayCounts,
+    };
   }
 
   /// 添加一篇新日记到数据库
@@ -389,12 +479,18 @@ class DiaryService extends ChangeNotifier {
     DateTimeRange? dateRange,
     String? mood,
     Set<String> selectedTags = const {},
+    // 新增一个参数，决定是否包含私密日记，默认为 false (不包含)
+    bool includePrivateEntries = false,
   }) async {
     final db = await dbHelper.database;
-
-    // 动态构建 SQL 查询语句
     List<String> whereClauses = ['isDeleted = ?'];
     List<dynamic> whereArgs = [0];
+
+    // VVVV 核心修改：除非明确要求，否则过滤掉私密日记 VVVV
+    if (!includePrivateEntries) {
+      whereClauses.add('isPrivate = ?');
+      whereArgs.add(0); // 0 代表 false
+    }
 
     if (keyword.isNotEmpty) {
       whereClauses.add('text LIKE ?');
@@ -403,7 +499,6 @@ class DiaryService extends ChangeNotifier {
     if (dateRange != null) {
       whereClauses.add('date BETWEEN ? AND ?');
       whereArgs.add(dateRange.start.toIso8601String());
-      // 结束日期需要包含当天，所以我们取第二天的开始
       whereArgs.add(dateRange.end.add(const Duration(days: 1)).toIso8601String());
     }
     if (mood != null) {
@@ -412,18 +507,16 @@ class DiaryService extends ChangeNotifier {
     }
     for (String tag in selectedTags) {
       whereClauses.add("tags LIKE ?");
-      whereArgs.add('%"$tag"%'); // 在JSON字符串中模糊匹配标签
+      whereArgs.add('%"$tag"%');
     }
 
     final String whereSql = whereClauses.join(' AND ');
-
     final maps = await db.query(
       DatabaseHelper.table,
       where: whereSql,
       whereArgs: whereArgs,
       orderBy: 'date DESC, creationTime DESC',
     );
-
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
 
@@ -477,7 +570,7 @@ class DiaryService extends ChangeNotifier {
       final db = await dbHelper.database;
       final maps = await db.query(
         DatabaseHelper.table,
-        where: "imagePaths != '[]' AND isDeleted = ?",
+        where: "imagePaths != '[]' AND isDeleted = 0 AND isPrivate = 0",
         whereArgs: [0],
         orderBy: 'date DESC, creationTime DESC',
         limit: limit,
@@ -526,7 +619,7 @@ class DiaryService extends ChangeNotifier {
     // 使用 SQLite 的 strftime 函数来匹配月和日
     final maps = await db.query(
       DatabaseHelper.table,
-      where: "strftime('%m-%d', date) = ? AND strftime('%Y', date) != ? AND isDeleted = ?",
+      where: "strftime('%m-%d', date) = ? AND strftime('%Y', date) != ? AND isDeleted = 0 AND isPrivate = 0",
       whereArgs: [monthDay, currentYear, 0],
       orderBy: 'date ASC',
     );

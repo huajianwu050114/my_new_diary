@@ -58,6 +58,7 @@ dependencies:
   flutter_speed_dial: ^7.0.0
   share_plus: ^9.0.0
   permission_handler: ^11.3.1
+  speech_to_text: ^6.6.2
   #firebase_core:   # 核心插件，必須有
   #firebase_auth:     # 用於用戶認證 (登入/註冊)
   #cloud_firestore: # 用於Firestore資料庫 (存日記文本、資訊)

@@ -114,7 +114,7 @@ class DiaryEntry {
   final List<Conversation> conversations;
   final bool isDeleted;
   final AiMetadata? aiMetadata;
-
+  final bool isPrivate; // VVVV  新增字段 VVVV
 
   DiaryEntry({
     required this.diaryId,
@@ -132,7 +132,7 @@ class DiaryEntry {
     this.conversations = const [],
     this.isDeleted = false,
     this.aiMetadata,
-    // 添加到构造函数
+    this.isPrivate = false, // VVVV  在构造函数中添加，默认为 false VVVV
   });
 
   DiaryEntry copyWith({
@@ -151,6 +151,7 @@ class DiaryEntry {
     List<Conversation>? conversations,
     bool? isDeleted,
     AiMetadata? aiMetadata,
+    bool? isPrivate, // VVVV  在 copyWith 中添加 VVVV
   }) {
     return DiaryEntry(
       diaryId: diaryId ?? this.diaryId,
@@ -168,11 +169,10 @@ class DiaryEntry {
       conversations: conversations ?? this.conversations,
       isDeleted: isDeleted ?? this.isDeleted,
       aiMetadata: aiMetadata ?? this.aiMetadata,
+      isPrivate: isPrivate ?? this.isPrivate, // VVVV  在 copyWith 中添加 VVVV
     );
   }
 
-
-  // 从数据库的 Map 记录创建 DiaryEntry 对象
   factory DiaryEntry.fromMap(Map<String, dynamic> map) {
     return DiaryEntry(
       diaryId: map['diaryId'],
@@ -190,10 +190,10 @@ class DiaryEntry {
       conversations: (jsonDecode(map['conversations']) as List<dynamic>).map((c) => Conversation.fromJson(c)).toList(),
       aiMetadata: map['aiMetadata'] != null ? AiMetadata.fromJson(jsonDecode(map['aiMetadata'])) : null,
       isDeleted: map['isDeleted'] == 1,
+      isPrivate: map['isPrivate'] == 1, // VVVV  从数据库读取 (1 代表 true, 0 代表 false) VVVV
     );
   }
 
-  // 将 DiaryEntry 对象转换为用于数据库的 Map
   Map<String, dynamic> toMap() {
     return {
       'diaryId': diaryId,
@@ -211,6 +211,7 @@ class DiaryEntry {
       'conversations': jsonEncode(conversations.map((c) => c.toJson()).toList()),
       'aiMetadata': aiMetadata != null ? jsonEncode(aiMetadata!.toJson()) : null,
       'isDeleted': isDeleted ? 1 : 0,
+      'isPrivate': isPrivate ? 1 : 0, // VVVV  保存到数据库 (true 转为 1, false 转为 0) VVVV
     };
   }
 }
