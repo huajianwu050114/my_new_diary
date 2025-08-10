@@ -37,6 +37,7 @@ import 'search_page.dart';
 import 'settings_page.dart';
 import 'diary_view_page.dart';
 import 'statistics_page.dart';
+import 'voice_diary_dialog.dart';
 
 // 临时的枚举，确保代码完整性
 enum LetterStatus {
@@ -84,6 +85,23 @@ class HomePage extends StatelessWidget {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (context) => const DiaryHomePage()),
               );
+            },
+          ),
+          SpeedDialChild(
+            child: const Icon(Icons.mic),
+            label: '语音日记',
+            onTap: () async {
+              // 使用 async 关键字
+              final bool? success = await showDialog<bool>(
+                context: context,
+                builder: (context) => const VoiceDiaryDialog(),
+              );
+              // 如果对话框返回 true，说明保存成功
+              if (success == true && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('语音日记已保存！')),
+                );
+              }
             },
           ),
         ],
