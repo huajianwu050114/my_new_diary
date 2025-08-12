@@ -36,29 +36,29 @@ dependencies:
   path_provider: ^2.0.11 # 用于获取应用的安全数据存储路径
   path: ^1.8.2
   image_picker: ^1.0.0
-  flutter_slidable: ^3.0.0 # 用来实现滑动菜单
+  flutter_slidable: ^4.0.0 # 用来实现滑动菜单
   http: ^1.1.0
   carousel_slider: ^5.1.1
   provider: ^6.0.0 # 添加这一行
   shared_preferences: ^2.2.3
   #html_editor_enhanced: ^2.5.1
   flutter_svg: ^2.0.10+1
-  fl_chart: ^0.68.0
+  fl_chart: ^1.0.0
   word_cloud: ^1.0.1
   local_auth: ^2.2.0
   pdf: ^3.10.8         # <--- VVV 用于创建PDF的核心库     # <--- VVV 辅助库，用于保存和打印PDF
   #share_plus: ^9.0.0
-  file_picker: ^8.0.3
-  geolocator: ^12.0.0 # <--- VVV Add this line
-  geocoding: ^3.0.0
-  flutter_local_notifications: ^17.1.2 # 添加这一行
-  timezone: ^0.9.3
+  file_picker: ^10.3.1
+  geolocator: ^14.0.2 # <--- VVV Add this line
+  geocoding: ^4.0.0
+  flutter_local_notifications: ^19.4.0 # 添加这一行
+  timezone: ^0.10.1
   flutter_heatmap_calendar: ^1.0.5
   flutter_map: ^8.2.1
   flutter_speed_dial: ^7.0.0
-  share_plus: ^9.0.0
-  permission_handler: ^11.3.1
-  speech_to_text: ^6.6.2
+  share_plus: ^11.0.0
+  permission_handler: ^12.0.1
+  speech_to_text: ^7.0.0
   #firebase_core:   # 核心插件，必須有
   #firebase_auth:     # 用於用戶認證 (登入/註冊)
   #cloud_firestore: # 用於Firestore資料庫 (存日記文本、資訊)
@@ -88,7 +88,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
