@@ -36,7 +36,8 @@ class NotificationService {
 
     // 计算下一次提醒的时间
     final now = tz.TZDateTime.now(location);
-    tz.TZDateTime scheduledDate = tz.TZDateTime(location, now.year, now.month, now.day, time.hour, time.minute);
+    tz.TZDateTime scheduledDate = tz.TZDateTime(
+        location, now.year, now.month, now.day, time.hour, time.minute);
     if (scheduledDate.isBefore(now)) {
       scheduledDate = scheduledDate.add(const Duration(days: 1));
     }
@@ -44,12 +45,13 @@ class NotificationService {
     // 4. 配置通知的详细信息
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       'daily_diary_reminder_channel', // Channel ID
-      '日记提醒',                     // Channel Name
+      '日记提醒', // Channel Name
       channelDescription: '每日提醒用户写日记的通道',
       importance: Importance.max,
       priority: Priority.high,
     );
-    const NotificationDetails notificationDetails = NotificationDetails(android: androidDetails);
+    const NotificationDetails notificationDetails = NotificationDetails(
+        android: androidDetails);
 
     // 5. 使用 `zonedSchedule` 来安排一个基于时区的、每日重复的通知
     await _notificationsPlugin.zonedSchedule(
@@ -59,7 +61,6 @@ class NotificationService {
       scheduledDate,
       notificationDetails,
       androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       matchDateTimeComponents: DateTimeComponents.time, // 关键：让它每天在这个时间重复
     );
   }
