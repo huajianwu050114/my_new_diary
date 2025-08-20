@@ -8,7 +8,7 @@ import 'dart:io';
 class DatabaseHelper {
   static const _databaseName = "MyDiary.db";
   // VVVV  1. 数据库版本号 +1 (从 4 变为 5) VVVV
-  static const _databaseVersion = 5;
+  static const _databaseVersion = 6;
   static const table = 'diaries';
 
   DatabaseHelper._privateConstructor();
@@ -56,6 +56,7 @@ class DatabaseHelper {
           aiMetadata TEXT,
           isDeleted INTEGER NOT NULL DEFAULT 0,
           isPrivate INTEGER NOT NULL DEFAULT 0 
+          isSelfHelp INTEGER NOT NULL DEFAULT 0
         )
         ''');
 
@@ -78,6 +79,9 @@ class DatabaseHelper {
     // 这对已安装旧版本的用户有效
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE $table ADD COLUMN isPrivate INTEGER NOT NULL DEFAULT 0');
+    }
+    if (oldVersion < 6) {
+      await db.execute('ALTER TABLE $table ADD COLUMN isSelfHelp INTEGER NOT NULL DEFAULT 0');
     }
   }
 

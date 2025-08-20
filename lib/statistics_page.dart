@@ -112,6 +112,8 @@ class _StatisticsPageState extends State<StatisticsPage> {
   }
 
   // 一个用于构建单个数据卡片的辅助方法
+  // 文件位置: lib/statistics_page.dart -> _StatisticsPageState
+
   Widget _buildStatCard({required IconData icon, required String title, required String value, required Color color}) {
     final theme = Theme.of(context);
     return Card(
@@ -125,11 +127,21 @@ class _StatisticsPageState extends State<StatisticsPage> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              // VVVV 主要修改区域 VVVV
+              crossAxisAlignment: CrossAxisAlignment.start, // 让图标和文字顶部对齐
               children: [
-                Text(title, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
+                // 1. 将标题文字用 Expanded 包裹，使其能自动换行
+                Expanded(
+                  child: Text(
+                      title,
+                      style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)
+                  ),
+                ),
+                // 2. 增加一点间距，避免文字和图标贴得太近
+                const SizedBox(width: 8),
                 Icon(icon, color: color),
               ],
+              // ^^^^ 主要修改区域结束 ^^^^
             ),
             Text(
               value,

@@ -15,6 +15,8 @@ import 'package:intl/intl.dart';
 import 'dart:convert';
 import 'gemini_service_local.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class DiaryService extends ChangeNotifier {
   final dbHelper = DatabaseHelper.instance;
@@ -66,6 +68,58 @@ class DiaryService extends ChangeNotifier {
     }
 
     return foundEntries;
+  }
+
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
+  /// 检查用户最近是否情绪低落
+  /// @param days: 检查最近几天的日记，默认为7天
+  /// @param threshold: 至少需要几篇日记才进行判断，默认为2篇
+  /// @return: 如果负面情绪日记超过一半，返回 true
+  Future<bool> isFeelingDownRecently({int days = 7, int threshold = 2}) async {
+    final db = await dbHelper.database;
+    final recentDays = DateTime.now().subtract(Duration(days: days));
+
+    final maps = await db.query(
+      DatabaseHelper.table,
+      where: 'date >= ? AND isDeleted = 0 AND isPrivate = 0',
+      whereArgs: [recentDays.toIso8601String()],
+    );
+
+    final recentEntries = maps.map((map) => DiaryEntry.fromMap(map)).toList();
+
+    if (recentEntries.length < threshold) {
+      return false; // 日记太少，不作判断
+    }
+
+    // 定义负面情绪代码
+    const negativeMoods = {'5', '6', '7', '8', '0'}; // 伤心, 很伤心, 崩溃, 生病
+    int negativeCount = 0;
+
+    for (final entry in recentEntries) {
+      if (entry.mood != null && negativeMoods.contains(entry.mood)) {
+        negativeCount++;
+      }
+    }
+
+    // 如果负面情绪日记数量超过总数的一半
+    return negativeCount > (recentEntries.length / 2);
+  }
+
+  /// 随机获取指定数量的开心日记
+  Future<List<DiaryEntry>> getHappyEntries({int limit = 10}) async {
+    final db = await dbHelper.database;
+    const happyMoods = ['1', '2', '3']; // 特别开心, 很开心, 有点开心
+
+    final maps = await db.query(
+      DatabaseHelper.table,
+      where: 'mood IN (?, ?, ?) AND isDeleted = 0 AND isPrivate = 0',
+      whereArgs: happyMoods,
+      orderBy: 'RANDOM()', // 随机排序
+      limit: limit,
+    );
+
+    return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
 
   Future<List<DiaryEntry>> getEntriesForDateRange(DateTimeRange dateRange) async {
@@ -242,6 +296,81 @@ class DiaryService extends ChangeNotifier {
     }
   }
 
+  Future<void> saveDraft(DiaryEntry draft) async {
+    final prefs = await SharedPreferences.getInstance();
+    // 将草稿对象转换为Map，再编码为JSON字符串进行存储
+    final draftJson = jsonEncode(draft.toMap());
+    await prefs.setString('unsaved_diary_draft', draftJson);
+  }
+
+  /// 从本地加载日记草稿
+  Future<DiaryEntry?> loadDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    final draftJson = prefs.getString('unsaved_diary_draft');
+    if (draftJson != null) {
+      // 如果存在草稿，解码JSON字符串并转换为日记对象
+      return DiaryEntry.fromMap(jsonDecode(draftJson));
+    }
+    return null;
+  }
+
+  /// 删除已保存的草稿
+  Future<void> deleteDraft() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('unsaved_diary_draft');
+  }
+
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
+  /// 获取或创建疗伤角专属的对话日记。
+  /// 这个方法会查找一个固定ID的日记条目，如果不存在则会创建一个新的。
+  Future<DiaryEntry> getOrCreateComfortChatEntry() async {
+    const comfortChatId = 'comfort-chat-session'; // 这是疗伤角对话的专属固定ID
+    final existingEntry = await getEntryById(comfortChatId);
+
+    if (existingEntry != null) {
+      // 如果找到了，直接返回已存在的日记（包含所有历史对话）
+      return existingEntry;
+    } else {
+      // 如果没找到，说明是第一次使用，需要创建一个新的
+      final newComfortEntry = DiaryEntry(
+        diaryId: comfortChatId,
+        text: "你是一位非常温暖、有同理心的倾听者。我的朋友现在心情不太好，正需要一些慰藉。请你用最温柔、最包容的语气和他开始对话，不要提任何建议，只是纯粹的陪伴和倾听。请以'嘿，朋友，我在呢。'作为开场白。",
+        date: DateTime.now(),
+        creationTime: DateTime.now(),
+        conversations: [], // 初始对话历史为空
+        // 将这篇特殊日记设为私密，这样它就不会出现在你的主列表或日历里
+        isPrivate: true,
+      );
+      // 立即将其存入数据库，以便下次可以找到它
+      await addEntry(newComfortEntry);
+      return newComfortEntry;
+    }
+  }
+
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
+  /// 从所有包含图片的日记中，随机挑选一篇返回
+  Future<DiaryEntry?> getRandomEntryWithImage() async {
+    final db = await dbHelper.database;
+
+    // 查询条件: imagePaths 字段不为空 ('[]'), 未被删除, 并且非私密
+    final maps = await db.query(
+      DatabaseHelper.table,
+      where: "imagePaths IS NOT NULL AND imagePaths != '[]' AND isDeleted = 0 AND isPrivate = 0",
+      orderBy: 'RANDOM()', // 关键：使用 RANDOM() 来实现随机排序
+      limit: 1,           // 关键：只取符合条件的第一条记录
+    );
+
+    if (maps.isNotEmpty) {
+      // 如果找到了，就将它从数据库格式转换为我们的日记对象并返回
+      return DiaryEntry.fromMap(maps.first);
+    }
+
+    // 如果没有任何带图片的日记，则返回 null
+    return null;
+  }
+
   /// 2. 获取指定月份的所有签到日期 (用于日历标记)
   Future<Set<String>> getCheckInsForMonth(DateTime month) async {
     final db = await dbHelper.database;
@@ -379,6 +508,20 @@ class DiaryService extends ChangeNotifier {
     );
     notifyListeners();
     return entryWithId; // VVV 2. 返回带有ID的日记对象 VVV
+  }
+
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
+  /// 获取所有被标记为“自救锦囊”的日记
+  Future<List<DiaryEntry>> getSelfHelpEntries() async {
+    final db = await dbHelper.database;
+    final maps = await db.query(
+      DatabaseHelper.table,
+      where: 'isSelfHelp = ? AND isDeleted = 0',
+      whereArgs: [1],
+      orderBy: 'date DESC', // 按时间倒序排列
+    );
+    return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
 
 
@@ -679,26 +822,33 @@ class DiaryService extends ChangeNotifier {
   // --- 列表查询 ---
 
   /// 获取所有未删除的日记，按时间倒序排列
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
+  /// 获取所有未删除的日记，按时间倒序排列
   Future<List<DiaryEntry>> getAllEntriesSorted() async {
     final db = await dbHelper.database;
     final maps = await db.query(
       DatabaseHelper.table,
-      where: 'isDeleted = ?',
-      whereArgs: [0],
+      // VVVV 核心修改：不再用 isPrivate 过滤，而是用 diaryId 精确排除疗伤角 VVVV
+      where: "isDeleted = ? AND diaryId != ?",
+      whereArgs: [0, 'comfort-chat-session'],
       orderBy: 'date DESC, creationTime DESC',
     );
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
 
   /// 获取指定某一天的所有日记
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
+  /// 获取指定某一天的所有日记
   Future<List<DiaryEntry>> getEntriesForDay(DateTime day) async {
     final db = await dbHelper.database;
-    // 格式化日期为 YYYY-MM-DD 格式，用于模糊查询
     final dayString = day.toIso8601String().substring(0, 10);
     final maps = await db.query(
       DatabaseHelper.table,
-      where: 'date LIKE ? AND isDeleted = ?',
-      whereArgs: ['$dayString%', 0],
+      // VVVV 核心修改：同样，用 diaryId 精确排除 VVVV
+      where: 'date LIKE ? AND isDeleted = ? AND diaryId != ?',
+      whereArgs: ['$dayString%', 0, 'comfort-chat-session'],
       orderBy: 'date DESC, creationTime DESC',
     );
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();

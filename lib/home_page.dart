@@ -38,6 +38,8 @@ import 'settings_page.dart';
 import 'diary_view_page.dart';
 import 'statistics_page.dart';
 import 'voice_diary_dialog.dart';
+import 'comfort_zone_page.dart';
+import 'self_help_guide_page.dart';
 
 // 临时的枚举，确保代码完整性
 enum LetterStatus {
@@ -57,7 +59,7 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的日记'),
+        title: _buildAppBarTitle(context),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -91,23 +93,59 @@ class HomePage extends StatelessWidget {
             child: const Icon(Icons.mic),
             label: '语音日记',
             onTap: () async {
-              // 使用 async 关键字
-              final bool? success = await showDialog<bool>(
+              // 1. 调用语音输入框，等待AI润色后的文本返回
+              final String? polishedText = await showDialog<String?>(
                 context: context,
-                builder: (context) => const VoiceDiaryDialog(),
+                builder: (context) => const VoiceInputDialog(),
               );
-              // 如果对话框返回 true，说明保存成功
-              if (success == true && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('语音日记已保存！')),
-                );
+
+              // 检查页面是否还存在，以及返回的文本是否有效
+              if (!context.mounted || polishedText == null || polishedText.isEmpty) {
+                return; // 如果用户取消或返回空，则不执行任何操作
               }
+
+              // 检查是否是错误信息
+              if (polishedText.startsWith('语音处理失败')) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(polishedText), backgroundColor: Colors.red),
+                  );
+                }
+                return;
+              }
+
+              // 2. 如果成功获取到文本，则导航到日记编辑页，并将文本传递过去
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => AddDiaryPage(
+                    selectedDate: DateTime.now(),
+                    initialText: polishedText, // 使用我们新增的参数
+                  ),
+                ),
+              );
             },
           ),
         ],
       ),
     );
   }
+
+  Widget _buildAppBarTitle(BuildContext context) {
+    // 使用 watch 来获取 UserProvider，这样昵称更新时标题也能自动更新
+    final userProvider = context.watch<UserProvider>();
+    final hour = DateTime.now().hour;
+    String title;
+
+    if (hour >= 18 || hour < 5) { // 晚上 6 点到凌晨 5 点
+      title = '晚上好，${userProvider.nickname}！';
+    } else if (hour >= 12) { // 中午 12 点到下午 6 点
+      title = '下午好，${userProvider.nickname}。';
+    } else { // 早上 5 点到中午 12 点
+      title = '早上好，${userProvider.nickname}！';
+    }
+    return Text(title);
+  }
+
 }
 
 // =================================================================
@@ -158,18 +196,27 @@ class AppDrawer extends StatelessWidget {
               ListTile(leading: const Icon(Icons.analytics_outlined), title: const Text('统计分析'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const AnalysisPage()))),
               ListTile(
                 leading: const Icon(Icons.insights_outlined), // 新图标
-                title: const Text('写作统计'),
+                title: const Text('成就栏'),
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.of(context).push(MaterialPageRoute(builder: (context) => const StatisticsPage()));
                 },
               ),
               ListTile(leading: const Icon(Icons.map_outlined), title: const Text('足迹地图'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LocationMemoriesPage()))),
-              ListTile(leading: const Icon(Icons.favorite_outline), title: const Text('我的收藏'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const FavoritesPage()))),
+              ListTile(leading: const Icon(Icons.favorite_outline), title: const Text('收藏句子'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const FavoritesPage()))),
               ListTile(leading: const Icon(Icons.all_inbox_outlined), title: const Text('精灵信箱'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const LettersArchivePage()))),
-              ListTile(leading: const Icon(Icons.psychology_outlined), title: const Text('AI回忆录'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const ReflectionsArchivePage()))),
+              ListTile(leading: const Icon(Icons.psychology_outlined), title: const Text('回忆手账'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const ReflectionsArchivePage()))),
               ListTile(leading: const Icon(Icons.calendar_today_outlined), title: const Text('日历视图'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const DiaryHomePage()))),
               ListTile(leading: const Icon(Icons.restore_from_trash_outlined), title: const Text('回收站'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const RecycleBinPage()))),
+              ListTile(
+                leading: const Icon(Icons.lightbulb_outline, color: Colors.amber),
+                title: const Text('生存指南'),
+                onTap: () {
+                  Navigator.pop(context); // 先关闭抽屉
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SelfHelpGuidePage()));
+                },
+              ),
+              const Divider(),
               ListTile(leading: const Icon(Icons.search_outlined), title: const Text('搜索'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const SearchPage()))),
               const Divider(),
               ListTile(leading: const Icon(Icons.settings_outlined), title: const Text('设置与工具'), onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => const SettingsPage()))),
@@ -217,6 +264,10 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   LetterStatus _letterStatus = LetterStatus.notAvailable;
   String? _weeklyLetterContent;
   bool _showLetter = false;
+  bool _showComfortCard = false;
+  DiaryEntry? _memoryBottleEntry;
+
+
 
 
   @override
@@ -229,6 +280,18 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handleDailyCheckIn();
     });
+
+  }
+
+  Future<void> _fetchMemoryBottle() async {
+    if (!mounted) return;
+    final diaryService = context.read<DiaryService>();
+    final entry = await diaryService.getRandomEntryWithImage();
+    if (mounted) {
+      setState(() {
+        _memoryBottleEntry = entry;
+      });
+    }
   }
 
   @override
@@ -241,12 +304,90 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
   // 页面首次加载时执行的总任务
   Future<void> _loadPageData() async {
-    // 使用 Future.wait 并行执行多个独立的加载任务，提高效率
+    final diaryService = context.read<DiaryService>();
+
+    // (你之前的调试代码和情绪检测逻辑我暂时为你恢复了，你可以根据需要自行修改)
+    diaryService.isFeelingDownRecently().then((isDown) {
+      if (mounted && isDown != _showComfortCard) {
+        setState(() {
+          _showComfortCard = isDown;
+        });
+      }
+    });
+
+    // 并行执行所有加载任务，效率更高
     await Future.wait([
       _fetchDailyQuote(),
       _loadWeeklyLetter(),
-      _fetchAiWritingPrompt(), // 首次自动加载一次AI灵感
+      _fetchAiWritingPrompt(),
+      _fetchMemoryBottle(), // <--- VVVV 在这里添加对新方法的调用 VVVV
     ]);
+  }
+
+  // 文件位置: lib/home_page.dart -> _HomePageContentState class
+// (可以放在其他 _build... 方法的旁边)
+
+  Widget _buildMemoryBottleCard() {
+    // 如果没有获取到任何带图片的日记，就不显示这个卡片
+    if (_memoryBottleEntry == null) {
+      return const SizedBox.shrink();
+    }
+
+    final entry = _memoryBottleEntry!;
+    final dateString = DateFormat('yyyy年M月d日').format(entry.date);
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      child: ExpansionTile(
+        leading: Icon(Icons.wine_bar_outlined, color: Colors.brown.shade300),
+        title: const Text('记忆漂流瓶'),
+        subtitle: Text('还记得吗？在$dateString的这一天...'),
+        initiallyExpanded: false, // 默认折叠
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 显示日记的第一张图片
+                if (entry.imagePaths.isNotEmpty)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(entry.imagePaths.first),
+                      height: 150,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                // 显示日记的文字摘要
+                Text(
+                  entry.text,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 8),
+                // "查看详情" 按钮
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (context) => DiaryViewPage(entry: entry),
+                      ));
+                    },
+                    child: const Text('查看完整日记...'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // 检查并弹出每日签到对话框
@@ -285,7 +426,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           _currentSource = ''; // API不提供来源
           _fullQuoteText = sentence;
         });
-      } else { throw Exception('Failed to load quote'); }
+      } else {
+        throw Exception('Failed to load quote');
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -315,8 +458,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         _weeklyLetterContent = letter;
         _letterStatus = LetterStatus.available;
       });
-    } else if (now.weekday == DateTime.monday)
-    {
+    } else if (now.weekday == DateTime.monday) {
       setState(() => _letterStatus = LetterStatus.readyToGenerate);
     } else {
       setState(() => _letterStatus = LetterStatus.notAvailable);
@@ -326,7 +468,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   // 加载AI灵感
   // 文件位置: lib/home_page.dart -> _HomePageContentState
 
-  Future<void> _fetchAiWritingPrompt({String model = 'gemini-2.5-flash', bool forceRefresh = false}) async {
+  Future<void> _fetchAiWritingPrompt(
+      {String model = 'gemini-2.5-flash', bool forceRefresh = false}) async {
     if (!mounted) return;
     setState(() => _isLoadingPrompt = true);
 
@@ -335,7 +478,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
     // 1. 除非强制刷新，否则先尝试从数据库缓存中加载
     if (!forceRefresh) {
-      final Map<String, dynamic>? cachedPrompt = await diaryService.getInspirationForDay(today);
+      final Map<String, dynamic>? cachedPrompt = await diaryService
+          .getInspirationForDay(today);
       if (cachedPrompt != null) {
         if (mounted) {
           setState(() {
@@ -350,7 +494,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
     // 2. 如果缓存中没有，或者用户强制刷新，则从网络获取新灵感
     print("--- 缓存未命中或强制刷新，正在从网络获取新灵感 ---");
-    final promptData = await diaryService.generatePersonalizedPrompt(modelName: model);
+    final promptData = await diaryService.generatePersonalizedPrompt(
+        modelName: model);
 
     if (mounted) {
       // 3. 获取到新灵感后，将其完整存入数据库缓存
@@ -369,8 +514,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final now = DateTime.now();
     final dayOfWeek = DateFormat('EEEE', 'zh_CN').format(now);
 
-    final Color cardColor = isDarkMode ? theme.cardColor : theme.colorScheme.primaryContainer;
-    final Color cardTextColor = isDarkMode ? Colors.white.withOpacity(0.8) : theme.colorScheme.onPrimaryContainer;
+    final Color cardColor = isDarkMode ? theme.cardColor : theme.colorScheme
+        .primaryContainer;
+    final Color cardTextColor = isDarkMode
+        ? Colors.white.withOpacity(0.8)
+        : theme.colorScheme.onPrimaryContainer;
 
     return Padding(
       padding: const EdgeInsets.all(20.0),
@@ -378,7 +526,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 24.0, vertical: 16.0),
             decoration: BoxDecoration(
               color: cardColor,
               borderRadius: BorderRadius.circular(15.0),
@@ -429,7 +578,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           Text(
             _fullQuoteText,
             textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5),
+            style: Theme
+                .of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(height: 1.5),
           ),
           const SizedBox(height: 8),
           Row(
@@ -486,7 +639,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
 
   Widget _buildAiPromptPlaceholder() {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final isDarkMode = Theme
+        .of(context)
+        .brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Shimmer.fromColors(
@@ -502,9 +657,13 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               children: [
                 Container(width: 50, height: 12, color: Colors.white),
                 const SizedBox(height: 12),
-                Container(width: double.infinity, height: 16, color: Colors.white),
+                Container(
+                    width: double.infinity, height: 16, color: Colors.white),
                 const SizedBox(height: 8),
-                Container(width: MediaQuery.of(context).size.width * 0.5, height: 16, color: Colors.white),
+                Container(width: MediaQuery
+                    .of(context)
+                    .size
+                    .width * 0.5, height: 16, color: Colors.white),
               ],
             ),
           ),
@@ -521,7 +680,10 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Card(
-            color: Theme.of(context).colorScheme.primaryContainer,
+            color: Theme
+                .of(context)
+                .colorScheme
+                .primaryContainer,
             child: InkWell(
               onTap: () async { // Make onTap async
                 if (!mounted) return;
@@ -531,7 +693,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                 try {
                   final diaryService = context.read<DiaryService>();
                   final entries = await diaryService.getEntriesForDateRange(
-                    DateTimeRange(start: DateTime.now().subtract(const Duration(days: 7)), end: DateTime.now()),
+                    DateTimeRange(
+                        start: DateTime.now().subtract(const Duration(days: 7)),
+                        end: DateTime.now()),
                   );
                   String prompt;
                   if (entries.isEmpty) {
@@ -550,7 +714,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                     final buffer = StringBuffer();
                     buffer.writeln("这是我过去一周的日记：\n");
                     for (final entry in entries) {
-                      buffer.writeln("- ${DateFormat('E, M月d日', 'zh_CN').format(entry.date)}: ${entry.text.substring(0, (entry.text.length > 80) ? 80 : entry.text.length)}...");
+                      buffer.writeln(
+                          "- ${DateFormat('E, M月d日', 'zh_CN').format(
+                              entry.date)}: ${entry.text.substring(0,
+                              (entry.text.length > 80) ? 80 : entry.text
+                                  .length)}...");
                     }
                     prompt = """
                   你是一个温暖、充满智慧的“日记小精灵”。请阅读我过去一周的日记摘要，并为我写一封简短的信。
@@ -566,14 +734,20 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                   }
                   final geminiService = GeminiServiceLocal();
                   final prefs = await SharedPreferences.getInstance();
-                  final modelName = prefs.getString('weekly_letter_model') ?? 'gemini-2.5-flash';
-                  final (responseText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: modelName);
+                  final modelName = prefs.getString('weekly_letter_model') ??
+                      'gemini-2.5-flash';
+                  final (responseText, _) = await geminiService
+                      .generateResponse(
+                      [Content.text(prompt)], modelName: modelName);
                   if (responseText == null || responseText.isEmpty) {
                     throw Exception("AI未能生成有效的信件内容。");
                   }
                   await prefs.setString('weekly_ai_letter', responseText);
-                  await prefs.setInt('weekly_ai_letter_timestamp', DateTime.now().millisecondsSinceEpoch);
-                  await context.read<DiaryService>().saveWeeklyLetter(responseText);
+                  await prefs.setInt('weekly_ai_letter_timestamp', DateTime
+                      .now()
+                      .millisecondsSinceEpoch);
+                  await context.read<DiaryService>().saveWeeklyLetter(
+                      responseText);
                   if (mounted) {
                     setState(() {
                       _weeklyLetterContent = responseText;
@@ -582,8 +756,10 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                   }
                 } catch (e) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('信件生成失败: $e')));
-                    setState(() => _letterStatus = LetterStatus.readyToGenerate);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('信件生成失败: $e')));
+                    setState(() =>
+                    _letterStatus = LetterStatus.readyToGenerate);
                   }
                 }
               },
@@ -594,7 +770,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                   children: [
                     Icon(Icons.auto_stories_outlined),
                     SizedBox(width: 12),
-                    Text("接受小精灵的来信", style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text("接受小精灵的来信",
+                        style: TextStyle(fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
@@ -623,25 +800,39 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                         Row(
                           children: [
                             Icon(
-                              _showLetter ? Icons.mark_email_read_outlined : Icons.email_outlined,
-                              color: Theme.of(context).colorScheme.primary,
+                              _showLetter
+                                  ? Icons.mark_email_read_outlined
+                                  : Icons.email_outlined,
+                              color: Theme
+                                  .of(context)
+                                  .colorScheme
+                                  .primary,
                             ),
                             const SizedBox(width: 12),
                             Text(
                               "来自AI伙伴的一封信",
-                              style: Theme.of(context).textTheme.titleMedium,
+                              style: Theme
+                                  .of(context)
+                                  .textTheme
+                                  .titleMedium,
                             ),
                           ],
                         ),
-                        Icon(_showLetter ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down),
+                        Icon(_showLetter ? Icons.keyboard_arrow_up : Icons
+                            .keyboard_arrow_down),
                       ],
                     ),
                     if (_showLetter) ...[
                       const Divider(height: 24),
                       MarkdownBody(
                         data: _weeklyLetterContent ?? '',
-                        styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                          p: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6),
+                        styleSheet: MarkdownStyleSheet.fromTheme(
+                            Theme.of(context)).copyWith(
+                          p: Theme
+                              .of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(height: 1.6),
                         ),
                       ),
                     ]
@@ -658,7 +849,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   }
 
   Widget _buildWeeklyLetterPlaceholder() {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final isDarkMode = Theme
+        .of(context)
+        .brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       child: Shimmer.fromColors(
@@ -685,7 +878,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     return Consumer<FestivalProvider>(
       builder: (context, festivalProvider, child) {
         if (festivalProvider.isLoading) {
-          return const SizedBox(height: 160, child: Center(child: CircularProgressIndicator()));
+          return const SizedBox(
+              height: 160, child: Center(child: CircularProgressIndicator()));
         }
         final festivals = festivalProvider.upcomingFestivals;
         if (festivals.isEmpty) {
@@ -699,7 +893,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               return _buildFestivalCard(festivals[index], index);
             },
             options: cs.CarouselOptions(
-              height: 160,
+              height: 120,
               scrollDirection: Axis.vertical,
               enlargeCenterPage: true,
               viewportFraction: 0.7,
@@ -710,6 +904,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
       },
     );
   }
+
+  // 文件位置: lib/home_page.dart -> _HomePageContentState
 
   Widget _buildFestivalCard(Map<String, dynamic> festival, int index) {
     final int daysUntil = festival['daysUntil'];
@@ -723,8 +919,10 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FestivalsPage()));
       },
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 10),
-        padding: const EdgeInsets.all(16.0),
+        // VVVV 1. 大幅减小垂直外边距，为卡片争取更多空间 VVVV
+        margin: const EdgeInsets.symmetric(vertical: 4), // 原为 10
+        // VVVV 2. 减小垂直内边距 VVVV
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0), // 原为 12.0
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: BorderRadius.circular(15),
@@ -737,21 +935,33 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           ],
         ),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(festival['name'], style: TextStyle(color: textColor, fontSize: 22, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(dateFormatted, style: TextStyle(color: textColor.withOpacity(0.8), fontSize: 14)),
-              ],
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    festival['name'],
+                    // VVVV 3. 再次减小字号 VVVV
+                    style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold), // 原为 20
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2), // 稍微减小间距
+                  Text(
+                    dateFormatted,
+                    style: TextStyle(color: textColor.withOpacity(0.8), fontSize: 12), // 原为 14
+                  ),
+                ],
+              ),
             ),
+            const SizedBox(width: 8),
             Text(
-              daysUntil == 0 ? '今天' : '$daysUntil\n天后',
+              daysUntil == 0 ? '今天' : '$daysUntil 天后',
               textAlign: TextAlign.center,
-              style: TextStyle(color: textColor, fontSize: 26, fontWeight: FontWeight.w300, height: 1.2),
+              // VVVV 4. 再次减小字号 VVVV
+              style: TextStyle(color: textColor, fontSize: 22, fontWeight: FontWeight.w300, height: 1.2), // 原为 24
             ),
           ],
         ),
@@ -770,7 +980,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         diaryService.getHundredDayAnniversaries(),
       ]),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting || !snapshot.hasData || snapshot.data == null) {
+        if (snapshot.connectionState == ConnectionState.waiting ||
+            !snapshot.hasData || snapshot.data == null) {
           return const SizedBox.shrink();
         }
 
@@ -778,7 +989,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         final monthlyEntries = snapshot.data![1];
         final hundredDayEntries = snapshot.data![2];
 
-        if (annualEntries.isEmpty && monthlyEntries.isEmpty && hundredDayEntries.isEmpty) {
+        if (annualEntries.isEmpty && monthlyEntries.isEmpty &&
+            hundredDayEntries.isEmpty) {
           return const SizedBox.shrink();
         }
 
@@ -788,14 +1000,18 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 20),
-              Text('时光回顾', style: Theme.of(context).textTheme.headlineSmall),
+              Text('时光回顾', style: Theme
+                  .of(context)
+                  .textTheme
+                  .headlineSmall),
               const SizedBox(height: 10),
               if (annualEntries.isNotEmpty)
                 _buildOnThisDaySummaryCard(context, annualEntries),
               if (monthlyEntries.isNotEmpty)
                 _buildMonthlyAnniversaryCard(context, monthlyEntries),
               if (hundredDayEntries.isNotEmpty)
-                ...hundredDayEntries.map((entry) => _buildHundredDayAnniversaryCard(context, entry)),
+                ...hundredDayEntries.map((entry) =>
+                    _buildHundredDayAnniversaryCard(context, entry)),
             ],
           ),
         );
@@ -803,7 +1019,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  Widget _buildOnThisDaySummaryCard(BuildContext context, List<DiaryEntry> entries) {
+  Widget _buildOnThisDaySummaryCard(BuildContext context,
+      List<DiaryEntry> entries) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
@@ -819,7 +1036,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           padding: const EdgeInsets.all(16.0),
           child: Row(
             children: [
-              const Icon(Icons.history_edu_outlined, size: 40, color: Colors.amber),
+              const Icon(
+                  Icons.history_edu_outlined, size: 40, color: Colors.amber),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -827,12 +1045,18 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                   children: [
                     Text(
                       'AI发现你在往年的今天有 ${entries.length} 篇回忆',
-                      style: Theme.of(context).textTheme.titleMedium,
+                      style: Theme
+                          .of(context)
+                          .textTheme
+                          .titleMedium,
                     ),
                     const SizedBox(height: 4),
                     Text(
                       '点击这里，让AI为你串联起这些时光的印记...',
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme
+                          .of(context)
+                          .textTheme
+                          .bodySmall,
                     ),
                   ],
                 ),
@@ -845,7 +1069,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  Widget _buildMonthlyAnniversaryCard(BuildContext context, List<DiaryEntry> entries) {
+  Widget _buildMonthlyAnniversaryCard(BuildContext context,
+      List<DiaryEntry> entries) {
     final theme = Theme.of(context);
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -855,10 +1080,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (context) => OnThisDaySummaryPage(
-                entries: entries,
-                pageTitle: '那月今日',
-                aiPrompt: """
+              builder: (context) =>
+                  OnThisDaySummaryPage(
+                    entries: entries,
+                    pageTitle: '那月今日',
+                    aiPrompt: """
               你是一个善于发现细节和情感变化的伙伴。下面是我在过去几个月的同一天写的日记。
               请你仔细阅读并比较它们，然后为我撰写一段充满温度的“月度心情快照”。
               在总结中，请帮我：
@@ -868,7 +1094,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               4. 最后，用一句温柔的话，鼓励我继续记录和感受生活。
               我的日记内容如下：
               """,
-              ),
+                  ),
             ),
           );
         },
@@ -876,7 +1102,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           padding: const EdgeInsets.all(16.0),
           child: Row(
             children: [
-              Icon(Icons.calendar_month_outlined, size: 40, color: theme.colorScheme.secondary),
+              Icon(Icons.calendar_month_outlined, size: 40,
+                  color: theme.colorScheme.secondary),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -902,11 +1129,14 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  Widget _buildHundredDayAnniversaryCard(BuildContext context, DiaryEntry entry) {
+  Widget _buildHundredDayAnniversaryCard(BuildContext context,
+      DiaryEntry entry) {
     final theme = Theme.of(context);
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final daysDifference = today.difference(entry.date).inDays;
+    final daysDifference = today
+        .difference(entry.date)
+        .inDays;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -916,10 +1146,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         onTap: () {
           Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (context) => OnThisDaySummaryPage(
-                entries: [entry],
-                pageTitle: '$daysDifference 日回顾',
-                aiPrompt: """
+              builder: (context) =>
+                  OnThisDaySummaryPage(
+                    entries: [entry],
+                    pageTitle: '$daysDifference 日回顾',
+                    aiPrompt: """
               你是一位善于发现成长的时间旅行者。下面是我在 $daysDifference 天前写的日记。
               请你仔细阅读它，然后为我撰写一段充满惊喜的“百日回顾”。
               在回顾中，请帮我：
@@ -929,7 +1160,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               4. 最后，用一句充满诗意的话，为这次小小的时光之旅画上句号。
               我的日记内容如下：
               """,
-              ),
+                  ),
             ),
           );
         },
@@ -937,7 +1168,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           padding: const EdgeInsets.all(16.0),
           child: Row(
             children: [
-              Icon(Icons.all_inclusive_rounded, size: 40, color: theme.colorScheme.tertiary),
+              Icon(Icons.all_inclusive_rounded, size: 40,
+                  color: theme.colorScheme.tertiary),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -962,6 +1194,41 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
       ),
     );
   }
+  Widget _buildComfortCard() {
+    return FadeIn( // 使用 animate_do 包的动画效果
+      duration: const Duration(milliseconds: 500),
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        color: Theme.of(context).colorScheme.tertiaryContainer,
+        child: InkWell(
+          onTap: () {
+            // 跳转到我们即将创建的疗伤角页面
+            Navigator.of(context).push(MaterialPageRoute(builder: (context) => const ComfortZonePage()));
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                Icon(Icons.self_improvement_rounded, size: 40, color: Theme.of(context).colorScheme.onTertiaryContainer),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('需要一个拥抱吗？', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.onTertiaryContainer)),
+                      const SizedBox(height: 4),
+                      Text('这里是你的温柔乡，随时为你敞开。', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onTertiaryContainer)),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.arrow_forward_ios, size: 16),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _buildCarousel(DiaryService diaryService) {
     return FutureBuilder<List<Map<String, dynamic>>>(
@@ -971,7 +1238,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
           return const SizedBox.shrink();
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const SizedBox(height: 200, child: Center(child: CircularProgressIndicator()));
+          return const SizedBox(
+              height: 200, child: Center(child: CircularProgressIndicator()));
         }
 
         final imagePairs = snapshot.data!;
@@ -1012,18 +1280,29 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                 child: Container(
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [Color.fromARGB(200, 0, 0, 0), Colors.transparent],
+                      colors: [
+                        Color.fromARGB(200, 0, 0, 0),
+                        Colors.transparent
+                      ],
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
                     ),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 20.0),
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 10.0, horizontal: 20.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(DateFormat('yyyy-MM-dd HH:mm').format(entry.creationTime), style: const TextStyle(color: Colors.white, fontSize: 14.0, fontWeight: FontWeight.bold)),
+                      Text(DateFormat('yyyy-MM-dd HH:mm').format(
+                          entry.creationTime), style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14.0,
+                          fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      Text(entry.text, style: const TextStyle(color: Colors.white, fontSize: 12.0), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(entry.text, style: const TextStyle(
+                          color: Colors.white, fontSize: 12.0),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
                     ],
                   ),
                 ),
@@ -1042,7 +1321,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
       future: diaryService.getAllEntriesSorted(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: Padding(padding: EdgeInsets.all(32.0), child: CircularProgressIndicator()));
+          return const Center(child: Padding(padding: EdgeInsets.all(32.0),
+              child: CircularProgressIndicator()));
         }
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const Center(
@@ -1064,7 +1344,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                 (entries[index - 1].date.month != currentEntry.date.month ||
                     entries[index - 1].date.year != currentEntry.date.year);
 
-            final bool isInspirationResponse = currentEntry.text.trim().startsWith('> ## AI 灵感:');
+            final bool isInspirationResponse = currentEntry.text
+                .trim()
+                .startsWith('> ## AI 灵感:');
 
             return FadeInUp(
               duration: const Duration(milliseconds: 500),
@@ -1072,7 +1354,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (showMonthSeparator) _buildMonthSeparator(currentEntry.date),
+                  if (showMonthSeparator) _buildMonthSeparator(
+                      currentEntry.date),
                   if (isInspirationResponse)
                     _buildInspirationResponseHistoryCard(currentEntry)
                   else
@@ -1087,12 +1370,18 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   }
 
   Widget _buildMonthSeparator(DateTime date) {
-    final color = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black54;
+    final color = Theme
+        .of(context)
+        .textTheme
+        .bodyLarge
+        ?.color ?? Colors.black54;
     return Padding(
       padding: const EdgeInsets.only(left: 20.0, top: 24.0, bottom: 10.0),
       child: Text(
         DateFormat('yyyy年 MMMM', 'zh_CN').format(date),
-        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color.withOpacity(0.8)),
+        style: TextStyle(fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: color.withOpacity(0.8)),
       ),
     );
   }
@@ -1103,7 +1392,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final subTextColor = theme.colorScheme.onSurface.withOpacity(0.7);
 
     return InkWell(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry))),
+      onTap: () =>
+          Navigator.of(context).push(MaterialPageRoute(
+              builder: (context) => DiaryViewPage(entry: entry))),
       borderRadius: BorderRadius.circular(15.0),
       child: Card(
         child: SizedBox(
@@ -1115,14 +1406,24 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(DateFormat('d').format(entry.creationTime), style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: subTextColor)),
-                    Text(DateFormat('E', 'zh_CN').format(entry.creationTime), style: TextStyle(fontSize: 12, color: subTextColor)),
+                    Text(DateFormat('d').format(entry.creationTime),
+                        style: TextStyle(fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: subTextColor)),
+                    Text(DateFormat('E', 'zh_CN').format(entry.creationTime),
+                        style: TextStyle(fontSize: 12, color: subTextColor)),
                     const SizedBox(height: 4),
-                    Text(DateFormat('HH:mm').format(entry.creationTime), style: TextStyle(fontSize: 12, color: subTextColor.withOpacity(0.8))),
+                    Text(DateFormat('HH:mm').format(entry.creationTime),
+                        style: TextStyle(fontSize: 12,
+                            color: subTextColor.withOpacity(0.8))),
                   ],
                 ),
               ),
-              VerticalDivider(width: 1, thickness: 1, indent: 16, endIndent: 16, color: theme.dividerColor),
+              VerticalDivider(width: 1,
+                  thickness: 1,
+                  indent: 16,
+                  endIndent: 16,
+                  color: theme.dividerColor),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
@@ -1130,7 +1431,10 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                     entry.text.isNotEmpty ? entry.text : '(无文字内容)',
                     maxLines: 4,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: textColor, fontWeight: FontWeight.w400, fontSize: 15, height: 1.4),
+                    style: TextStyle(color: textColor,
+                        fontWeight: FontWeight.w400,
+                        fontSize: 15,
+                        height: 1.4),
                   ),
                 ),
               ),
@@ -1139,7 +1443,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
                   padding: const EdgeInsets.all(8.0),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(8.0),
-                    child: Image.file(File(entry.imagePaths.first), width: 100, height: 120, fit: BoxFit.cover),
+                    child: Image.file(File(entry.imagePaths.first), width: 100,
+                        height: 120,
+                        fit: BoxFit.cover),
                   ),
                 ),
             ],
@@ -1164,16 +1470,22 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     const String replySeparator = "\n---\n";
     if (mainContent.contains(replySeparator)) {
       final parts = mainContent.split(replySeparator);
-      aiPrompt = parts[0].replaceAll('> ## AI 灵感:', '').replaceAll('>', '').trim();
+      aiPrompt =
+          parts[0].replaceAll('> ## AI 灵感:', '').replaceAll('>', '').trim();
       userResponse = parts.length > 1 ? parts[1].trim() : '(无回复内容)';
     } else {
-      userResponse = mainContent.replaceAll('> ## AI 灵感:', '').replaceAll('>', '').trim();
+      userResponse = mainContent
+          .replaceAll('> ## AI 灵感:', '')
+          .replaceAll('>', '')
+          .trim();
     }
 
     return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (context) => DiaryViewPage(entry: entry)),
-      ),
+      onTap: () =>
+          Navigator.of(context).push(
+            MaterialPageRoute(
+                builder: (context) => DiaryViewPage(entry: entry)),
+          ),
       borderRadius: BorderRadius.circular(15.0),
       child: Card(
         elevation: 2,
@@ -1219,64 +1531,87 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
   // 文件位置: lib/home_page.dart -> _HomePageContentState
 
+  // 文件位置: lib/home_page.dart -> _HomePageContentState
+
+  // 文件位置: lib/home_page.dart -> _HomePageContentState class
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
     final diaryService = context.watch<DiaryService>();
-    return FutureBuilder(
-      future: _pageDataFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        if (snapshot.hasError) {
-          return Center(child: Text('加载数据失败: ${snapshot.error}'));
-        }
-        return SafeArea(
-          child: RefreshIndicator(
-            onRefresh: _loadPageData,
-            child: ListView(
-              children: [
-                _buildHeader(context),
 
-                _isLoadingPrompt
-                    ? _buildAiPromptPlaceholder()
-                    : // 文件位置: lib/home_page.dart -> _HomePageContentState -> build 方法内
-// ...
-                AiPromptCard(
-                  key: ValueKey(_aiWritingPrompt.hashCode),
-                  aiWritingPrompt: _aiWritingPrompt!,
-                  // VVVV  修改 onRefresh 回调 VVVV
-                  onRefresh: (selectedModel, force) {
-                    _fetchAiWritingPrompt(model: selectedModel, forceRefresh: force);
-                  },
-                  onSaveSuccess: () {
-                    setState(() {});
-                    _fetchAiWritingPrompt();
-                  },
-                ),
-// ...
-
-                _buildWeeklyLetterCard(),
-                const SizedBox(height: 10),
-                _buildFestivalSection(),
-
-                _buildOnThisDaySection(),
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.only(left: 20.0),
-                  child: Text('近期精彩瞬间', style: Theme.of(context).textTheme.headlineSmall),
-                ),
-                const SizedBox(height: 10),
-                _buildCarousel(diaryService),
-
-                // VVVV  新增的日记历史列表 VVVV
-                _buildHistoryList(diaryService),
-              ],
+    return SafeArea(
+      child: RefreshIndicator(
+        onRefresh: _loadPageData,
+        child: ListView(
+          children: [
+            _buildHeader(context),
+            if (_showComfortCard) _buildComfortCard(),
+            Padding(
+              padding: const EdgeInsets.only(left: 20.0, top: 16.0),
+              child: Text('近期精彩瞬间', style: Theme.of(context).textTheme.headlineSmall),
             ),
-          ),
-        );
-      },
+            const SizedBox(height: 10),
+            _buildCarousel(diaryService),
+            const SizedBox(height: 10),
+
+            // --- 将所有可折叠卡片放在一起 ---
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+              child: ExpansionTile(
+                title: const Text('AI 每日灵感'),
+                leading: Icon(Icons.auto_awesome_outlined, color: Theme.of(context).colorScheme.tertiary),
+                initiallyExpanded: false,
+                children: [
+                  _isLoadingPrompt
+                      ? _buildAiPromptPlaceholder()
+                      : AiPromptCard(
+                    key: ValueKey(_aiWritingPrompt.hashCode),
+                    aiWritingPrompt: _aiWritingPrompt!,
+                    onRefresh: (selectedModel, force) {
+                      _fetchAiWritingPrompt(model: selectedModel, forceRefresh: force);
+                    },
+                    onSaveSuccess: () {
+                      setState(() {});
+                      _fetchAiWritingPrompt();
+                    },
+                  ),
+                ],
+              ),
+            ),
+
+            _buildMemoryBottleCard(), // <--- VVVV 我们新的“记忆漂流瓶”卡片放在这里 VVVV
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+              child: ExpansionTile(
+                title: const Text('每周信件'),
+                leading: Icon(Icons.email_outlined, color: Theme.of(context).colorScheme.secondary),
+                initiallyExpanded: false,
+                children: [
+                  _buildWeeklyLetterCard(),
+                ],
+              ),
+            ),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+              child: ExpansionTile(
+                title: const Text('近期节日'),
+                leading: Icon(Icons.celebration_outlined, color: Theme.of(context).colorScheme.primary),
+                initiallyExpanded: false,
+                children: [
+                  _buildFestivalSection(),
+                ],
+              ),
+            ),
+
+            _buildOnThisDaySection(),
+            const SizedBox(height: 20),
+            _buildHistoryList(diaryService),
+          ],
+        ),
+      ),
     );
   }
 }

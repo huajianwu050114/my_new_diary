@@ -396,7 +396,7 @@ class _AiChatPageState extends State<AiChatPage> {
         Align(
           alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: screenWidth * 0.65),
+            constraints: BoxConstraints(maxWidth: screenWidth * 0.8),
             child: Card(
               elevation: 2,
               color: isUser ? theme.colorScheme.primary : theme.colorScheme.surfaceVariant,

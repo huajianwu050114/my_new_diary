@@ -1,0 +1,102 @@
+// 文件: lib/weather_service.dart
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
+import 'package:permission_handler/permission_handler.dart';
+
+class WeatherService {
+  // VVVV 把你从和风天气获取的 Key 粘贴到这里 VVVV
+  final String _apiKey = '968bb72f8cbc4bbdae255dce2f624085';
+  // ^^^^ 在这里替换你的 Key ^^^^
+
+  // 获取当前地理位置
+  Future<String?> _getLocation() async {
+    var status = await Permission.location.status;
+    if (status.isDenied) {
+      status = await Permission.location.request();
+    }
+    if (status.isGranted) {
+      final position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      // 和风天气API需要 "经度,纬度" 格式
+      return '${position.longitude.toStringAsFixed(2)},${position.latitude.toStringAsFixed(2)}';
+    }
+    return null;
+  }
+
+  // 生成生活关怀建议
+  String _generateCareAdvice(Map<String, dynamic> weatherData) {
+    try {
+      final now = weatherData['now'];
+      final temp = int.parse(now['temp']);
+      final feelsLike = int.parse(now['feelsLike']);
+      final text = now['text'];
+      final windDir = now['windDir'];
+      final windScale = now['windScale'];
+
+      List<String> advice = [];
+
+      // 1. 穿衣建议
+      if (feelsLike < 10) {
+        advice.add('天气很冷，一定要穿上厚外套或羽绒服哦。');
+      } else if (feelsLike < 20) {
+        advice.add('有点凉意，一件薄外套或毛衣刚刚好。');
+      } else if (feelsLike < 26) {
+        advice.add('天气温暖舒适，穿上你最喜欢的春装吧！');
+      } else {
+        advice.add('天气炎热，短袖和短裤是最佳选择。');
+      }
+
+      // 2. 天气现象提醒
+      if (text.contains('雨')) {
+        advice.add('今天可能会下雨，出门记得带伞。');
+      } else if (text.contains('雪')) {
+        advice.add('要下雪啦！注意保暖和防滑。');
+      } else if (text.contains('雷')) {
+        advice.add('有雷电预警，尽量避免在空旷地带停留。');
+      }
+
+      // 3. 风力提醒
+      final windScaleNum = int.tryParse(windScale) ?? 0;
+      if (windScaleNum >= 4) {
+        advice.add('风有些大，${windDir}，出行时注意安全。');
+      }
+
+      return '早上好！现在室外温度 ${temp}°C，体感 ${feelsLike}°C，天气${text}。\n\n${advice.join(' ')}';
+    } catch (e) {
+      print('生成天气建议失败: $e');
+      return '早上好！今天也要元气满满哦。';
+    }
+  }
+
+  // 核心方法：获取天气并生成提醒
+  Future<String> getMorningWeatherReport() async {
+    if (_apiKey == 'YOUR_QWEATHER_API_KEY') {
+      return '提醒：请先在 weather_service.dart 文件中配置你的和风天气API Key！';
+    }
+
+    final location = await _getLocation();
+    if (location == null) {
+      return '无法获取位置信息，无法为你播报天气。';
+    }
+
+    try {
+      final url = Uri.parse('https://devapi.qweather.com/v7/weather/now?location=$location&key=$_apiKey');
+      final response = await http.get(url).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['code'] == '200') {
+          // 如果成功，调用建议生成器
+          return _generateCareAdvice(data);
+        } else {
+          return '获取天气信息失败: ${data["code"]}';
+        }
+      } else {
+        return '网络请求失败，无法为你播报天气。';
+      }
+    } catch (e) {
+      print('获取天气失败: $e');
+      return '获取天气时发生错误，请检查网络。';
+    }
+  }
+}

@@ -15,14 +15,22 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:animate_do/animate_do.dart';
+import 'voice_diary_dialog.dart';
+import 'package:collection/collection.dart';
 
 
 class AddDiaryPage extends StatefulWidget {
   // VVV 1. 改造构造函数 VVV
   final DateTime? selectedDate;  // 用于新建日记
   final DiaryEntry? entryToEdit; // 用于编辑日记
+  final String? initialText;
 
-  const AddDiaryPage({super.key, this.selectedDate, this.entryToEdit});
+  const AddDiaryPage({
+    super.key,
+    this.selectedDate,
+    this.entryToEdit,
+    this.initialText,
+  });
 
   @override
   State<AddDiaryPage> createState() => _AddDiaryPageState();
@@ -38,6 +46,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
   };
   final List<String> _tags = [];
   final TextEditingController _tagController = TextEditingController();
+  DiaryEntry? _initialEntryState;
 
   double? _latitude;
   double? _longitude;
@@ -55,22 +64,17 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
   @override
   void initState() {
     super.initState();
-    _initSpeech();
-    // VVV 3. 在初始化时，检查是否是编辑模式 VVV
     if (widget.entryToEdit != null) {
-      setState(() {
-        _isEditMode = true;
-        final entry = widget.entryToEdit!;
-
-        // 用旧日记的数据填充所有控件
-        _textController.text = entry.text;
-        _imageFiles.addAll(entry.imagePaths.map((path) => File(path)));
-        _selectedMood = entry.mood;
-        _tags.addAll(entry.tags);
-        _latitude = entry.latitude;
-        _longitude = entry.longitude;
-        _address = entry.address;
-        _isPrivate = entry.isPrivate;
+      _isEditMode = true;
+      _populateFieldsFromEntry(widget.entryToEdit!);
+      _initialEntryState = widget.entryToEdit!.copyWith(); // 保存一份副本
+    } else {
+      _initialEntryState = DiaryEntry.empty(date: widget.selectedDate ?? DateTime.now());
+      if (widget.initialText != null) {
+        _textController.text = widget.initialText!;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _loadAndPromptForDraft();
       });
     }
   }
@@ -140,6 +144,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
         final createdEntry = await diaryService.addEntry(newEntry);
         entryId = createdEntry.diaryId;
       }
+      context.read<DiaryService>().deleteDraft();
 
       // 现在可以安全地调用AI分析了
       _runAiAnalysis(entryId);
@@ -155,6 +160,121 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e')));
       }
     }
+  }
+
+  Future<void> _loadAndPromptForDraft() async {
+    if (!mounted || _isEditMode) return;
+    final diaryService = context.read<DiaryService>();
+    final draft = await diaryService.loadDraft();
+
+    if (draft != null && mounted) {
+      final bool? load = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('发现草稿'),
+          content: const Text('你有一份上次未保存的草稿，要加载它吗？'),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('丢弃')),
+            FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('加载')),
+          ],
+        ),
+      );
+      if (load == true && mounted) {
+        _populateFieldsFromEntry(draft);
+      } else {
+        await diaryService.deleteDraft(); // 如果用户选择丢弃，就删除草稿
+      }
+    }
+  }
+
+  // VVVV 新增：从日记对象填充页面的方法 VVVV
+  void _populateFieldsFromEntry(DiaryEntry entry) {
+    setState(() {
+      _textController.text = entry.text;
+      _imageFiles.clear();
+      _imageFiles.addAll(entry.imagePaths.map((path) => File(path)));
+      _selectedMood = entry.mood;
+      _tags.clear();
+      _tags.addAll(entry.tags);
+      _latitude = entry.latitude;
+      _longitude = entry.longitude;
+      _address = entry.address;
+      _isPrivate = entry.isPrivate;
+    });
+  }
+
+  // VVVV 新增：检查是否有未保存的更改 VVVV
+  bool _hasUnsavedChanges() {
+    if (_initialEntryState == null) return false;
+    // 检查所有字段是否与初始状态不同
+    return _textController.text.trim() != _initialEntryState!.text.trim() ||
+        _imageFiles.length != _initialEntryState!.imagePaths.length ||
+        !ListEquality().equals(_imageFiles.map((f) => f.path).toList(), _initialEntryState!.imagePaths) ||
+        _selectedMood != _initialEntryState!.mood ||
+        !ListEquality().equals(_tags, _initialEntryState!.tags) ||
+        _isPrivate != _initialEntryState!.isPrivate;
+  }
+
+  // VVVV 新增：构建当前页面状态的日记对象 VVVV
+  DiaryEntry _getCurrentEntry() {
+    return DiaryEntry(
+      diaryId: _isEditMode ? widget.entryToEdit!.diaryId : '',
+      text: _textController.text.trim(),
+      date: _isEditMode ? widget.entryToEdit!.date : widget.selectedDate!,
+      creationTime: _isEditMode ? widget.entryToEdit!.creationTime : DateTime.now(),
+      imagePaths: _imageFiles.map((f) => f.path).toList(),
+      mood: _selectedMood,
+      tags: _tags,
+      latitude: _latitude,
+      longitude: _longitude,
+      address: _address,
+      isPrivate: _isPrivate,
+    );
+  }
+
+  // VVVV 新增：处理返回操作的核心逻辑 VVVV
+  Future<bool> _onWillPop() async {
+    if (_hasUnsavedChanges()) {
+      final result = await showDialog<ExitAction>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('有未保存的内容'),
+          content: const Text('你要如何处理当前的更改？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(ExitAction.cancel),
+              child: const Text('继续编辑'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(ExitAction.discard),
+              child: const Text('直接退出'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(ExitAction.saveDraft),
+              child: const Text('保存草稿'),
+            ),
+          ],
+        ),
+      );
+
+      if (!mounted) return false;
+
+      final diaryService = context.read<DiaryService>();
+      switch (result) {
+        case ExitAction.saveDraft:
+          await diaryService.saveDraft(_getCurrentEntry());
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('草稿已保存')));
+          return true; // 允许退出
+        case ExitAction.discard:
+          await diaryService.deleteDraft(); // 如果放弃，也删除旧草稿
+          return true; // 允许退出
+        case ExitAction.cancel:
+        default:
+          return false; // 不允许退出
+      }
+    }
+    // 如果没有更改，直接允许退出
+    return true;
   }
 
   void _initSpeech() async {
@@ -175,6 +295,38 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
     } else {
       _startListening();
     }
+  }
+
+  Future<void> _handleVoiceInput() async {
+    // 步骤 A: 打开语音输入框，等待AI润色后的文本返回
+    final String? polishedText = await showDialog<String>(
+      context: context,
+      builder: (context) => const VoiceInputDialog(),
+    );
+
+    if (!mounted || polishedText == null) return;
+
+    if (polishedText.startsWith('语音处理失败:')) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(polishedText), backgroundColor: Colors.red));
+      return;
+    }
+
+    // 步骤 B: 打开一个新的对话框，让用户编辑和确认文本
+    final String? finalText = await showDialog<String>(
+      context: context,
+      builder: (context) => AiCorrectionDialog(initialText: polishedText),
+    );
+
+    if (!mounted || finalText == null) return;
+
+    // 步骤 C: 将最终确认的文本插入到主输入框的光标位置
+    final text = _textController.text;
+    final selection = _textController.selection;
+    final newText = text.replaceRange(selection.start, selection.end, finalText);
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: selection.start + finalText.length),
+    );
   }
 
   void _startListening() {
@@ -437,13 +589,16 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
     );
   }
 
+  // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
+    return WillPopScope(
+        onWillPop: _onWillPop,
+        child: Scaffold(
+          appBar: AppBar(
         title: Text(_isEditMode ? '编辑日记' : '写下今天的故事'),
         actions: [
-          // VVVV 核心修改：将开关移到这里 VVVV
           Tooltip(
             message: _isPrivate ? '设为公开日记' : '设为私密日记',
             child: Switch(
@@ -458,30 +613,21 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
             ),
           ),
           IconButton(icon: const Icon(Icons.save_alt_outlined), tooltip: '保存', onPressed: _saveDiary),
-          const SizedBox(width: 8), // 增加一点边距
+          const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
+        // VVVV 主要修改区域 VVVV
         child: Column(
           children: [
-            _buildMoodSelector(),
-            const Divider(height: 32),
-            _buildLocationSelector(),
-            const Divider(height: 32),
-            Text('添加标签', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            _buildTagEditor(),
-            const Divider(height: 32),
-
-            // VVVV 核心修改：之前这里的 SwitchListTile 已被移除 VVVV
-
+            // --- 1. 核心编辑区 (已移到顶部) ---
             _buildImageGrid(),
             const SizedBox(height: 16),
             TextField(
               controller: _textController,
               maxLines: 10,
-              onChanged: (text) { // 当用户手动输入时，自动隐藏润色建议
+              onChanged: (text) {
                 if (_pendingTidyUpSegment != null) {
                   setState(() => _pendingTidyUpSegment = null);
                 }
@@ -490,13 +636,30 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
                 hintText: '今天有什么新鲜事...',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 contentPadding: const EdgeInsets.all(12),
-                suffixIcon: _buildVoiceIcon(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.mic_outlined),
+                  tooltip: '语音输入',
+                  onPressed: _handleVoiceInput,
+                ),
               ),
             ),
-            _buildAiTidyUpCard(),
+            _buildAiTidyUpCard(), // 这个AI润色卡片紧随文本框
+
+            const Divider(height: 32),
+
+            // --- 2. 附加信息区 (已移到下方) ---
+            _buildMoodSelector(),
+            const Divider(height: 32),
+            _buildLocationSelector(),
+            const Divider(height: 32),
+            Text('添加标签', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            _buildTagEditor(),
           ],
         ),
+        // ^^^^ 主要修改区域结束 ^^^^
       ),
+    )
     );
   }
 
@@ -741,3 +904,54 @@ class AiTidyUpComparisonDialog extends StatelessWidget {
     );
   }
 }
+class AiCorrectionDialog extends StatefulWidget {
+  final String initialText;
+  const AiCorrectionDialog({super.key, required this.initialText});
+
+  @override
+  State<AiCorrectionDialog> createState() => _AiCorrectionDialogState();
+}
+
+class _AiCorrectionDialogState extends State<AiCorrectionDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialText);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('确认AI转换结果'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLines: 5,
+        decoration: const InputDecoration(
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(), // 取消，返回 null
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text), // 确认，返回编辑后的文本
+          child: const Text('确认并插入'),
+        ),
+      ],
+    );
+  }
+}
+
+enum ExitAction { saveDraft, discard, cancel }
+

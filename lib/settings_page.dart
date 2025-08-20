@@ -38,6 +38,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   bool _isReminderEnabled = false;
   TimeOfDay _reminderTime = const TimeOfDay(hour: 22, minute: 0);
+  bool _isWeatherAssistantEnabled = false;
+  final String weatherTaskName = "daily-weather-report";
+  final String weatherTestTaskName = "test-weather-report";
 
   @override
   void initState() {
@@ -127,6 +130,9 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+
+  // 文件位置: lib/settings_page.dart -> _SettingsPageState class
+
   Future<void> _handleReminderSwitch(bool value) async {
     // 如果是想关闭提醒，直接执行并返回
     if (!value) {
@@ -138,49 +144,48 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
 
-    // 如果是想开启提醒，则开始权限请求流程
-    final status = await Permission.notification.request();
+    // VVVV  核心修改区域 VVVV
+    final notificationService = NotificationService(); // 获取 NotificationService 实例
 
-    if (!mounted) return; // 检查页面是否还存在
+    // 1. 先请求普通通知权限
+    final status = await Permission.notification.request();
+    if (!mounted) return;
 
     if (status.isGranted) {
-      // 1. 权限已授予：直接开启功能
+      // 2. 如果普通权限通过，再请求精确闹钟权限
+      // 注意：这里的 requestExactAlarmsPermission 是 flutter_local_notifications 插件提供的
+      await notificationService.requestExactAlarmsPermission();
+
+      // 3. 开启功能并保存设置
       setState(() => _isReminderEnabled = true);
       _saveSettings(true, _reminderTime);
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('提醒已在 ${_reminderTime.format(context)} 开启'))
       );
     } else if (status.isPermanentlyDenied) {
-      // 2. 权限被“永久拒绝”：弹出一个对话框，引导用户去设置
+      // ... (原有的永久拒绝逻辑保持不变)
       await showDialog(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('需要通知权限'),
           content: const Text('您之前已拒绝通知权限，请在系统设置中手动为本应用开启。'),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('取消'),
-            ),
-            TextButton(
-              // 点击后直接打开应用的设置页面
-              onPressed: () {
-                openAppSettings();
-                Navigator.of(context).pop();
-              },
-              child: const Text('前往设置'),
-            ),
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('取消')),
+            TextButton(onPressed: () { openAppSettings(); Navigator.of(context).pop(); }, child: const Text('前往设置')),
           ],
         ),
       );
     } else {
-      // 3. 其他拒绝情况（例如用户只拒绝了一次）：只显示一个提示
+      // ... (原有的普通拒绝逻辑保持不变)
       ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('开启每日提醒需要授予通知权限。'))
       );
     }
+    // ^^^^ 修改结束 ^^^^
   }
 
+
+  // 文件位置: lib/settings_page.dart -> _SettingsPageState class
 
   Future<void> _runImportFromZip() async {
     final result = await FilePicker.platform.pickFiles(
@@ -204,7 +209,6 @@ class _SettingsPageState extends State<SettingsPage> {
       final bytes = await File(path).readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
 
-      // 从压缩包中找到 backup.json 文件
       final jsonFile = archive.findFile('backup.json');
       if (jsonFile == null) throw Exception('备份文件中未找到 backup.json');
 
@@ -219,24 +223,28 @@ class _SettingsPageState extends State<SettingsPage> {
           _progressText = '正在导入日记: ${i + 1} / ${entryMaps.length}';
         });
 
-        // 恢复图片
-        final relativeImagePaths = map['imagePaths'] as List? ?? [];
+        // VVVV Bug修复 #3: 正确处理图片路径的恢复逻辑 VVVV
+
+        // 1. 从map中解码出相对路径列表
+        final relativeImagePaths = (jsonDecode(map['imagePaths']) as List).cast<String>();
         final newAbsoluteImagePaths = <String>[];
 
+        // 2. 在压缩包中寻找图片并保存到本地，获取新的绝对路径
         for (final relativePath in relativeImagePaths) {
           final imageFile = archive.findFile(relativePath);
           if (imageFile != null) {
-            final imageBytes = imageFile.content as List<int>;
-            // 使用我们已有的服务将图片字节保存到本地
-            final newPath = await diaryService.saveImageFromBytes(Uint8List.fromList(imageBytes));
+            final imageBytes = imageFile.content as Uint8List;
+            final newPath = await diaryService.saveImageFromBytes(imageBytes);
             newAbsoluteImagePaths.add(newPath);
           }
         }
 
-        // 用恢复后的绝对路径替换掉相对路径
-        map['imagePaths'] = newAbsoluteImagePaths;
+        // 3. 创建一个新的map，用新的绝对路径列表（并重新编码为JSON字符串）替换旧的相对路径
+        final mapForImport = Map<String, dynamic>.from(map);
+        mapForImport['imagePaths'] = jsonEncode(newAbsoluteImagePaths);
 
-        final newEntry = DiaryEntry.fromMap(map); // filePath 会由 addEntry 生成
+        // 4. 使用这个修正后的map来创建日记对象
+        final newEntry = DiaryEntry.fromMap(mapForImport);
         await diaryService.addEntry(newEntry);
         importCount++;
       }
@@ -320,6 +328,16 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Duration _calculateInitialDelay(TimeOfDay targetTime) {
+    final now = DateTime.now();
+    DateTime firstRun = DateTime(now.year, now.month, now.day, targetTime.hour, targetTime.minute);
+    if (firstRun.isBefore(now)) {
+      firstRun = firstRun.add(const Duration(days: 1));
+    }
+    return firstRun.difference(now);
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -359,6 +377,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               const Divider(),
               // VVV 在这里添加新列表项 VVV
+
               const Divider(),
               ListTile(
                 leading: const Icon(Icons.color_lens_outlined),

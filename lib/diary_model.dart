@@ -115,6 +115,7 @@ class DiaryEntry {
   final bool isDeleted;
   final AiMetadata? aiMetadata;
   final bool isPrivate; // VVVV  新增字段 VVVV
+  final bool isSelfHelp;
 
   DiaryEntry({
     required this.diaryId,
@@ -132,8 +133,21 @@ class DiaryEntry {
     this.conversations = const [],
     this.isDeleted = false,
     this.aiMetadata,
-    this.isPrivate = false, // VVVV  在构造函数中添加，默认为 false VVVV
+    this.isPrivate = false,
+    this.isSelfHelp = false, // VVVV  在构造函数中添加，默认为 false VVVV
   });
+
+  factory DiaryEntry.empty({required DateTime date}) {
+    return DiaryEntry(
+      diaryId: '',
+      text: '',
+      date: date,
+      creationTime: DateTime.now(),
+      imagePaths: [],
+      tags: [],
+      isPrivate: false,
+    );
+  }
 
   DiaryEntry copyWith({
     String? diaryId,
@@ -152,6 +166,7 @@ class DiaryEntry {
     bool? isDeleted,
     AiMetadata? aiMetadata,
     bool? isPrivate, // VVVV  在 copyWith 中添加 VVVV
+    bool? isSelfHelp,
   }) {
     return DiaryEntry(
       diaryId: diaryId ?? this.diaryId,
@@ -170,6 +185,7 @@ class DiaryEntry {
       isDeleted: isDeleted ?? this.isDeleted,
       aiMetadata: aiMetadata ?? this.aiMetadata,
       isPrivate: isPrivate ?? this.isPrivate, // VVVV  在 copyWith 中添加 VVVV
+      isSelfHelp: isSelfHelp ?? this.isSelfHelp,
     );
   }
 
@@ -191,6 +207,7 @@ class DiaryEntry {
       aiMetadata: map['aiMetadata'] != null ? AiMetadata.fromJson(jsonDecode(map['aiMetadata'])) : null,
       isDeleted: map['isDeleted'] == 1,
       isPrivate: map['isPrivate'] == 1, // VVVV  从数据库读取 (1 代表 true, 0 代表 false) VVVV
+      isSelfHelp: map['isSelfHelp'] == 1,
     );
   }
 
@@ -212,6 +229,7 @@ class DiaryEntry {
       'aiMetadata': aiMetadata != null ? jsonEncode(aiMetadata!.toJson()) : null,
       'isDeleted': isDeleted ? 1 : 0,
       'isPrivate': isPrivate ? 1 : 0, // VVVV  保存到数据库 (true 转为 1, false 转为 0) VVVV
+      'isSelfHelp': isSelfHelp ? 1 : 0,
     };
   }
 }

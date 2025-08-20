@@ -109,6 +109,8 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     }
   }
 
+  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState class
+
   Future<void> _regenerateAiAnalysis() async {
     final entry = _currentEntry;
     if (entry == null || !mounted) return;
@@ -117,27 +119,25 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
     final diaryService = context.read<DiaryService>();
     final geminiService = GeminiServiceLocal();
-
     if (entry.text.isEmpty) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记内容为空，无法分析。')));
       return;
     }
 
     final prompt = """
-    请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
-    请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
-    {
-      "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
-      "summary": "<大约50字的摘要>",
-      "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
-      "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
-      "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
-    }
-    日记内容如下:
-    ---
-    ${entry.text}
-    """;
-
+  请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
+  请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
+  {
+    "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
+    "summary": "<大约50字的摘要>",
+    "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
+    "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
+    "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
+  }
+  日记内容如下:
+  ---
+  ${entry.text}
+  """;
     final (responseText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-1.5-pro-latest');
 
     if (responseText != null) {
@@ -151,7 +151,10 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         final newMetadata = AiMetadata.fromJson(decodedJson);
         final updatedEntry = entry.copyWith(aiMetadata: newMetadata);
         await diaryService.updateEntry(updatedEntry);
+
+        // 关键：调用 _reloadData 来刷新当前页，而不是 pop
         await _reloadData();
+
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI分析已更新！'), backgroundColor: Colors.green));
       } catch (e) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI分析失败: $e'), backgroundColor: Colors.red));
@@ -159,6 +162,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     } else {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI未能返回有效内容。')));
     }
+    // 确保这个方法的末尾没有 Navigator.of(context).pop()
   }
 
   @override
@@ -193,6 +197,14 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
       foregroundColor: Theme.of(context).colorScheme.onBackground,
       actions: [
         IconButton(
+          icon: Icon(
+            entry.isSelfHelp ? Icons.lightbulb : Icons.lightbulb_outline,
+            color: entry.isSelfHelp ? Colors.amber : null,
+          ),
+          tooltip: entry.isSelfHelp ? '移出生存指南' : '收入生存指南',
+          onPressed: _toggleSelfHelp, // 我们将创建这个方法
+        ),
+        IconButton(
           icon: Icon(entry.isPrivate ? Icons.lock_outline : Icons.lock_open_outlined),
           tooltip: entry.isPrivate ? '设为公开' : '设为私密',
           onPressed: _togglePrivacy,
@@ -226,6 +238,30 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     );
   }
 
+  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState class
+
+// VVVV 在类中添加这个新方法 VVVV
+  Future<void> _toggleSelfHelp() async {
+    final entry = _currentEntry;
+    if (entry == null || !mounted) return;
+
+    final diaryService = context.read<DiaryService>();
+    final updatedEntry = entry.copyWith(isSelfHelp: !entry.isSelfHelp);
+    await diaryService.updateEntry(updatedEntry);
+
+    setState(() {
+      _currentEntry = updatedEntry;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(updatedEntry.isSelfHelp ? '已收入生存指南' : '已移出生存指南')),
+      );
+    }
+  }
+
+  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState class
+
   Widget _buildSliverContent(DiaryEntry entry) {
     final theme = Theme.of(context);
     String mainContent = entry.text;
@@ -240,8 +276,10 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
     return SliverList(
       delegate: SliverChildListDelegate([
-        if (entry.aiMetadata != null) _buildAiAnalysisSection(entry.aiMetadata!),
-        _buildProactiveQuestionCard(entry),
+        // VVVV 布局顺序调整开始 VVVV
+
+        // 1. AI提问卡片、心情、位置等信息保持在顶部
+
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
           child: Wrap(
@@ -255,6 +293,8 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
             ],
           ),
         ),
+
+        // 2. 日记正文
         Padding(
           padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 8.0),
           child: MarkdownBody(
@@ -265,6 +305,8 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
             ),
           ),
         ),
+
+        // 如果有AI示例回答，紧跟在正文后
         if (aiSampleAnswer != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -289,8 +331,20 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
             ),
           ),
         if (entry.tags.isNotEmpty) _buildTags(entry),
-        if (entry.aiAnalyses.isNotEmpty) _buildAiAnalysisRecords(entry),
         _buildTimestamps(entry),
+
+        // 3. 将 "AI悄悄话" 移动到这里
+        if (entry.aiMetadata != null) _buildAiAnalysisSection(entry.aiMetadata!),
+        _buildProactiveQuestionCard(entry),
+
+        // 4. 其他信息（标签、分析记录、时间戳）保持在最下方
+
+        if (entry.aiAnalyses.isNotEmpty) _buildAiAnalysisRecords(entry),
+
+
+
+
+        // ^^^^ 布局顺序调整结束 ^^^^
       ]),
     );
   }
