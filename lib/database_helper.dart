@@ -55,7 +55,7 @@ class DatabaseHelper {
           conversations TEXT,
           aiMetadata TEXT,
           isDeleted INTEGER NOT NULL DEFAULT 0,
-          isPrivate INTEGER NOT NULL DEFAULT 0 
+          isPrivate INTEGER NOT NULL DEFAULT 0,
           isSelfHelp INTEGER NOT NULL DEFAULT 0
         )
         ''');
