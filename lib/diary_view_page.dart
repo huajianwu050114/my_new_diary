@@ -138,7 +138,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
   ---
   ${entry.text}
   """;
-    final (responseText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-1.5-pro-latest');
+    final (responseText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-2.5-pro');
 
     if (responseText != null) {
       if (responseText.startsWith("ERROR:")) {

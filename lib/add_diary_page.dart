@@ -382,7 +382,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
     final geminiService = GeminiServiceLocal();
     final prompt = """你是一位语言润色大师。请将以下这段口语化的文本，优化成一段更加书面化、更连贯的文字。请注意：1. 忠实于原文的核心意思和情感。2. 修正语法，移除不必要的口头禅（如 '嗯', '啊', '那个'）。3. 不要添加任何原文没有的信息。4. 只返回优化后的文本。需要优化的口语文本如下:---${segment.rawText}""";
 
-    final (processedText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-1.5-flash');
+    final (processedText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-2.5-flash');
 
     Navigator.of(context).pop();
 
