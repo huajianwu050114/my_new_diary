@@ -1,4 +1,4 @@
-// 文件位置: lib/database_helper.dart
+// 文件位置: libs/database_helper.dart
 
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart' as p;

@@ -1,4 +1,4 @@
-// file: lib/on_this_day_summary_page.dart
+// file: libs/on_this_day_summary_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';

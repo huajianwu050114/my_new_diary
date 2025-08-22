@@ -1,4 +1,4 @@
-// 文件位置: lib/statistics_page.dart
+// 文件位置: libs/statistics_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -112,7 +112,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
   }
 
   // 一个用于构建单个数据卡片的辅助方法
-  // 文件位置: lib/statistics_page.dart -> _StatisticsPageState
+  // 文件位置: libs/statistics_page.dart -> _StatisticsPageState
 
   Widget _buildStatCard({required IconData icon, required String title, required String value, required Color color}) {
     final theme = Theme.of(context);

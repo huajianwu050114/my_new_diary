@@ -1,4 +1,4 @@
-// 文件: lib/self_help_guide_page.dart (最终完整版)
+// 文件: libs/self_help_guide_page.dart (最终完整版)
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';

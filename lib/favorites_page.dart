@@ -1,4 +1,4 @@
-// file: lib/favorites_page.dart
+// file: libs/favorites_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

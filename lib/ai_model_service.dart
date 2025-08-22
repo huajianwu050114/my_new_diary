@@ -1,4 +1,4 @@
-// file: lib/ai_model_service.dart
+// file: libs/ai_model_service.dart
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';

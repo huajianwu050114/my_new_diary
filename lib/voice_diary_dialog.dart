@@ -1,4 +1,4 @@
-// 文件: lib/voice_diary_dialog.dart (改造为文字返回工具)
+// 文件: libs/voice_diary_dialog.dart (改造为文字返回工具)
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'gemini_service_local.dart';
+import 'dart:async';
 
 // 1. 重命名，更符合其功能
 class VoiceInputDialog extends StatefulWidget {
@@ -27,6 +28,8 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> {
   bool _isProcessing = false;
   String _statusText = '点击麦克风，开始说话...';
   String? _audioPath;
+  Timer? _countdownTimer;
+  int _countdownSeconds = 50;
 
   final String _baiduApiKey = 'p5aW5qcjrru71BjTIUCf9INi';
   final String _baiduSecretKey = 'uYiwXxqPnhqDPO5c9qjbuXFk2tmdFtyg';
@@ -57,6 +60,7 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> {
   @override
   void dispose() {
     _recorder.closeRecorder();
+    _countdownTimer?.cancel();
     super.dispose();
   }
 
@@ -83,16 +87,10 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> {
     if (!_isRecorderInitialized) return;
 
     if (_isRecording) {
-      final path = await _recorder.stopRecorder();
-      setState(() {
-        _isRecording = false;
-        _isProcessing = true;
-        _statusText = '录音结束，正在处理...';
-      });
-      if (path != null) {
-        _processAudioAndPop(path);
-      }
+      // 如果正在录音时点击，则手动停止
+      await _stopAndProcessRecording();
     } else {
+      // 如果未在录音时点击，则开始录音
       final tempDir = await getTemporaryDirectory();
       _audioPath = '${tempDir.path}/diary_audio.amr';
       await _recorder.startRecorder(
@@ -101,9 +99,25 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> {
         sampleRate: 16000,
         numChannels: 1,
       );
+
       setState(() {
         _isRecording = true;
-        _statusText = '正在聆听，再次点击结束...';
+        _countdownSeconds = 50; // 重置倒计时
+        _statusText = '正在聆听，再次点击或等待倒计时结束...';
+      });
+
+      // 启动一个每秒触发一次的计时器
+      _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (_countdownSeconds > 0) {
+          if (mounted) {
+            setState(() {
+              _countdownSeconds--;
+            });
+          }
+        } else {
+          // 时间到，自动停止录音
+          _stopAndProcessRecording();
+        }
       });
     }
   }
@@ -177,8 +191,33 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> {
     }
   }
 
+  // VVVV 新增一个专门用于停止和处理的方法 VVVV
+  Future<void> _stopAndProcessRecording() async {
+    // 如果当前没有在录音，就直接返回，防止重复执行
+    if (!_isRecording) return;
+
+    _countdownTimer?.cancel(); // 停止计时器
+    final path = await _recorder.stopRecorder();
+
+    if (!mounted) return;
+
+    setState(() {
+      _isRecording = false;
+      _isProcessing = true;
+      _statusText = '录音结束，正在处理...';
+    });
+
+    if (path != null) {
+      _processAudioAndPop(path);
+    }
+  }
+// ^^^^ 新增方法结束 ^^^^
+
   @override
   Widget build(BuildContext context) {
+    // 将秒数格式化为 00:00 的形式
+    final String countdownText = '0:${_countdownSeconds.toString().padLeft(2, '0')}';
+
     return AlertDialog(
       title: const Text('语音输入'),
       content: Column(
@@ -190,6 +229,22 @@ class _VoiceInputDialogState extends State<VoiceInputDialog> {
             )
           else
             Text(_statusText, style: Theme.of(context).textTheme.bodySmall, textAlign: TextAlign.center),
+
+          // VVVV 在录音时显示倒计时 VVVV
+          if (_isRecording)
+            Padding(
+              padding: const EdgeInsets.only(top: 16.0),
+              child: Text(
+                countdownText,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+          // ^^^^ 修改结束 ^^^^
+
           const SizedBox(height: 24),
           InkWell(
             onTap: _isProcessing || !_isRecorderInitialized ? null : _toggleRecording,

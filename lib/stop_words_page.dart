@@ -1,4 +1,4 @@
-// file: lib/stop_words_page.dart
+// file: libs/stop_words_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';

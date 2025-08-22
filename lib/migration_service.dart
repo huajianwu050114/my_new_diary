@@ -1,4 +1,4 @@
-// file: lib/migration_service.dart
+// file: libs/migration_service.dart
 
 import 'dart:convert';
 import 'dart:io';

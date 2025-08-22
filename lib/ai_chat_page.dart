@@ -1,4 +1,4 @@
-// file: lib/ai_chat_page.dart
+// file: libs/ai_chat_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
@@ -35,42 +35,59 @@ class _AiChatPageState extends State<AiChatPage> {
   String _selectedChatModel = 'gemini-2.5-pro'; // 默认使用专业模型
   final List<String> _availableModels = const ['gemini-2.5-flash', 'gemini-2.5-pro'];
 
+  // 文件位置: lib/ai_chat_page.dart -> _AiChatPageState
+
   @override
   void initState() {
     super.initState();
-    // VVV 2. MODIFICATION: Initialize the nullable variable. It's now guaranteed to be non-null after this point. VVV
     _currentEntry = widget.entry;
 
-
+    // VVVV  核心修改区域 VVVV
     if (_currentEntry!.conversations.isEmpty) {
-      _createNewConversation();
+      // 使用 WidgetsBinding 来延迟调用，确保在UI渲染完成后再执行
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) { // 再次检查以确保安全
+          _createNewConversation();
+        }
+      });
     } else {
+      // 这部分逻辑保持不变
       setState(() {
         _activeConversation = _currentEntry!.conversations.first;
       });
     }
+    // ^^^^ 修改结束 ^^^^
   }
 
+  // +++ 这是修正后的 _startAnalysisForConversation 方法 +++
   Future<void> _startAnalysisForConversation(Conversation conversation) async {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
-    // 使用日记原文作为上下文
-    final (responseText, _) = await _geminiService.generateResponse(
-      [Content.text(_currentEntry!.text)],
-      modelName: _selectedChatModel, // <-- VVV 使用状态变量
-    );
+    // VVVV 核心修改：在这里创建临时的、干净的文本用于聊天 VVVV
+    String chatContext = _currentEntry!.text;
+    const String separator = "---AI_SAMPLE_ANSWER---";
+    if (chatContext.contains(separator)) {
+      // 仅使用用户回复的部分作为聊天上下文
+      chatContext = chatContext.split(separator)[0].trim();
+    }
+    // ^^^^ 修改结束 ^^^^
 
+    // 使用我们刚刚处理过的 chatContext
+    final (responseText, _) = await _geminiService.generateResponse(
+      [Content.text(chatContext)],
+      modelName: _selectedChatModel,
+    );
     if (mounted) {
       setState(() {
-        // 将日记原文和AI的首次回复加入该对话的历史记录
-        conversation.history.add(Content.text(_currentEntry!.text));
+        // 将干净的上下文和AI的回复加入对话历史
+        conversation.history.add(Content.text(chatContext));
         conversation.history.add(Content.model([TextPart(responseText ?? "抱歉，发生了错误...")]));
-        // 将日记的第一行作为对话标题
         conversation.title = _currentEntry!.text.split('\n').first;
         _isLoading = false;
       });
       _scrollToBottom();
+      // 关键：这里保存的 _currentEntry 仍然是完整的，包含AI样本答案！
       await _saveConversations();
     }
   }
@@ -122,22 +139,49 @@ class _AiChatPageState extends State<AiChatPage> {
     Navigator.of(context).pop();
   }
 
+  // 文件位置: lib/ai_chat_page.dart -> _AiChatPageState
+
   Future<void> _saveConversations() async {
-    await context.read<DiaryService>().updateEntry(_currentEntry!);
+    final diaryService = context.read<DiaryService>();
+    if (_currentEntry == null) return;
+
+    // 1. 先从数据库获取最新的、最完整的原始日记
+    final pristineEntry = await diaryService.getEntryById(_currentEntry!.diaryId);
+
+    if (pristineEntry != null) {
+      // 2. 基于这个完整的原始日记，只更新它的对话列表
+      final entryToSave = pristineEntry.copyWith(
+        conversations: _currentEntry!.conversations,
+      );
+      // 3. 保存这个“合并”后的、信息完整的日记
+      await diaryService.updateEntry(entryToSave);
+    } else {
+      // 备用方案：如果因故没找到，则保存当前内存中的版本
+      await diaryService.updateEntry(_currentEntry!);
+    }
   }
 
+  // +++ 这是修正后的 _startInitialAnalysisForConversation 方法 +++
   Future<void> _startInitialAnalysisForConversation(Conversation conversation) async {
     if (!mounted) return;
     setState(() => _isLoading = true);
 
-    final (responseText, _) = await _geminiService.generateResponse(
-      [Content.text(_currentEntry!.text)],
-      modelName: _selectedChatModel, // VVV Use the state variable here
-    );
+    // VVVV 核心修改：同样在这里创建临时的、干净的文本用于聊天 VVVV
+    String chatContext = _currentEntry!.text;
+    const String separator = "---AI_SAMPLE_ANSWER---";
+    if (chatContext.contains(separator)) {
+      // 仅使用用户回复的部分作为聊天上下文
+      chatContext = chatContext.split(separator)[0].trim();
+    }
+    // ^^^^ 修改结束 ^^^^
 
+    final (responseText, _) = await _geminiService.generateResponse(
+      [Content.text(chatContext)], // 使用干净的上下文
+      modelName: _selectedChatModel,
+    );
     if (mounted) {
       setState(() {
-        conversation.history.add(Content.text(_currentEntry!.text));
+        conversation.history.add(Content.text(chatContext)); // 使用干净的上下文
         conversation.history.add(Content.model([TextPart(responseText ?? "抱歉，发生了错误...")]));
         conversation.title = _currentEntry!.text.split('\n').first;
         _isLoading = false;
@@ -367,6 +411,7 @@ class _AiChatPageState extends State<AiChatPage> {
   }
 
   /// 构建带有勾选框的聊天气泡
+  /// 构建带有勾选框的聊天气泡
   Widget _buildChatBubble({required Content message, required String text, required bool isUser}) {
     final theme = Theme.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
@@ -377,8 +422,8 @@ class _AiChatPageState extends State<AiChatPage> {
       mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // AI消息的勾选框在左边
-        if (!isUser)
+        // VVVV 核心修改 1: 用户消息的勾选框现在在左边 VVVV
+        if (isUser)
           Checkbox(
             value: isSelected,
             onChanged: (val) {
@@ -392,7 +437,7 @@ class _AiChatPageState extends State<AiChatPage> {
             },
           ),
 
-        // 气泡本身
+        // 气泡本身 (保持不变)
         Align(
           alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
           child: ConstrainedBox(
@@ -419,8 +464,8 @@ class _AiChatPageState extends State<AiChatPage> {
           ),
         ),
 
-        // 用户消息的勾选框在右边
-        if (isUser)
+        // VVVV 核心修改 2: AI 消息的勾选框现在在右边 VVVV
+        if (!isUser)
           Checkbox(
             value: isSelected,
             onChanged: (val) {
@@ -437,12 +482,16 @@ class _AiChatPageState extends State<AiChatPage> {
     );
   }
 
+  // 文件位置: libs/ai_chat_page.dart -> _AiChatPageState
+
   // 文件位置: lib/ai_chat_page.dart -> _AiChatPageState
 
   Widget _buildDiaryContextCard(String text) {
+    final theme = Theme.of(context);
     return Card(
       elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.5),
+      // 保持 Card 的颜色不变，我们只处理 MarkdownBody
+      color: theme.colorScheme.surfaceVariant.withOpacity(0.5),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
       child: Padding(
@@ -450,17 +499,27 @@ class _AiChatPageState extends State<AiChatPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("对话上下文 (你的日记)", style: Theme.of(context).textTheme.bodySmall),
+            Text("对话上下文 (你的日记)", style: theme.textTheme.bodySmall),
             const Divider(height: 16),
-            // VVVV 核心修改：使用 MarkdownBody 代替 SelectableText VVVV
             MarkdownBody(
               data: text,
               selectable: true,
-              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+              // VVVV 核心修改: 严格按照您的要求，应用与上一个问题完全相同的解决方案 VVVV
+              styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
                 p: const TextStyle(height: 1.5),
+                // 明确指定 "引用块" 的样式
+                blockquoteDecoration: BoxDecoration(
+                  color: Colors.transparent, // 强制引用块背景透明
+                  border: Border(
+                    left: BorderSide(
+                      color: theme.dividerColor, // 左侧加一条淡淡的竖线以示区分
+                      width: 4.0,
+                    ),
+                  ),
+                ),
+                blockquotePadding: const EdgeInsets.only(left: 16.0),
               ),
             ),
-            // ^^^^ 修改结束 ^^^^
           ],
         ),
       ),

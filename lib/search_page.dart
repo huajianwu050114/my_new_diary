@@ -1,4 +1,4 @@
-// file: lib/search_page.dart
+// file: libs/search_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

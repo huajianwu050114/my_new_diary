@@ -1,4 +1,4 @@
-// file: lib/ai_model_settings_page.dart
+// file: libs/ai_model_settings_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

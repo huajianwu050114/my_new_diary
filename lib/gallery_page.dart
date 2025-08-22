@@ -1,4 +1,4 @@
-// file: lib/gallery_page.dart
+// file: libs/gallery_page.dart
 
 import 'dart:io';
 import 'package:flutter/material.dart';

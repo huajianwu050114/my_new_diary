@@ -1,4 +1,4 @@
-// 文件位置: lib/home_page.dart
+// 文件位置: libs/home_page.dart
 
 // --- 确保您有所有这些 imports ---
 import 'dart:convert';
@@ -40,6 +40,7 @@ import 'statistics_page.dart';
 import 'voice_diary_dialog.dart';
 import 'comfort_zone_page.dart';
 import 'self_help_guide_page.dart';
+import 'voice_input_screen.dart';
 
 // 临时的枚举，确保代码完整性
 enum LetterStatus {
@@ -86,6 +87,17 @@ class HomePage extends StatelessWidget {
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (context) => const DiaryHomePage()),
+              );
+            },
+          ),
+          SpeedDialChild(
+            child: const Icon(Icons.ac_unit_outlined),
+            label: '实时语音日记',
+            onTap: () {
+              // 使用 Navigator 跳转到我们创建的语音输入屏幕
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const VoiceInputScreen()),
               );
             },
           ),
@@ -324,7 +336,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     ]);
   }
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState class
+  // 文件位置: libs/home_page.dart -> _HomePageContentState class
 // (可以放在其他 _build... 方法的旁边)
 
   Widget _buildMemoryBottleCard() {
@@ -466,8 +478,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   }
 
   // 加载AI灵感
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
+  // +++ 这是修正后的完整方法 +++
   Future<void> _fetchAiWritingPrompt(
       {String model = 'gemini-2.5-flash', bool forceRefresh = false}) async {
     if (!mounted) return;
@@ -476,7 +489,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final diaryService = context.read<DiaryService>();
     final today = DateTime.now();
 
-    // 1. 除非强制刷新，否则先尝试从数据库缓存中加载
     if (!forceRefresh) {
       final Map<String, dynamic>? cachedPrompt = await diaryService
           .getInspirationForDay(today);
@@ -487,24 +499,39 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
             _isLoadingPrompt = false;
           });
           print("--- 从数据库缓存加载了每日灵感 ---");
-          return; // 加载成功，直接返回
+          return;
         }
       }
     }
 
-    // 2. 如果缓存中没有，或者用户强制刷新，则从网络获取新灵感
     print("--- 缓存未命中或强制刷新，正在从网络获取新灵感 ---");
-    final promptData = await diaryService.generatePersonalizedPrompt(
-        modelName: model);
 
-    if (mounted) {
-      // 3. 获取到新灵感后，将其完整存入数据库缓存
-      await diaryService.saveDailyInspiration(today, promptData);
+    // VVVV 完整的 try/catch 逻辑从这里开始 VVVV
+    try {
+      final promptData = await diaryService.generatePersonalizedPrompt(
+          modelName: model);
 
-      setState(() {
-        _aiWritingPrompt = promptData;
-        _isLoadingPrompt = false;
-      });
+      if (mounted) {
+        // 获取到新灵感后，将其完整存入数据库缓存
+        await diaryService.saveDailyInspiration(today, promptData);
+        setState(() {
+          _aiWritingPrompt = promptData;
+          _isLoadingPrompt = false;
+        });
+      }
+    } catch (e) {
+      print("生成AI提示失败 (回退到默认提示): $e");
+      if (mounted) {
+        // 当发生任何错误时，提供一个用户友好的默认提示
+        setState(() {
+          _aiWritingPrompt = {
+            'type': 'inspiration',
+            'question': '今天，有什么小事让你感到庆幸吗？',
+            'sampleAnswer': '比如，早晨的阳光正好，或者路上偶遇了一只可爱的猫。这些小确幸，往往是构成一天美好的重要部分...',
+          };
+          _isLoadingPrompt = false;
+        });
+      }
     }
   }
 
@@ -672,7 +699,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
   Widget _buildWeeklyLetterCard() {
     switch (_letterStatus) {
@@ -905,7 +932,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
   Widget _buildFestivalCard(Map<String, dynamic> festival, int index) {
     final int daysUntil = festival['daysUntil'];
@@ -969,7 +996,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
   Widget _buildOnThisDaySection() {
     final diaryService = context.read<DiaryService>();
@@ -1314,7 +1341,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
   Widget _buildHistoryList(DiaryService diaryService) {
     return FutureBuilder<List<DiaryEntry>>(
@@ -1455,7 +1482,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     );
   }
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
   Widget _buildInspirationResponseHistoryCard(DiaryEntry entry) {
     final theme = Theme.of(context);
@@ -1525,15 +1552,15 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
 
 // VVVV 2. 用这个新版本替换旧的 build 方法 VVVV
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState
+  // 文件位置: libs/home_page.dart -> _HomePageContentState
 
-  // 文件位置: lib/home_page.dart -> _HomePageContentState class
+  // 文件位置: libs/home_page.dart -> _HomePageContentState class
 
   @override
   Widget build(BuildContext context) {
@@ -1616,7 +1643,7 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   }
 }
 
-// 文件位置: lib/home_page.dart (文件最底部)
+// 文件位置: libs/home_page.dart (文件最底部)
 
 // =================================================================
 // VVVV  这是一个全新的、独立的、功能完整的 AI 灵感卡片小部件 VVVV

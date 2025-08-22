@@ -1,4 +1,4 @@
-// file: lib/add_festival_page.dart
+// file: libs/add_festival_page.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';

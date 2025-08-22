@@ -1,4 +1,4 @@
-// file: lib/location_service.dart
+// file: libs/location_service.dart
 import 'dart:convert';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';

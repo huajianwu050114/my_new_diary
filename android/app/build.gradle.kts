@@ -24,11 +24,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.my_new_diary"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdkVersion(flutter.minSdkVersion)
+        // VVV 1. 确保 minSdkVersion 不低于 22 VVV
+        minSdkVersion(24)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -37,23 +35,26 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
+    }
 }
-
-//plugins.apply("com.google.gms.google-services")
 
 flutter {
     source = "../.."
 }
 
 dependencies {
-    // VVV 3. 在这里添加 Desugaring 库的依赖 VVV
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    //implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
+
+    // VVV 2. 在这里添加对 .aar 文件的引用 VVV
+    // 请确保文件名与您放入 libs 文件夹的文件名完全一致
+    implementation(files("libs/bdasr_V3_20250507_b610f20.jar"))
 }
 
 configurations.all {
@@ -62,11 +63,5 @@ configurations.all {
             useVersion("1.9.0")
             because("Force specific version to resolve conflict")
         }
-
-        // 如果发现其他冲突，可以按下面的格式继续添加
-        // if (requested.group == "group.name" && requested.name == "library-name") {
-        //     useVersion("version.number")
-        //     because("Reason for forcing version")
-        // }
     }
 }

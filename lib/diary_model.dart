@@ -30,39 +30,44 @@ class Conversation {
   }
 }
 
+// 文件位置: lib/diary_model.dart
+
 Map<String, dynamic> _contentToJson(Content content) {
   return {
     'role': content.role,
-    'parts': content.parts.map((part) {
-      if (part is TextPart) {
-        return {'type': 'text', 'text': part.text};
-      }
-      // 可以根据需要在这里添加对其他 Part 类型的处理
-      return {};
-    }).toList(),
+    // VVVV 核心修改：确保只处理 TextPart，并过滤掉其他类型 VVVV
+    'parts': content.parts
+        .whereType<TextPart>() // 只选择类型为 TextPart 的部分
+        .map((part) => {'type': 'text', 'text': part.text})
+        .toList(),
   };
 }
 
 // VVV 2. 手动添加的辅助函数，用于反序列化 Content VVV
+// 文件位置: lib/diary_model.dart
+
 Content _contentFromJson(Map<String, dynamic> json) {
   final role = json['role'] as String?;
-
-  // --- 关键修正 ---
-  // 1. 安全地获取 parts 列表，如果不存在则默认为一个空列表
   final partsList = json['parts'] as List<dynamic>? ?? [];
-
-  // 2. 在安全的列表上进行 map 操作
   final parts = partsList.map((partJson) {
     final partMap = partJson as Map<String, dynamic>;
     if (partMap['type'] == 'text') {
-      // 确保 text 字段也安全地处理
       return TextPart(partMap['text'] as String? ?? '');
     }
-    return TextPart('');
+    return TextPart(''); // 对于未知类型，返回一个空的文本部分
   }).toList();
 
-  return Content(role ?? 'model', parts);
+  // VVVV 核心修改：如果角色丢失，默认设为'user'，这通常更安全 VVVV
+  // 并且，只有在 parts 不为空时才创建 Content，避免无效历史记录
+  if (parts.isNotEmpty) {
+    return Content(role ?? 'user', parts);
+  } else {
+    // 返回一个无害的空用户消息，而不是一个可能破坏顺序的model消息
+    return Content('user', [TextPart('')]);
+  }
 }
+
+
 class AiMetadata {
   final List<String> suggestedTitles;
   final String? summary;

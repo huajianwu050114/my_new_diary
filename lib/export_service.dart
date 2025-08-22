@@ -1,4 +1,4 @@
-// file: lib/export_service.dart
+// file: libs/export_service.dart
 
 import 'dart:convert';
 import 'dart:io';
@@ -23,9 +23,9 @@ class ExportService {
   ExportService(this.entries);
 
   // VVV 2. 全新的导出为 ZIP 的方法
-  // 文件位置: lib/export_service.dart -> ExportService class
+  // 文件位置: libs/export_service.dart -> ExportService class
 
-  // 文件位置: lib/export_service.dart -> ExportService class
+  // 文件位置: libs/export_service.dart -> ExportService class
 
   Future<String?> exportToZip({ExportProgressCallback? onProgress}) async {
     final archive = Archive();

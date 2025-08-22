@@ -1,4 +1,4 @@
-// file: lib/settings_page.dart
+// file: libs/settings_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -131,7 +131,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
 
-  // 文件位置: lib/settings_page.dart -> _SettingsPageState class
+  // 文件位置: libs/settings_page.dart -> _SettingsPageState class
 
   Future<void> _handleReminderSwitch(bool value) async {
     // 如果是想关闭提醒，直接执行并返回
@@ -185,7 +185,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
 
-  // 文件位置: lib/settings_page.dart -> _SettingsPageState class
+  // 文件位置: libs/settings_page.dart -> _SettingsPageState class
 
   Future<void> _runImportFromZip() async {
     final result = await FilePicker.platform.pickFiles(

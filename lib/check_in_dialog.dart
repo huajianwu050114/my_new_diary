@@ -1,4 +1,4 @@
-// file: lib/check_in_dialog.dart
+// file: libs/check_in_dialog.dart
 import 'package:flutter/material.dart';
 import 'package:animate_do/animate_do.dart';
 import 'package:flutter_svg/flutter_svg.dart';

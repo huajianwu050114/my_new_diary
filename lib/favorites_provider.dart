@@ -1,4 +1,4 @@
-// file: lib/favorites_provider.dart
+// file: libs/favorites_provider.dart
 
 import 'dart:convert';
 import 'package:flutter/material.dart';

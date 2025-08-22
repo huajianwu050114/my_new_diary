@@ -1,4 +1,4 @@
-// file: lib/analysis_page.dart
+// file: libs/analysis_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -20,7 +20,7 @@ class AnalysisPage extends StatefulWidget {
 
 
 // VVV 将整个 _AnalysisPageState 类替换为以下内容 VVV
-// 文件位置: lib/analysis_page.dart
+// 文件位置: libs/analysis_page.dart
 
 class _AnalysisPageState extends State<AnalysisPage> {
   DateTimeRange? _selectedDateRange;
@@ -178,9 +178,9 @@ class _AnalysisPageState extends State<AnalysisPage> {
     return sortedWords.take(50).map((e) => {'word': e.key, 'value': e.value}).toList();
   }
 
-  // 文件位置: lib/analysis_page.dart -> _AnalysisPageState
+  // 文件位置: libs/analysis_page.dart -> _AnalysisPageState
 
-  // 文件位置: lib/analysis_page.dart -> _AnalysisPageState
+  // 文件位置: libs/analysis_page.dart -> _AnalysisPageState
 
   Widget _buildActivityHeatmap() {
     final theme = Theme.of(context);
@@ -271,7 +271,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
     );
   }
 
-  // 文件位置: lib/analysis_page.dart -> _AnalysisPageState
+  // 文件位置: libs/analysis_page.dart -> _AnalysisPageState
 
   Widget _buildMoodCalendar() {
     final theme = Theme.of(context);
@@ -338,7 +338,7 @@ class _AnalysisPageState extends State<AnalysisPage> {
     );
   }
 
-  // 文件位置: lib/analysis_page.dart -> _AnalysisPageState
+  // 文件位置: libs/analysis_page.dart -> _AnalysisPageState
 
   Widget _buildMoodLineChart() {
     final theme = Theme.of(context);

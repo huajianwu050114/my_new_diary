@@ -1,4 +1,4 @@
-// 文件: lib/comfort_zone_page.dart
+// 文件: libs/comfort_zone_page.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
@@ -28,7 +28,7 @@ class _ComfortZonePageState extends State<ComfortZonePage> {
   }
 
   // 启动一个带有特殊安慰指令的AI聊天
-  // 文件位置: lib/comfort_zone_page.dart -> _ComfortZonePageState class
+  // 文件位置: libs/comfort_zone_page.dart -> _ComfortZonePageState class
 
 // 启动一个带有特殊安慰指令的AI聊天
   void _startComfortingChat() async { // 1. 将方法标记为 async

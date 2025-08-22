@@ -1,4 +1,4 @@
-// file: lib/festival_service.dart
+// file: libs/festival_service.dart
 
 import 'dart:convert';
 import 'package:flutter/material.dart';

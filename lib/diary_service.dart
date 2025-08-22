@@ -1,4 +1,4 @@
-// file: lib/diary_service.dart
+// file: libs/diary_service.dart
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -70,7 +70,7 @@ class DiaryService extends ChangeNotifier {
     return foundEntries;
   }
 
-  // 文件位置: lib/diary_service.dart -> DiaryService class
+  // 文件位置: libs/diary_service.dart -> DiaryService class
 
   /// 检查用户最近是否情绪低落
   /// @param days: 检查最近几天的日记，默认为7天
@@ -151,7 +151,7 @@ class DiaryService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // 文件位置: lib/diary_service.dart -> DiaryService class
+  // 文件位置: libs/diary_service.dart -> DiaryService class
 
 // VVVV  用这个新版本替换旧的 saveDailyInspiration VVVV
 // 它现在接收一个 Map<String, dynamic> 并将其编码为 JSON 字符串进行存储
@@ -196,11 +196,12 @@ class DiaryService extends ChangeNotifier {
     return null;
   }
 
-  // In lib/diary_service.dart -> inside DiaryService class
+  // In libs/diary_service.dart -> inside DiaryService class
 
 // VVV 用这个全新的、完全由AI驱动的版本替换旧方法 VVV
-  // 文件位置: lib/diary_service.dart -> DiaryService class
+  // 文件位置: libs/diary_service.dart -> DiaryService class
 
+  // +++ 这是修正后的 generatePersonalizedPrompt 方法 +++
   Future<Map<String, dynamic>> generatePersonalizedPrompt({required String modelName}) async {
     final geminiService = GeminiServiceLocal();
     final daysSinceLast = await getDaysSinceLastEntry();
@@ -209,7 +210,6 @@ class DiaryService extends ChangeNotifier {
     String promptType;
     bool requiresJsonResponse = false;
 
-    // 这部分的 prompt 构建逻辑保持不变
     if (daysSinceLast >= 999) {
       promptType = 'welcome';
       prompt = """
@@ -260,30 +260,33 @@ class DiaryService extends ChangeNotifier {
       if (responseText == null || responseText.isEmpty) {
         throw Exception('AI did not return a response.');
       }
-      if (requiresJsonResponse) {
-        // VVVV  核心修正：新增的JSON清洗逻辑 VVVV
-        String cleanedJson = responseText.trim();
-        if (cleanedJson.startsWith("```json")) {
-          cleanedJson = cleanedJson.substring(7);
-          if (cleanedJson.endsWith("```")) {
-            cleanedJson = cleanedJson.substring(0, cleanedJson.length - 3);
-          }
-        }
-        cleanedJson = cleanedJson.trim();
-        // ^^^^ 清洗逻辑结束 ^^^^
 
-        final jsonResponse = jsonDecode(cleanedJson); // 解析清洗后的字符串
+      if (requiresJsonResponse) {
+        // 智能查找并提取JSON字符串
+        String extractedJson;
+        final startIndex = responseText.indexOf('{');
+        final endIndex = responseText.lastIndexOf('}');
+
+        if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
+          extractedJson = responseText.substring(startIndex, endIndex + 1);
+        } else {
+          throw FormatException("AI返回的内容中未找到有效的JSON对象。");
+        }
+
+        // 修正了变量名：使用 decodedJson
+        final decodedJson = jsonDecode(extractedJson);
+
         return {
           'type': promptType,
-          'question': jsonResponse['question'],
-          'sampleAnswer': jsonResponse['sampleAnswer'],
+          'question': decodedJson['question'],
+          'sampleAnswer': decodedJson['sampleAnswer'],
         };
       } else {
         return {'type': promptType, 'text': responseText.replaceAll('"', '').trim()};
       }
     } catch (e) {
       print("生成AI提示失败: $e");
-      // 错误处理部分保持不变
+      // 完整的 catch 块，处理错误并提供回退
       if (requiresJsonResponse) {
         return {
           'type': promptType,
@@ -320,7 +323,7 @@ class DiaryService extends ChangeNotifier {
     await prefs.remove('unsaved_diary_draft');
   }
 
-  // 文件位置: lib/diary_service.dart -> DiaryService class
+  // 文件位置: libs/diary_service.dart -> DiaryService class
 
   /// 获取或创建疗伤角专属的对话日记。
   /// 这个方法会查找一个固定ID的日记条目，如果不存在则会创建一个新的。
@@ -348,7 +351,7 @@ class DiaryService extends ChangeNotifier {
     }
   }
 
-  // 文件位置: lib/diary_service.dart -> DiaryService class
+  // 文件位置: libs/diary_service.dart -> DiaryService class
 
   /// 从所有包含图片的日记中，随机挑选一篇返回
   Future<DiaryEntry?> getRandomEntryWithImage() async {
@@ -384,35 +387,42 @@ class DiaryService extends ChangeNotifier {
   }
 
   /// 3. 计算当前连续签到天数 (用于激励)
+  // +++ 这是修正后的新代码 +++
   Future<int> getConsecutiveCheckInDays() async {
     final db = await dbHelper.database;
     var consecutiveDays = 0;
-    // 为了避免时区问题，我们只取年、月、日
     var now = DateTime.now();
-    var dateToCheck = DateTime(now.year, now.month, now.day);
+    var today = DateTime(now.year, now.month, now.day);
 
+    // 1. 先检查今天是否已经签到
+    final todayString = DateFormat('yyyy-MM-dd').format(today);
+    final todayMaps = await db.query(
+      'daily_check_ins',
+      where: 'date = ?',
+      whereArgs: [todayString],
+      limit: 1,
+    );
+
+    // 2. 根据今天是否已签到，决定从哪天开始检查
+    var dateToCheck = (todayMaps.isNotEmpty) ? today : today.subtract(const Duration(days: 1));
+
+    // 3. 循环向前检查
     while (true) {
-      // 1. 将日期格式化为 'YYYY-MM-DD' 以便在数据库中查询
       final dateString = DateFormat('yyyy-MM-dd').format(dateToCheck);
-
-      // 2. 查询当天是否存在签到记录
       final maps = await db.query(
         'daily_check_ins',
         where: 'date = ?',
         whereArgs: [dateString],
         limit: 1,
       );
-
-      // 3. 如果找到了记录，天数+1，然后将检查日期向前推一天
       if (maps.isNotEmpty) {
         consecutiveDays++;
         dateToCheck = dateToCheck.subtract(const Duration(days: 1));
       } else {
-        // 4. 如果某一天没有找到记录，说明连续签到中断，立刻停止循环
+        // 遇到没有签到的日期，中断循环
         break;
       }
     }
-
     return consecutiveDays;
   }
 
@@ -510,7 +520,7 @@ class DiaryService extends ChangeNotifier {
     return entryWithId; // VVV 2. 返回带有ID的日记对象 VVV
   }
 
-  // 文件位置: lib/diary_service.dart -> DiaryService class
+  // 文件位置: libs/diary_service.dart -> DiaryService class
 
   /// 获取所有被标记为“自救锦囊”的日记
   Future<List<DiaryEntry>> getSelfHelpEntries() async {
@@ -598,6 +608,9 @@ class DiaryService extends ChangeNotifier {
     return imagePairs;
   }
 
+  // file: lib/diary_service.dart -> DiaryService class
+
+  /// 获取所有未删除日记中出现过的、不重复的标签列表
   Future<List<String>> getAllUniqueTags() async {
     final db = await dbHelper.database;
     final List<Map<String, dynamic>> maps = await db.query(
@@ -608,10 +621,12 @@ class DiaryService extends ChangeNotifier {
 
     final Set<String> uniqueTags = {};
     for (var map in maps) {
+      // 标签在数据库中以JSON字符串形式存储，如 '["标签1","标签2"]'
       final tagsList = (jsonDecode(map['tags']) as List<dynamic>).cast<String>();
       uniqueTags.addAll(tagsList);
     }
 
+    // 返回一个排序后的列表
     final sortedTags = uniqueTags.toList()..sort();
     return sortedTags;
   }
@@ -663,7 +678,7 @@ class DiaryService extends ChangeNotifier {
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
 
-  // file: lib/diary_service.dart -> inside DiaryService class
+  // file: libs/diary_service.dart -> inside DiaryService class
 
   Future<List<List<DiaryEntry>>> getGroupedEntriesByLocation({
     double distanceThreshold = 500,
@@ -704,7 +719,7 @@ class DiaryService extends ChangeNotifier {
     return clusteredEntries;
   }
 
-  // file: lib/diary_service.dart -> inside DiaryService class
+  // file: libs/diary_service.dart -> inside DiaryService class
 // 需要 'package:intl/intl.dart' for DateFormat
 
   Future<List<DiaryEntry>> getRecentEntriesWithImages({int limit = 5}) async {
@@ -750,7 +765,7 @@ class DiaryService extends ChangeNotifier {
     return todayOnly.difference(lastDateOnly).inDays;
   }
 
-  // file: lib/diary_service.dart -> inside DiaryService class
+  // file: libs/diary_service.dart -> inside DiaryService class
 
   Future<List<DiaryEntry>> getOnThisDayEntries() async {
     final db = await dbHelper.database;
@@ -769,7 +784,7 @@ class DiaryService extends ChangeNotifier {
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
 
-  // file: lib/diary_service.dart -> inside DiaryService class
+  // file: libs/diary_service.dart -> inside DiaryService class
 
   Future<String> getDebugInfo() async {
     final buffer = StringBuffer();
@@ -822,7 +837,7 @@ class DiaryService extends ChangeNotifier {
   // --- 列表查询 ---
 
   /// 获取所有未删除的日记，按时间倒序排列
-  // 文件位置: lib/diary_service.dart -> DiaryService class
+  // 文件位置: libs/diary_service.dart -> DiaryService class
 
   /// 获取所有未删除的日记，按时间倒序排列
   Future<List<DiaryEntry>> getAllEntriesSorted() async {
@@ -838,7 +853,7 @@ class DiaryService extends ChangeNotifier {
   }
 
   /// 获取指定某一天的所有日记
-  // 文件位置: lib/diary_service.dart -> DiaryService class
+  // 文件位置: libs/diary_service.dart -> DiaryService class
 
   /// 获取指定某一天的所有日记
   Future<List<DiaryEntry>> getEntriesForDay(DateTime day) async {

@@ -1,4 +1,4 @@
-// file: lib/diary_view_page.dart
+// file: libs/diary_view_page.dart
 
 import 'dart:convert';
 import 'dart:io';
@@ -109,8 +109,14 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     }
   }
 
-  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState class
+  // 文件位置: libs/diary_view_page.dart -> _DiaryViewPageState class
 
+  // +++ 这是修正后的新代码 +++
+  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState
+
+  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState
+
+  // +++ 这是最终修正版，能智能判断日记类型并使用不同Prompt +++
   Future<void> _regenerateAiAnalysis() async {
     final entry = _currentEntry;
     if (entry == null || !mounted) return;
@@ -119,28 +125,71 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
     final diaryService = context.read<DiaryService>();
     final geminiService = GeminiServiceLocal();
-    if (entry.text.isEmpty) {
+
+    // 1. 清理文本，移除AI范例回答部分，得到干净的分析材料
+    String textForAnalysis = entry.text;
+    const String sampleAnswerSeparator = "---AI_SAMPLE_ANSWER---";
+    if (textForAnalysis.contains(sampleAnswerSeparator)) {
+      textForAnalysis = textForAnalysis.split(sampleAnswerSeparator)[0].trim();
+    }
+
+    if (textForAnalysis.isEmpty) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记内容为空，无法分析。')));
       return;
     }
 
-    final prompt = """
-  请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
-  请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
-  {
-    "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
-    "summary": "<大约50字的摘要>",
-    "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
-    "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
-    "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
-  }
-  日记内容如下:
-  ---
-  ${entry.text}
-  """;
-    final (responseText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-2.5-pro');
+    // 2. 智能判断日记类型，并构建不同的Prompt
+    String finalPrompt;
+    const String inspirationSeparator = "\n---\n";
+
+    // 检查是否为“灵感回复”类型的日记
+    if (textForAnalysis.contains('> ## AI 灵感:') && textForAnalysis.contains(inspirationSeparator)) {
+      final parts = textForAnalysis.split(inspirationSeparator);
+      final aiQuestion = parts[0].replaceAll('> ## AI 灵感:', '').replaceAll('>', '').trim();
+      final userAnswer = parts.length > 1 ? parts[1].trim() : '';
+
+      // VVVV  这是为“灵感回复”场景定制的全新Prompt VVVV
+      finalPrompt = """
+      你是一位充满同理心的日记分析师。之前，你向我提出了一个写作灵感问题，现在我做出了回应。请你专注于分析**我的回应**，而不是你之前提出的问题。
+
+      你当时提出的问题是：
+      "$aiQuestion"
+
+      我的回应是：
+      "$userAnswer"
+
+      请你仔细阅读**我的回应**，并严格按照以下JSON格式返回对**我的回应**的分析，不要有任何额外的解释或修-饰:
+      {
+        "suggestedTitles": ["<根据我的回应生成的标题1>", "<标题2>", "<标题3>"],
+        "summary": "<对我回应内容的大约50字摘要>",
+        "detectedEmotion": "<从我的回应中解读出的微妙情绪>",
+        "detectedThemes": ["<我回应中涉及的主题1>", "<主题2>", "<主题3>"],
+        "proactiveQuestion": "<基于我的回应，提出一个能引导我深入思考的、友善的新问题>"
+      }
+      """;
+    } else {
+      // 如果是普通日记，则使用原来的通用Prompt
+      finalPrompt = """
+      请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
+      请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
+      {
+        "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
+        "summary": "<大约50字的摘要>",
+        "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
+        "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
+        "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
+      }
+      日记内容如下:
+      ---
+      $textForAnalysis
+      """;
+    }
+
+    // 3. 使用构建好的 aifinalPrompt 发起请求
+    final (responseText, _) = await geminiService.generateResponse([Content.text(finalPrompt)], modelName: 'gemini-2.5-pro');
 
     if (responseText != null) {
+      // ... 后续的JSON解析和保存逻辑保持不变 ...
       if (responseText.startsWith("ERROR:")) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('AI分析失败: ${responseText.substring(6)}'), backgroundColor: Colors.red));
         return;
@@ -152,7 +201,6 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         final updatedEntry = entry.copyWith(aiMetadata: newMetadata);
         await diaryService.updateEntry(updatedEntry);
 
-        // 关键：调用 _reloadData 来刷新当前页，而不是 pop
         await _reloadData();
 
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI分析已更新！'), backgroundColor: Colors.green));
@@ -162,7 +210,6 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     } else {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI未能返回有效内容。')));
     }
-    // 确保这个方法的末尾没有 Navigator.of(context).pop()
   }
 
   @override
@@ -215,7 +262,9 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
               await Navigator.of(context).push(MaterialPageRoute(builder: (context) => AddDiaryPage(entryToEdit: entry)));
               _reloadData();
             } else if (value == 'chat_with_ai') {
-              await Navigator.of(context).push(MaterialPageRoute(builder: (context) => AiChatPage(entry: entry)));
+              // 直接将原始的、完整的日记 entry 传递给聊天页面
+              await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (context) => AiChatPage(entry: entry)));
               _reloadData();
             } else if (value == 'delete') {
               _deleteDiary();
@@ -238,7 +287,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     );
   }
 
-  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState class
+  // 文件位置: libs/diary_view_page.dart -> _DiaryViewPageState class
 
 // VVVV 在类中添加这个新方法 VVVV
   Future<void> _toggleSelfHelp() async {
@@ -260,7 +309,7 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
     }
   }
 
-  // 文件位置: lib/diary_view_page.dart -> _DiaryViewPageState class
+  // 文件位置: libs/diary_view_page.dart -> _DiaryViewPageState class
 
   Widget _buildSliverContent(DiaryEntry entry) {
     final theme = Theme.of(context);
@@ -307,29 +356,63 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         ),
 
         // 如果有AI示例回答，紧跟在正文后
+        // 文件位置: lib/diary_view_page.dart -> _buildSliverContent()
+
+// ...紧跟在 MarkdownBody(data: mainContent, ...) 之后...
+
+// 如果有AI示例回答，紧跟在正文后
+        // 文件位置: lib/diary_view_page.dart -> _buildSliverContent()
+
+// ...紧跟在 MarkdownBody(data: mainContent, ...) 之后...
+
+// 如果有AI示例回答，紧跟在正文后
+        // 文件位置: lib/diary_view_page.dart -> _buildSliverContent()
+
+// ...紧跟在 MarkdownBody(data: mainContent, ...) 之后...
+
+// 如果有AI示例回答，紧跟在正文后
         if (aiSampleAnswer != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: ExpansionTile(
+            // VVVV 使用我们全新的自定义小部件 VVVV
+            child: CustomExpansionCard(
+              leading: Icon(Icons.auto_awesome_outlined, color: Theme.of(context).colorScheme.secondary),
               title: const Text("看看AI会怎么写..."),
-              leading: Icon(Icons.auto_awesome_outlined, color: theme.colorScheme.secondary),
-              backgroundColor: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-              collapsedBackgroundColor: theme.colorScheme.surfaceVariant.withOpacity(0.5),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              collapsedShape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                  child: MarkdownBody(
-                    data: "> $aiSampleAnswer", selectable: true,
-                    styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
-                      p: theme.textTheme.bodyMedium?.copyWith(height: 1.5, fontStyle: FontStyle.italic, color: theme.colorScheme.onSurfaceVariant),
+                  child: MarkdownBody( // <--- 就是这个小部件
+                    data: "> $aiSampleAnswer",
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                      p: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        height: 1.5,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      // VVVV 这是决定性的一行代码 VVVV
+                      // 直接告诉 "引用块" 使用一个带边框的透明背景
+                      blockquoteDecoration: BoxDecoration(
+                        color: Colors.transparent, // 背景透明
+                        border: Border(
+                          left: BorderSide(
+                            color: Theme.of(context).dividerColor, // 左侧加一条淡淡的竖线以示区分
+                            width: 4.0,
+                          ),
+                        ),
+                      ),
+                      blockquotePadding: const EdgeInsets.only(left: 16.0), // 增加一些左边距
                     ),
                   ),
                 )
               ],
             ),
           ),
+
+// ...后续代码保持不变...
+
+// ...后续代码保持不变...
+
+// ...后续代码保持不变...
         if (entry.tags.isNotEmpty) _buildTags(entry),
         _buildTimestamps(entry),
 
@@ -348,6 +431,8 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
       ]),
     );
   }
+
+
 
   // --- 所有辅助方法现在都接收 entry 作为参数 ---
   Widget _buildImageViewer(DiaryEntry entry) {
@@ -553,6 +638,77 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
             Text('图片加载失败', style: TextStyle(color: Colors.grey)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// 文件: lib/diary_view_page.dart (粘贴到文件最底部)
+
+// VVVV 全新的自定义可展开卡片小部件 VVVV
+class CustomExpansionCard extends StatefulWidget {
+  final Widget leading;
+  final Widget title;
+  final List<Widget> children;
+
+  const CustomExpansionCard({
+    super.key,
+    required this.leading,
+    required this.title,
+    required this.children,
+  });
+
+  @override
+  State<CustomExpansionCard> createState() => _CustomExpansionCardState();
+}
+
+class _CustomExpansionCardState extends State<CustomExpansionCard> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDarkMode = theme.brightness == Brightness.dark;
+
+    // 我们自己定义背景色，确保万无一失
+    final cardBackgroundColor = isDarkMode
+        ? theme.colorScheme.surfaceContainer // 一个比主背景稍亮的标准深灰色
+        : theme.colorScheme.surfaceVariant.withOpacity(0.5);
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      elevation: 0,
+      color: cardBackgroundColor, // 在 Card 上应用我们计算好的颜色
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: EdgeInsets.zero, // 外边距由外部的 Padding 控制
+      child: Column(
+        children: [
+          // 可点击的头部
+          ListTile(
+            onTap: () {
+              setState(() {
+                _isExpanded = !_isExpanded;
+              });
+            },
+            leading: widget.leading,
+            title: widget.title,
+            trailing: AnimatedRotation(
+              turns: _isExpanded ? 0.5 : 0, // 箭头旋转动画
+              duration: const Duration(milliseconds: 200),
+              child: const Icon(Icons.keyboard_arrow_down),
+            ),
+          ),
+          // 可展开的内容区域
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            child: Container(
+              width: double.infinity,
+              // 根据是否展开来决定是否显示子组件
+              child: _isExpanded ? Column(children: widget.children) : const SizedBox.shrink(),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -60,10 +60,14 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
   bool _speechEnabled = false;
   bool _isListening = false;
   _SpokenSegment? _pendingTidyUpSegment;
+  List<String> _allTags = []; // 用于存储从数据库加载的所有历史标签
+  List<String> _suggestedTags = []; // 用于在UI上显示给用户的推荐标签
+
 
   @override
   void initState() {
     super.initState();
+    _loadAllTags();
     if (widget.entryToEdit != null) {
       _isEditMode = true;
       _populateFieldsFromEntry(widget.entryToEdit!);
@@ -88,9 +92,14 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
   }
 
   // VVV 4. 改造保存方法，使其能处理两种模式 VVV
+  // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState
+
+  // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState
+
   void _saveDiary() async {
-    // 为防止异步操作后 context 不可用，先获取 service
+    // 在所有异步操作和页面跳转之前，先获取所需的服务
     final diaryService = context.read<DiaryService>();
+    final geminiService = GeminiServiceLocal(); // 直接实例化，因为它无状态
 
     if (_tagController.text.trim().isNotEmpty) {
       setState(() => _tags.add(_tagController.text.trim()));
@@ -103,63 +112,76 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       return;
     }
 
-    // 使用 try-catch 块来捕获并打印任何潜在的错误
     try {
-      // VVV 2. 声明 entryId 变量 VVV
       String entryId;
-
       if (_isEditMode) {
-        // --- 编辑模式 ---
         final updatedEntry = widget.entryToEdit!.copyWith(
-          text: text,
-          imagePaths: _imageFiles.map((f) => f.path).toList(),
-          mood: _selectedMood,
-          tags: _tags,
-          latitude: _latitude,
-          longitude: _longitude,
-          address: _address,
-          isPrivate: _isPrivate,
+          text: text, imagePaths: _imageFiles.map((f) => f.path).toList(),
+          mood: _selectedMood, tags: _tags, latitude: _latitude,
+          longitude: _longitude, address: _address, isPrivate: _isPrivate,
         );
         await diaryService.updateEntry(updatedEntry);
-        // VVV 3. 获取已存在日记的ID VVV
         entryId = updatedEntry.diaryId;
       } else {
-        // --- 新建模式 ---
         final newEntry = DiaryEntry(
-          diaryId: '', // ID 为空，让 Service 自动生成
-          text: text,
-          imagePaths: _imageFiles.map((file) => file.path).toList(),
-          date: widget.selectedDate!,
-          creationTime: DateTime.now(),
-          mood: _selectedMood,
-          tags: _tags,
-          latitude: _latitude,
-          longitude: _longitude,
-          address: _address,
-          isPrivate: _isPrivate,
+          diaryId: '', text: text, imagePaths: _imageFiles.map((file) => file.path).toList(),
+          date: widget.selectedDate!, creationTime: DateTime.now(),
+          mood: _selectedMood, tags: _tags, latitude: _latitude,
+          longitude: _longitude, address: _address, isPrivate: _isPrivate,
         );
-        // VVV 4. 获取新创建日记的ID VVV
-        // 注意：这里假设您的 addEntry 方法会返回创建后的 DiaryEntry 对象。
-        // 如果没有，您需要修改 diaryService.dart 中的 addEntry 方法。
         final createdEntry = await diaryService.addEntry(newEntry);
         entryId = createdEntry.diaryId;
       }
-      context.read<DiaryService>().deleteDraft();
+      await diaryService.deleteDraft();
 
-      // 现在可以安全地调用AI分析了
-      _runAiAnalysis(entryId);
+      // 将获取到的服务作为参数传递给后台任务
+      _runAiAnalysis(entryId, diaryService, geminiService);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
         Navigator.of(context).pop();
       }
     } catch (e) {
-      // 如果发生任何错误，打印出来并显示提示
       print("保存日记时出错: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e')));
       }
     }
+  }
+
+  // file: lib/add_diary_page.dart -> _AddDiaryPageState class
+
+  // VVVV 新增方法：加载所有历史标签并更新推荐列表 VVVV
+  Future<void> _loadAllTags() async {
+    if (!mounted) return;
+    final diaryService = context.read<DiaryService>();
+    final allTags = await diaryService.getAllUniqueTags();
+    setState(() {
+      _allTags = allTags;
+      _updateSuggestedTags(); // 初始化推荐列表
+    });
+  }
+
+  // VVVV 新增方法：根据当前已选标签，更新推荐列表 VVVV
+  void _updateSuggestedTags() {
+    // 推荐标签 = 所有历史标签 - 当前日记已选的标签
+    _suggestedTags = _allTags.where((tag) => !_tags.contains(tag)).toList();
+  }
+
+  // VVVV 新增方法：当用户点击一个推荐标签时调用 VVVV
+  void _addTagFromSuggestion(String tag) {
+    setState(() {
+      _tags.add(tag); // 将标签添加到当前日记
+      _updateSuggestedTags(); // 更新推荐列表（移除刚被选择的标签）
+    });
+  }
+
+  // VVVV 新增方法：当用户删除一个已选标签时调用 VVVV
+  void _removeTag(String tag) {
+    setState(() {
+      _tags.remove(tag);
+      _updateSuggestedTags(); // 更新推荐列表（将被删除的标签加回来）
+    });
   }
 
   Future<void> _loadAndPromptForDraft() async {
@@ -408,91 +430,97 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
 
 
 
+  // 文件位置: libs/add_diary_page.dart -> _AddDiaryPageState
+
   // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState
 
-  Future<void> _runAiAnalysis(String entryId) async {
-    // 检查是否为私密，如果是，则跳过（根据我们之前的约定）
+// VVVV 核心修改 1: 修改方法签名，接收传递进来的服务，不再依赖 context VVVV
+  Future<void> _runAiAnalysis(String entryId, DiaryService diaryService, GeminiServiceLocal geminiService) async {
     if (_isPrivate) {
       print("日记为私密，跳过AI分析。");
       return;
     }
 
-    final diaryService = context.read<DiaryService>();
-    final geminiService = GeminiServiceLocal();
-
-    // 延迟一秒，确保数据库写入完成
+    // 延迟一秒，确保数据库写入操作完成
     await Future.delayed(const Duration(seconds: 1));
     final entry = await diaryService.getEntryById(entryId);
-
     if (entry == null || entry.text.isEmpty) {
       print("无法获取刚保存的日记或日记内容为空，跳过AI分析。");
       return;
     }
 
-    final prompt = """
-  请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
-  请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
-  {
-    "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
-    "summary": "<大约50字的摘要>",
-    "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
-    "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
-    "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
-  }
-  日记内容如下:
-  ---
-  ${entry.text}
-  """;
+    String finalPrompt;
+    const String separator = "---AI_SAMPLE_ANSWER---";
 
-    final (responseText, _) = await geminiService.generateResponse([Content.text(prompt)], modelName: 'gemini-2.5-pro');
+    if (entry.text.contains(separator)) {
+      // --- 这是针对“AI灵感”日记的专属指令 ---
+      final contentWithoutSample = entry.text.split(separator)[0].trim();
+      final parts = contentWithoutSample.split('\n---\n');
+      final aiQuestion = parts.length > 0 ? parts[0].replaceAll('> ## AI 灵感:', '').replaceAll('>', '').trim() : '';
+      final userAnswer = parts.length > 1 ? parts[1].trim() : contentWithoutSample;
+
+      if (userAnswer.isEmpty) { return; }
+
+      finalPrompt = """
+你是一位充满同理心、善于倾听和点评的朋友。接下来我会为你提供一个背景“写作灵感”和我对这个灵感的“我的回答”。
+
+你的任务是：请深度分析“我的回答”这部分内容，而不是分析“写作灵感”那个问题。你需要根据我的回答，来点评我的想法和状态。
+
+背景“写作灵感”如下:
+"$aiQuestion"
+
+“我的回答”如下:
+"$userAnswer"
+
+请严格按照以下JSON格式返回你对“我的回答”的分析，不要有任何额外的解释或修饰:
+{
+  "suggestedTitles": ["<为我的回答取一个标题1>", "<标题2>", "<标题3>"],
+  "summary": "<对我回答的大约50字的摘要>",
+  "detectedEmotion": "<总结我回答中体现的微妙情绪>",
+  "detectedThemes": ["<我回答中的主题词1>", "<主题词2>", "<主题词3>"],
+  "proactiveQuestion": "<基于我的回答，提出一个能引导我深入思考的、友善的问题>"
+}
+""";
+    } else {
+      // --- 这是针对普通日记的原始指令 ---
+      finalPrompt = """
+请深度分析以下日记内容。请你扮演一个充满同理心、善于倾听的朋友。
+请严格按照以下JSON格式返回，不要有任何额外的解释或修饰:
+{
+  "suggestedTitles": ["<标题1>", "<标题2>", "<标题3>"],
+  "summary": "<大约50字的摘要>",
+  "detectedEmotion": "<用一个描述性的词或短语总结文本中微妙的情绪>",
+  "detectedThemes": ["<主题词1>", "<主题词2>", "<主题词3>"],
+  "proactiveQuestion": "<基于日记内容，提出一个开放式的、能引导我深入思考的、友善的问题>"
+}
+日记内容如下:
+---
+${entry.text}
+""";
+    }
+
+    final (responseText, _) = await geminiService.generateResponse([Content.text(finalPrompt)], modelName: 'gemini-2.5-pro');
 
     if (responseText != null && responseText.isNotEmpty) {
       try {
-        // 清洗可能存在的Markdown标记
-        String cleanedJson = responseText.trim();
-        if (cleanedJson.startsWith("```json")) {
-          cleanedJson = cleanedJson.substring(7);
-          if (cleanedJson.endsWith("```")) {
-            cleanedJson = cleanedJson.substring(0, cleanedJson.length - 3);
-          }
+        String extractedJson;
+        final startIndex = responseText.indexOf('{');
+        final endIndex = responseText.lastIndexOf('}');
+        if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
+          extractedJson = responseText.substring(startIndex, endIndex + 1);
+        } else {
+          throw FormatException("AI返回的内容中未找到有效的JSON对象。");
         }
-        cleanedJson = cleanedJson.trim();
-
-        final decodedJson = jsonDecode(cleanedJson);
+        final decodedJson = jsonDecode(extractedJson);
         final newMetadata = AiMetadata.fromJson(decodedJson);
         final updatedEntry = entry.copyWith(aiMetadata: newMetadata);
         await diaryService.updateEntry(updatedEntry);
-
         print("AI分析已成功保存！");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('AI悄悄话已生成！'), backgroundColor: Colors.green),
-          );
-        }
       } catch (e) {
-        // VVVV 核心修改：如果解析失败，弹出错误提示 VVVV
-        print("解析AI返回的JSON失败: $e");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('生成AI悄悄话失败: $e'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 10), // 持续时间长一点方便查看
-            ),
-          );
-        }
+        print("解析或保存AI分析失败: $e");
       }
     } else {
-      // VVVV 核心修改：如果AI没有返回任何内容，也弹出提示 VVVV
       print("AI未能返回有效内容，无法生成悄悄话。");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('AI未能返回有效内容，无法生成悄悄话。'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 
@@ -589,7 +617,7 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
     );
   }
 
-  // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState
+  // 文件位置: libs/add_diary_page.dart -> _AddDiaryPageState
 
   @override
   Widget build(BuildContext context) {
@@ -753,10 +781,13 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
     );
   }
 
+  // file: lib/add_diary_page.dart -> _AddDiaryPageState class
+
   Widget _buildTagEditor() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // --- 1. 当前已选标签 ---
         Wrap(
           spacing: 8.0,
           runSpacing: 4.0,
@@ -764,13 +795,14 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
             return Chip(
               label: Text(tag),
               onDeleted: () {
-                setState(() {
-                  _tags.remove(tag);
-                });
+                // 调用新的移除方法
+                _removeTag(tag);
               },
             );
           }).toList(),
         ),
+
+        // --- 2. 标签输入框 ---
         TextField(
           controller: _tagController,
           decoration: InputDecoration(
@@ -779,25 +811,53 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
           onSubmitted: (value) {
-            if (value.trim().isNotEmpty) {
+            final tag = value.trim();
+            if (tag.isNotEmpty && !_tags.contains(tag)) {
               setState(() {
-                _tags.add(value.trim());
+                _tags.add(tag);
                 _tagController.clear();
+                _updateSuggestedTags(); // 更新推荐
               });
+            } else {
+              _tagController.clear(); // 如果是空或重复，也清空输入框
             }
           },
           onChanged: (value) {
             if (value.endsWith(' ') || value.endsWith('，')) {
               final tag = value.trim().replaceAll('，', '');
-              if (tag.isNotEmpty) {
+              if (tag.isNotEmpty && !_tags.contains(tag)) {
                 setState(() {
                   _tags.add(tag);
                   _tagController.clear();
+                  _updateSuggestedTags(); // 更新推荐
                 });
+              } else if (tag.isNotEmpty) {
+                _tagController.clear(); // 如果是重复，也清空输入框
               }
             }
           },
         ),
+
+        // --- 3. 历史标签推荐 (仅在有推荐时显示) ---
+        if (_suggestedTags.isNotEmpty) ...[
+          const Divider(height: 32),
+          Text('历史标签', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8.0,
+            runSpacing: 4.0,
+            children: _suggestedTags.map((tag) {
+              return ActionChip(
+                label: Text(tag),
+                avatar: const Icon(Icons.add_circle_outline, size: 16),
+                onPressed: () {
+                  // 调用新的添加方法
+                  _addTagFromSuggestion(tag);
+                },
+              );
+            }).toList(),
+          ),
+        ]
       ],
     );
   }

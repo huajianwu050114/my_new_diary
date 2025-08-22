@@ -1,4 +1,4 @@
-// file: lib/reflections_archive_page.dart
+// file: libs/reflections_archive_page.dart
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
