@@ -46,23 +46,39 @@ Map<String, dynamic> _contentToJson(Content content) {
 // VVV 2. 手动添加的辅助函数，用于反序列化 Content VVV
 // 文件位置: lib/diary_model.dart
 
+// file: lib/diary_model.dart
+
+// VVVV  用下面这个更健壮的版本替换掉原来的 _contentFromJson 函数 VVVV
 Content _contentFromJson(Map<String, dynamic> json) {
   final role = json['role'] as String?;
   final partsList = json['parts'] as List<dynamic>? ?? [];
+
+  // 1. 先像原来一样解析出所有的 part
   final parts = partsList.map((partJson) {
     final partMap = partJson as Map<String, dynamic>;
     if (partMap['type'] == 'text') {
       return TextPart(partMap['text'] as String? ?? '');
     }
-    return TextPart(''); // 对于未知类型，返回一个空的文本部分
+    // 对于未知类型，暂时也返回一个空的 TextPart
+    return TextPart('');
   }).toList();
 
-  // VVVV 核心修改：如果角色丢失，默认设为'user'，这通常更安全 VVVV
-  // 并且，只有在 parts 不为空时才创建 Content，避免无效历史记录
-  if (parts.isNotEmpty) {
-    return Content(role ?? 'user', parts);
+  // 2.【关键修正】过滤掉所有内容为空的 TextPart
+  final validParts = parts.where((p) {
+    if (p is TextPart) {
+      return p.text.isNotEmpty; // 只保留文本不为空的 TextPart
+    }
+    return true; // 保留其他类型的 part (如果未来支持的话)
+  }).toList();
+
+  // 3. 使用过滤后的 validParts 列表来判断
+  if (validParts.isNotEmpty) {
+    // 只有在存在有效内容时，才创建 Content 对象
+    return Content(role ?? 'user', validParts);
   } else {
-    // 返回一个无害的空用户消息，而不是一个可能破坏顺序的model消息
+    // 如果过滤后列表为空（说明原始数据是空的或无效的），
+    // 则返回一个无害的、空的 user 消息，这可以避免API调用失败，
+    // 并且不会因为插入一个空的 model 消息而打乱对话顺序。
     return Content('user', [TextPart('')]);
   }
 }

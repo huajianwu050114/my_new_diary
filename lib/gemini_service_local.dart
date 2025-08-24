@@ -27,7 +27,7 @@ class GeminiServiceLocal {
       for (int i = 0; i < history.length; i++) {
         final content = history[i];
         final textParts = content.parts.whereType<TextPart>().map((p) => p.text).join('');
-        debugPrint("Item ${i + 1} | Role: '${content.role}' | Content: '$textParts'");
+        debugPrint("Item ${i + 1} |  Role: '${content.role}' | Content: '$textParts'");
       }
     }
     debugPrint("-------------------- END DEBUG --------------------");
@@ -41,9 +41,9 @@ class GeminiServiceLocal {
         apiKey: _apiKey,
       );
       final response = await model.generateContent(history).timeout(
-        const Duration(seconds: 30),
+        const Duration(seconds: 50),
         onTimeout: () {
-          throw TimeoutException('AI响应超时（超过30秒），请检查网络或稍后重试。');
+          throw TimeoutException('AI响应超时（超过50秒），请检查网络或稍后重试。');
         },
       );
       stopwatch.stop();
