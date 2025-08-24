@@ -678,28 +678,38 @@ ${entry.text}
                 child: Card(
                   margin: const EdgeInsets.all(12.0),
                   elevation: 4,
+                  // --- 修改后的代码 ---
                   child: ExpansionTile(
                     leading: const Icon(Icons.add_circle_outline),
                     title: const Text('添加标签'),
                     children: [
-                      // 将所有附加信息放在这个滚动视图里
-                      SingleChildScrollView(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildImageGrid(),
-                            const Divider(height: 32),
-                            _buildMoodSelector(),
-                            const Divider(height: 32),
-                            _buildLocationSelector(),
-                            const Divider(height: 32),
-                            Text('添加标签', style: Theme.of(context).textTheme.titleMedium),
-                            const SizedBox(height: 12),
-                            _buildTagEditor(),
-                          ],
+                      // VVVV 核心修改：用一个带最大高度约束的容器包裹滚动视图 VVVV
+                      Container(
+                        constraints: BoxConstraints(
+                          // 设定一个最大高度，例如屏幕高度的40%
+                          // 这样即使内容再多，也只会在这个高度内滚动
+                          maxHeight: MediaQuery.of(context).size.height * 0.4,
+                        ),
+                        child: SingleChildScrollView( // 现在这个滚动视图有了一个“天花板”
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min, // 让Column只占用它需要的高度
+                            children: [
+                              _buildImageGrid(),
+                              const Divider(height: 32),
+                              _buildMoodSelector(),
+                              const Divider(height: 32),
+                              _buildLocationSelector(),
+                              const Divider(height: 32),
+                              Text('添加故事', style: Theme.of(context).textTheme.titleMedium),
+                              const SizedBox(height: 12),
+                              _buildTagEditor(),
+                            ],
+                          ),
                         ),
                       ),
+                      // ^^^^ 修改结束 ^^^^
                     ],
                   ),
                 ),
