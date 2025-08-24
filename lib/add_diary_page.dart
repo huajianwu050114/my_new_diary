@@ -680,7 +680,7 @@ ${entry.text}
                   elevation: 4,
                   child: ExpansionTile(
                     leading: const Icon(Icons.add_circle_outline),
-                    title: const Text('添加图片、心情、位置等详情...'),
+                    title: const Text('添加标签'),
                     children: [
                       // 将所有附加信息放在这个滚动视图里
                       SingleChildScrollView(
