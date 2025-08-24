@@ -619,75 +619,103 @@ ${entry.text}
 
   // 文件位置: libs/add_diary_page.dart -> _AddDiaryPageState
 
+  // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState 类中
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-        onWillPop: _onWillPop,
-        child: Scaffold(
-          appBar: AppBar(
-        title: Text(_isEditMode ? '编辑日记' : '写下今天的故事'),
-        actions: [
-          Tooltip(
-            message: _isPrivate ? '设为公开日记' : '设为私密日记',
-            child: Switch(
-              value: _isPrivate,
-              onChanged: (bool value) {
-                setState(() {
-                  _isPrivate = value;
-                });
-              },
-              activeTrackColor: Colors.deepPurple.shade200,
-              activeColor: Colors.deepPurple,
-            ),
-          ),
-          IconButton(icon: const Icon(Icons.save_alt_outlined), tooltip: '保存', onPressed: _saveDiary),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        // VVVV 主要修改区域 VVVV
-        child: Column(
-          children: [
-            // --- 1. 核心编辑区 (已移到顶部) ---
-            _buildImageGrid(),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _textController,
-              maxLines: 10,
-              onChanged: (text) {
-                if (_pendingTidyUpSegment != null) {
-                  setState(() => _pendingTidyUpSegment = null);
-                }
-              },
-              decoration: InputDecoration(
-                hintText: '今天有什么新鲜事...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                contentPadding: const EdgeInsets.all(12),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.mic_outlined),
-                  tooltip: '语音输入',
-                  onPressed: _handleVoiceInput,
-                ),
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_isEditMode ? '编辑日记' : '写下今天的故事'),
+          actions: [
+            Tooltip(
+              message: _isPrivate ? '设为公开日记' : '设为私密日记',
+              child: Switch(
+                value: _isPrivate,
+                onChanged: (bool value) {
+                  setState(() {
+                    _isPrivate = value;
+                  });
+                },
+                activeTrackColor: Colors.deepPurple.shade200,
+                activeColor: Colors.deepPurple,
               ),
             ),
-            _buildAiTidyUpCard(), // 这个AI润色卡片紧随文本框
-
-            const Divider(height: 32),
-
-            // --- 2. 附加信息区 (已移到下方) ---
-            _buildMoodSelector(),
-            const Divider(height: 32),
-            _buildLocationSelector(),
-            const Divider(height: 32),
-            Text('添加标签', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            _buildTagEditor(),
+            IconButton(icon: const Icon(Icons.save_alt_outlined), tooltip: '保存', onPressed: _saveDiary),
+            const SizedBox(width: 8),
           ],
         ),
-        // ^^^^ 主要修改区域结束 ^^^^
+        // VVVV 主要修改从这里开始 VVVV
+        body: SafeArea(
+          child: Stack(
+            children: [
+              // --- 1. 核心编辑区 (作为背景) ---
+              Padding(
+                // 关键：底部留出足够空间给详情卡片，避免遮挡文字
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
+                child: TextField(
+                  controller: _textController,
+                  maxLines: null, // 允许多行输入
+                  expands: true,   // 扩展以填充可用空间
+                  onChanged: (text) {
+                    if (_pendingTidyUpSegment != null) {
+                      setState(() => _pendingTidyUpSegment = null);
+                    }
+                  },
+                  decoration: const InputDecoration(
+                    hintText: '今天有什么新鲜事...',
+                    border: InputBorder.none, // 移除边框，获得更纯粹的体验
+                  ),
+                ),
+              ),
+
+              // --- 2. 附加信息区 (作为浮动卡片) ---
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: Card(
+                  margin: const EdgeInsets.all(12.0),
+                  elevation: 4,
+                  child: ExpansionTile(
+                    leading: const Icon(Icons.add_circle_outline),
+                    title: const Text('添加图片、心情、位置等详情...'),
+                    children: [
+                      // 将所有附加信息放在这个滚动视图里
+                      SingleChildScrollView(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildImageGrid(),
+                            const Divider(height: 32),
+                            _buildMoodSelector(),
+                            const Divider(height: 32),
+                            _buildLocationSelector(),
+                            const Divider(height: 32),
+                            Text('添加标签', style: Theme.of(context).textTheme.titleMedium),
+                            const SizedBox(height: 12),
+                            _buildTagEditor(),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // 3. AI润色卡片保持浮动在文本框之上
+              Positioned(
+                bottom: 110, // 调整位置使其在详情卡片之上
+                left: 16,
+                right: 16,
+                child: _buildAiTidyUpCard(),
+              ),
+            ],
+          ),
+        ),
+        // ^^^^ 主要修改在这里结束 ^^^^
       ),
-    )
     );
   }
 
@@ -1014,4 +1042,6 @@ class _AiCorrectionDialogState extends State<AiCorrectionDialog> {
 }
 
 enum ExitAction { saveDraft, discard, cancel }
+
+
 

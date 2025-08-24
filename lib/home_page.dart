@@ -91,17 +91,6 @@ class HomePage extends StatelessWidget {
             },
           ),
           SpeedDialChild(
-            child: const Icon(Icons.ac_unit_outlined),
-            label: '实时语音日记',
-            onTap: () {
-              // 使用 Navigator 跳转到我们创建的语音输入屏幕
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const VoiceInputScreen()),
-              );
-            },
-          ),
-          SpeedDialChild(
             child: const Icon(Icons.mic),
             label: '语音日记',
             onTap: () async {
