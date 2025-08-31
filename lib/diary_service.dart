@@ -122,6 +122,30 @@ class DiaryService extends ChangeNotifier {
     return maps.map((map) => DiaryEntry.fromMap(map)).toList();
   }
 
+  // 文件位置: lib/diary_service.dart -> DiaryService class
+
+  /// 将用户选择的图片文件复制到应用的安全目录，并返回新的路径。
+  Future<String> copyImageToAppDirectory(File originalFile) async {
+    // 1. 获取应用专属的、用于存放图片的文件夹
+    final documentsDirectory = await getApplicationDocumentsDirectory();
+    final imagesDir = Directory(p.join(documentsDirectory.path, 'MyNewDiaryData', 'images'));
+
+    // 2. 如果这个文件夹不存在，就创建它
+    if (!await imagesDir.exists()) {
+      await imagesDir.create(recursive: true);
+    }
+
+    // 3. 为复制过来的文件创建一个新的、唯一的文件名
+    final String fileName = 'diary_img_${DateTime.now().millisecondsSinceEpoch}${p.extension(originalFile.path)}';
+    final String newPath = p.join(imagesDir.path, fileName);
+
+    // 4. 执行复制操作
+    await originalFile.copy(newPath);
+
+    // 5. 返回这个新的、安全的文件路径
+    return newPath;
+  }
+
   Future<List<DiaryEntry>> getEntriesForDateRange(DateTimeRange dateRange) async {
     final db = await dbHelper.database;
     final maps = await db.query(

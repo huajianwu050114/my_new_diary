@@ -113,6 +113,8 @@ class _AiChatPageState extends State<AiChatPage> {
     return null; // Return null if no matching conversation is found in the list.
   }
 
+
+
   void _createNewConversation() {
     final newConversation = Conversation(
       id: const Uuid().v4(),
@@ -128,13 +130,23 @@ class _AiChatPageState extends State<AiChatPage> {
     _startAnalysisForConversation(newConversation);
   }
 
+  // 文件位置: lib/ai_chat_page.dart -> _AiChatPageState class
+
   void _deleteConversation(String conversationId) {
     setState(() {
+      // 从当前日记的对话列表中移除ID匹配的对话
       _currentEntry!.conversations.removeWhere((c) => c.id == conversationId);
+
+      // 如果被删除的是当前正打开的对话，则自动切换到第一个对话
+      // 如果删除后列表为空，则将当前活动对话设为 null
       if (_activeConversation?.id == conversationId) {
-        _activeConversation = _currentEntry!.conversations.isNotEmpty ? _currentEntry!.conversations.first : null;
+        _activeConversation = _currentEntry!.conversations.isNotEmpty
+            ? _currentEntry!.conversations.first
+            : null;
       }
     });
+
+    // 保存更改到数据库并关闭侧边栏
     _saveConversations();
     Navigator.of(context).pop();
   }

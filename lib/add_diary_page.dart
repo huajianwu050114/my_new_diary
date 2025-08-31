@@ -19,6 +19,7 @@ import 'voice_diary_dialog.dart';
 import 'package:collection/collection.dart';
 
 
+
 class AddDiaryPage extends StatefulWidget {
   // VVV 1. 改造构造函数 VVV
   final DateTime? selectedDate;  // 用于新建日记
@@ -96,10 +97,12 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
 
   // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState
 
+  // 文件位置: lib/add_diary_page.dart -> _AddDiaryPageState class
+
+  // VVVV 用这个新版本替换掉你原来的 _saveDiary 方法 VVVV
   void _saveDiary() async {
-    // 在所有异步操作和页面跳转之前，先获取所需的服务
     final diaryService = context.read<DiaryService>();
-    final geminiService = GeminiServiceLocal(); // 直接实例化，因为它无状态
+    final geminiService = GeminiServiceLocal();
 
     if (_tagController.text.trim().isNotEmpty) {
       setState(() => _tags.add(_tagController.text.trim()));
@@ -112,31 +115,58 @@ class _AddDiaryPageState extends State<AddDiaryPage> {
       return;
     }
 
+    // --- 核心修改开始 ---
+    // 1. 创建一个新的列表，用于存放图片被复制后的新路径
+    final List<String> newImagePaths = [];
+    // 2. 遍历用户当前选择的所有图片文件
+    for (final imageFile in _imageFiles) {
+      // 检查路径是不是已经是我们应用内部的安全路径了（编辑模式下可能出现）
+      if (imageFile.path.contains('MyNewDiaryData')) {
+        newImagePaths.add(imageFile.path);
+      } else {
+        // 如果是外部路径，就调用我们刚写好的复制方法
+        final newPath = await diaryService.copyImageToAppDirectory(imageFile);
+        newImagePaths.add(newPath);
+      }
+    }
+    // --- 核心修改结束 ---
+
     try {
       String entryId;
       if (_isEditMode) {
         final updatedEntry = widget.entryToEdit!.copyWith(
-          text: text, imagePaths: _imageFiles.map((f) => f.path).toList(),
-          mood: _selectedMood, tags: _tags, latitude: _latitude,
-          longitude: _longitude, address: _address, isPrivate: _isPrivate,
+          text: text,
+          // 3. 保存日记时，使用我们处理过的新路径列表
+          imagePaths: newImagePaths,
+          mood: _selectedMood,
+          tags: _tags,
+          latitude: _latitude,
+          longitude: _longitude,
+          address: _address,
+          isPrivate: _isPrivate,
         );
         await diaryService.updateEntry(updatedEntry);
         entryId = updatedEntry.diaryId;
       } else {
         final newEntry = DiaryEntry(
-          diaryId: '', text: text, imagePaths: _imageFiles.map((file) => file.path).toList(),
-          date: widget.selectedDate!, creationTime: DateTime.now(),
-          mood: _selectedMood, tags: _tags, latitude: _latitude,
-          longitude: _longitude, address: _address, isPrivate: _isPrivate,
+          diaryId: '',
+          text: text,
+          // 4. 新建日记时，同样使用新路径列表
+          imagePaths: newImagePaths,
+          date: widget.selectedDate!,
+          creationTime: DateTime.now(),
+          mood: _selectedMood,
+          tags: _tags,
+          latitude: _latitude,
+          longitude: _longitude,
+          address: _address,
+          isPrivate: _isPrivate,
         );
         final createdEntry = await diaryService.addEntry(newEntry);
         entryId = createdEntry.diaryId;
       }
       await diaryService.deleteDraft();
-
-      // 将获取到的服务作为参数传递给后台任务
       _runAiAnalysis(entryId, diaryService, geminiService);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('日记已保存！')));
         Navigator.of(context).pop();

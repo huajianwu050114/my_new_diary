@@ -311,17 +311,21 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
 
   // 文件位置: libs/diary_view_page.dart -> _DiaryViewPageState class
 
+  // 文件位置: libs/diary_view_page.dart -> _DiaryViewPageState class
+
   Widget _buildSliverContent(DiaryEntry entry) {
     final theme = Theme.of(context);
     String mainContent = entry.text;
     String? aiSampleAnswer;
     const String separator = "---AI_SAMPLE_ANSWER---";
-
     if (entry.text.contains(separator)) {
       final parts = entry.text.split(separator);
       mainContent = parts[0].trim();
       aiSampleAnswer = parts.length > 1 ? parts[1].trim() : null;
     }
+
+    // VVVV 核心修复：将所有换行符替换为Markdown的强制换行语法 VVVV
+    final displayContent = mainContent.replaceAll('\n', '  \n');
 
     return SliverList(
       delegate: SliverChildListDelegate([
@@ -346,11 +350,17 @@ class _DiaryViewPageState extends State<DiaryViewPage> {
         // 2. 日记正文
         Padding(
           padding: const EdgeInsets.fromLTRB(16.0, 8.0, 16.0, 8.0),
-          child: MarkdownBody(
-            data: mainContent, selectable: true,
+          child: MarkdownBody( // <--- 修改为此控件
+            data: displayContent, // <-- 使用处理后的文本
+            selectable: true, // 允许用户选择和复制文本
             styleSheet: MarkdownStyleSheet.fromTheme(theme).copyWith(
+              // 设置段落样式，增加行高以优化阅读体验
               p: theme.textTheme.bodyLarge?.copyWith(height: 1.6),
-              blockquoteDecoration: BoxDecoration(color: theme.colorScheme.surfaceVariant, borderRadius: BorderRadius.circular(8)),
+              // 设置引用块（blockquote）的样式
+              blockquoteDecoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceVariant,
+                  borderRadius: BorderRadius.circular(8)
+              ),
             ),
           ),
         ),

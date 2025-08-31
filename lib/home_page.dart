@@ -55,7 +55,6 @@ enum LetterStatus {
 // =================================================================
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -154,7 +153,6 @@ class HomePage extends StatelessWidget {
 // =================================================================
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
-
   @override
   Widget build(BuildContext context) {
     return Consumer2<ThemeProvider, UserProvider>(
@@ -213,7 +211,7 @@ class AppDrawer extends StatelessWidget {
                 leading: const Icon(Icons.lightbulb_outline, color: Colors.amber),
                 title: const Text('生存指南'),
                 onTap: () {
-                  Navigator.pop(context); // 先关闭抽屉
+                  Navigator.pop(context);
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SelfHelpGuidePage()));
                 },
               ),
@@ -234,7 +232,6 @@ class AppDrawer extends StatelessWidget {
 // =================================================================
 class _HomePageContent extends StatefulWidget {
   const _HomePageContent();
-
   @override
   State<_HomePageContent> createState() => _HomePageContentState();
 }
@@ -245,17 +242,10 @@ class _HomePageContent extends StatefulWidget {
 class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
-
   // --- 状态变量声明 ---
 
   // 页面整体加载控制
   Future<void>? _pageDataFuture;
-
-  // 每日一句相关的状态
-  String _fullQuoteText = "正在获取今日份的灵感...";
-  String _currentSentence = "";
-  String _currentSource = "";
-  bool _isLoadingQuote = true;
 
   // AI 灵感相关的状态 (将在后续步骤中用于AiPromptCard)
   Map<String, dynamic>? _aiWritingPrompt;
@@ -281,7 +271,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handleDailyCheckIn();
     });
-
   }
 
   Future<void> _fetchMemoryBottle() async {
@@ -306,7 +295,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   // 页面首次加载时执行的总任务
   Future<void> _loadPageData() async {
     final diaryService = context.read<DiaryService>();
-
     // (你之前的调试代码和情绪检测逻辑我暂时为你恢复了，你可以根据需要自行修改)
     diaryService.isFeelingDownRecently().then((isDown) {
       if (mounted && isDown != _showComfortCard) {
@@ -315,10 +303,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         });
       }
     });
-
     // 并行执行所有加载任务，效率更高
     await Future.wait([
-      _fetchDailyQuote(),
       _loadWeeklyLetter(),
       _fetchAiWritingPrompt(),
       _fetchMemoryBottle(), // <--- VVVV 在这里添加对新方法的调用 VVVV
@@ -337,7 +323,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final entry = _memoryBottleEntry!;
     final dateString = DateFormat('yyyy年M月d日').format(entry.date);
     final theme = Theme.of(context);
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
       child: ExpansionTile(
@@ -413,36 +398,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     }
   }
 
-  // 获取每日一句
-  Future<void> _fetchDailyQuote() async {
-    setState(() => _isLoadingQuote = true);
-    try {
-      final url = Uri.parse('https://api.shadiao.pro/pyq');
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200 && mounted) {
-        final data = jsonDecode(utf8.decode(response.bodyBytes));
-        final sentence = data['data']['text'] ?? '今天也要开心哦。';
-        setState(() {
-          _currentSentence = sentence;
-          _currentSource = ''; // API不提供来源
-          _fullQuoteText = sentence;
-        });
-      } else {
-        throw Exception('Failed to load quote');
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _currentSentence = "可以看看窗外，今天的风很温柔。";
-          _currentSource = "";
-          _fullQuoteText = _currentSentence;
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _isLoadingQuote = false);
-    }
-  }
-
   // 加载每周信件状态
   Future<void> _loadWeeklyLetter() async {
     if (!mounted) return;
@@ -453,7 +408,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final today = DateTime(now.year, now.month, now.day);
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final letterDate = DateTime.fromMillisecondsSinceEpoch(letterTimestamp);
-
     if (letter != null && letterDate.isAfter(startOfWeek)) {
       setState(() {
         _weeklyLetterContent = letter;
@@ -477,7 +431,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
 
     final diaryService = context.read<DiaryService>();
     final today = DateTime.now();
-
     if (!forceRefresh) {
       final Map<String, dynamic>? cachedPrompt = await diaryService
           .getInspirationForDay(today);
@@ -494,12 +447,10 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     }
 
     print("--- 缓存未命中或强制刷新，正在从网络获取新灵感 ---");
-
     // VVVV 完整的 try/catch 逻辑从这里开始 VVVV
     try {
       final promptData = await diaryService.generatePersonalizedPrompt(
           modelName: model);
-
       if (mounted) {
         // 获取到新灵感后，将其完整存入数据库缓存
         await diaryService.saveDailyInspiration(today, promptData);
@@ -529,13 +480,11 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final isDarkMode = theme.brightness == Brightness.dark;
     final now = DateTime.now();
     final dayOfWeek = DateFormat('EEEE', 'zh_CN').format(now);
-
     final Color cardColor = isDarkMode ? theme.cardColor : theme.colorScheme
         .primaryContainer;
     final Color cardTextColor = isDarkMode
         ? Colors.white.withOpacity(0.8)
         : theme.colorScheme.onPrimaryContainer;
-
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
@@ -580,79 +529,12 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
             ),
           ),
           const SizedBox(height: 16),
-          _buildDailyQuoteSection(),
+          // *** 修改点 3: 使用新的独立组件 ***
+          const _DailyQuoteSection(),
         ],
       ),
     );
   }
-
-  Widget _buildDailyQuoteSection() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Column(
-        children: [
-          Text(
-            _fullQuoteText,
-            textAlign: TextAlign.center,
-            style: Theme
-                .of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(height: 1.5),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 40,
-                height: 40,
-                child: _isLoadingQuote
-                    ? const Padding(
-                    padding: EdgeInsets.all(10.0),
-                    child: CircularProgressIndicator(strokeWidth: 2))
-                    : IconButton(
-                  icon: const Icon(Icons.refresh),
-                  tooltip: '换一句',
-                  onPressed: _fetchDailyQuote,
-                ),
-              ),
-              const SizedBox(width: 16),
-              Consumer<FavoritesProvider>(
-                builder: (context, favProvider, child) {
-                  final isLiked = favProvider.isFavorite(
-                      _currentSentence, _currentSource);
-                  return SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: IconButton(
-                      tooltip: isLiked ? '取消收藏' : '收藏',
-                      icon: Icon(
-                        isLiked ? Icons.favorite : Icons.favorite_border,
-                        color: isLiked ? Colors.redAccent : null,
-                      ),
-                      onPressed: (_isLoadingQuote || _currentSentence.isEmpty)
-                          ? null
-                          : () {
-                        if (isLiked) {
-                          favProvider.removeFavorite(
-                              _currentSentence, _currentSource);
-                        } else {
-                          favProvider.addFavorite(
-                              _currentSentence, _currentSource);
-                        }
-                      },
-                    ),
-                  );
-                },
-              ),
-            ],
-          )
-        ],
-      ),
-    );
-  }
-
 
   Widget _buildAiPromptPlaceholder() {
     final isDarkMode = Theme
@@ -929,7 +811,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final theme = Theme.of(context);
     final cardColor = theme.colorScheme.primaryContainer;
     final textColor = theme.colorScheme.onPrimaryContainer;
-
     return GestureDetector(
       onTap: () {
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FestivalsPage()));
@@ -1153,7 +1034,6 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
     final daysDifference = today
         .difference(entry.date)
         .inDays;
-
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       clipBehavior: Clip.antiAlias,
@@ -1359,11 +1239,9 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
             final bool showMonthSeparator = index == 0 ||
                 (entries[index - 1].date.month != currentEntry.date.month ||
                     entries[index - 1].date.year != currentEntry.date.year);
-
             final bool isInspirationResponse = currentEntry.text
                 .trim()
                 .startsWith('> ## AI 灵感:');
-
             return FadeInUp(
               duration: const Duration(milliseconds: 500),
               delay: Duration(milliseconds: index * 50),
@@ -1390,7 +1268,8 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
         .of(context)
         .textTheme
         .bodyLarge
-        ?.color ?? Colors.black54;
+        ?.color ??
+        Colors.black54;
     return Padding(
       padding: const EdgeInsets.only(left: 20.0, top: 24.0, bottom: 10.0),
       child: Text(
@@ -1632,6 +1511,124 @@ class _HomePageContentState extends State<_HomePageContent> with AutomaticKeepAl
   }
 }
 
+// =================================================================
+// *** 修改点 1: 创建一个新的、独立的 StatefulWidget 来管理“每日一句” ***
+// =================================================================
+class _DailyQuoteSection extends StatefulWidget {
+  const _DailyQuoteSection();
+
+  @override
+  State<_DailyQuoteSection> createState() => _DailyQuoteSectionState();
+}
+
+class _DailyQuoteSectionState extends State<_DailyQuoteSection> {
+  String _fullQuoteText = "正在获取今日份的灵感...";
+  String _currentSentence = "";
+  String _currentSource = "";
+  bool _isLoadingQuote = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDailyQuote();
+  }
+
+  Future<void> _fetchDailyQuote() async {
+    if (!mounted) return;
+    setState(() => _isLoadingQuote = true);
+    try {
+      final url = Uri.parse('https://api.shadiao.pro/pyq');
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200 && mounted) {
+        final data = jsonDecode(utf8.decode(response.bodyBytes));
+        final sentence = data['data']['text'] ?? '今天也要开心哦。';
+        setState(() {
+          _currentSentence = sentence;
+          _currentSource = ''; // API不提供来源
+          _fullQuoteText = sentence;
+        });
+      } else {
+        throw Exception('Failed to load quote');
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _currentSentence = "可以看看窗外，今天的风很温柔。";
+          _currentSource = "";
+          _fullQuoteText = _currentSentence;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingQuote = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+      child: Column(
+        children: [
+          Text(
+            _fullQuoteText,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: _isLoadingQuote
+                    ? const Padding(
+                    padding: EdgeInsets.all(10.0),
+                    child: CircularProgressIndicator(strokeWidth: 2))
+                    : IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: '换一句',
+                  onPressed: _fetchDailyQuote,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Consumer<FavoritesProvider>(
+                builder: (context, favProvider, child) {
+                  final isLiked = favProvider.isFavorite(
+                      _currentSentence, _currentSource);
+                  return SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: IconButton(
+                      tooltip: isLiked ? '取消收藏' : '收藏',
+                      icon: Icon(
+                        isLiked ? Icons.favorite : Icons.favorite_border,
+                        color: isLiked ? Colors.redAccent : null,
+                      ),
+                      onPressed: (_isLoadingQuote || _currentSentence.isEmpty)
+                          ? null
+                          : () {
+                        if (isLiked) {
+                          favProvider.removeFavorite(
+                              _currentSentence, _currentSource);
+                        } else {
+                          favProvider.addFavorite(
+                              _currentSentence, _currentSource);
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+}
+
+
 // 文件位置: libs/home_page.dart (文件最底部)
 
 // =================================================================
@@ -1648,7 +1645,6 @@ class AiPromptCard extends StatefulWidget {
     required this.onRefresh,
     required this.onSaveSuccess,
   });
-
   @override
   State<AiPromptCard> createState() => _AiPromptCardState();
 }
@@ -1660,7 +1656,6 @@ class _AiPromptCardState extends State<AiPromptCard> {
   String _selectedModel = 'gemini-2.5-flash';
   final List<String> _availableModels = const ['gemini-2.5-flash', 'gemini-2.5-pro'];
   late final TextEditingController _controller;
-
   @override
   void initState() {
     super.initState();
@@ -1693,7 +1688,7 @@ class _AiPromptCardState extends State<AiPromptCard> {
 
       // 如果存在AI的示例回答，就将其附加到末尾
       if (sampleAnswer != null && sampleAnswer.isNotEmpty) {
-        buffer.writeln("\n\n---AI_SAMPLE_ANSWER---"); // 使用特殊分隔符
+        buffer.writeln("\n\n---AI_SAMPLE_ANSWER---");
         buffer.writeln(sampleAnswer);
       }
 
@@ -1706,7 +1701,7 @@ class _AiPromptCardState extends State<AiPromptCard> {
 
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('灵感回复已保存为一篇新日记！')));
 
-      widget.onSaveSuccess(); // 通知父组件保存成功
+      widget.onSaveSuccess();
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('保存失败: $e')));
     }
@@ -1718,7 +1713,6 @@ class _AiPromptCardState extends State<AiPromptCard> {
     final title = type == 'check_in' ? '来自小精灵的关心' : (type == 'welcome' ? '来自小精灵的欢迎' : '每日灵感');
     final questionText = widget.aiWritingPrompt['question'] ?? widget.aiWritingPrompt['text'] ?? '';
     final sampleAnswerText = widget.aiWritingPrompt['sampleAnswer'];
-
     return Card(
       elevation: 2.0,
       color: Theme.of(context).colorScheme.tertiaryContainer,
