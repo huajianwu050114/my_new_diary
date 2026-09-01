@@ -1,18 +1,21 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
-    // START: FlutterFire Configuration
-    id("com.google.gms.google-services")
-    // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-// file: android/app/build.gradle.kts
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use(keystoreProperties::load)
+}
 
 android {
     namespace = "com.example.my_new_diary"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     compileOptions {
@@ -29,18 +32,16 @@ android {
     signingConfigs {
         create("release") {
             // 这些getenv方法会从Codemagic的环境变量中读取您上传的密钥信息
-            val keystoreFile = System.getenv("CM_KEYSTORE_PATH")?.let { rootProject.file(it) }
-            if (keystoreFile?.exists() == true) {
-                storeFile = keystoreFile
-                storePassword = System.getenv("CM_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("CM_KEY_ALIAS")
-                keyPassword = System.getenv("CM_KEY_PASSWORD")
-            }
+            val configuredPath = keystoreProperties.getProperty("storeFile")
+            if (configuredPath != null) storeFile = rootProject.file(configuredPath)
+            storePassword = keystoreProperties.getProperty("storePassword")
+            keyAlias = keystoreProperties.getProperty("keyAlias")
+            keyPassword = keystoreProperties.getProperty("keyPassword")
         }
     }
 
     defaultConfig {
-        applicationId = "com.example.my_new_diary"
+        applicationId = "com.huajianwu.shiguangdiary.v2"
         minSdk = 23
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -56,8 +57,6 @@ android {
     }
 }
 
-plugins.apply("com.google.gms.google-services")
-
 flutter {
     source = "../.."
 }
@@ -65,7 +64,6 @@ flutter {
 dependencies {
     // VVV 3. 在这里添加 Desugaring 库的依赖 VVV
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
-    implementation(platform("com.google.firebase:firebase-bom:34.0.0"))
 }
 
 configurations.all {

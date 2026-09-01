@@ -43,3 +43,22 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local Flutter scratch files and private device backups
+/.tmp_flutter/
+/device_backups/
+
+# Local secrets and release signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+**/key.properties
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+
+# Local distributable packages and generated reports
+/dist/
+/android/build/reports/

@@ -1,13 +1,3 @@
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("com.google.gms:google-services:4.3.15")
-    }
-}
-
 allprojects {
     repositories {
         google()
@@ -20,7 +10,17 @@ rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
+    val sourceRoot = project.projectDir.toPath().root
+    val outputRoot = newSubprojectBuildDir.asFile.toPath().root
+    if (sourceRoot != null && outputRoot != null && sourceRoot != outputRoot) {
+        val workspaceId = rootProject.rootDir.absolutePath.hashCode().toUInt().toString(16)
+        val temporaryPluginBuild = file(
+            "${System.getProperty("java.io.tmpdir")}/new_diary_gradle/$workspaceId/${project.name}",
+        )
+        project.layout.buildDirectory.set(temporaryPluginBuild)
+    } else {
+        project.layout.buildDirectory.value(newSubprojectBuildDir)
+    }
 }
 subprojects {
     project.evaluationDependsOn(":app")
