@@ -7,6 +7,7 @@ void main() {
     final entry = DiaryEntryV2(
       id: 'entry-1',
       body: 'A quiet day',
+      contentDelta: '[{"insert":"A quiet day\\n"}]',
       entryDate: DateTime.utc(2026, 1, 2),
       createdAt: createdAt,
       updatedAt: createdAt,
@@ -28,6 +29,7 @@ void main() {
 
       expect(updated.id, entry.id);
       expect(updated.body, 'An edited quiet day');
+      expect(updated.contentDelta, entry.contentDelta);
       expect(updated.imageIds, entry.imageIds);
       expect(updated.location?.address, 'Hong Kong');
       expect(updated.updatedAt.isAfter(entry.updatedAt), isTrue);
@@ -44,10 +46,15 @@ void main() {
     });
 
     test('nullable values can be explicitly cleared', () {
-      final cleared = entry.copyWith(clearMood: true, clearLocation: true);
+      final cleared = entry.copyWith(
+        clearMood: true,
+        clearLocation: true,
+        clearContentDelta: true,
+      );
 
       expect(cleared.mood, isNull);
       expect(cleared.location, isNull);
+      expect(cleared.contentDelta, isNull);
     });
   });
 }

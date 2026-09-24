@@ -1,13 +1,14 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
-import '../../../ai/application/diary_ai_service_v2.dart';
+import '../../../../shared/tag_memory_field_v2.dart';
 import '../../../ai/application/automatic_diary_reply_coordinator_v2.dart';
+import '../../../ai/application/diary_ai_service_v2.dart';
 import '../../../ai/data/ai_configuration_store_v2.dart';
 import '../../../ai/data/ai_reply_task_store_v2.dart';
 import '../../../ai/data/gemini_rest_client_v2.dart';
@@ -15,9 +16,8 @@ import '../../../ai/domain/ai_chat_session_v2.dart';
 import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
+import '../widgets/diary_rich_text_v2.dart';
 import 'location_picker_page_v2.dart';
-import 'voice_diary_page_v2.dart';
-import '../../../../shared/tag_memory_field_v2.dart';
 
 class DiaryEditorPageV2 extends StatefulWidget {
   const DiaryEditorPageV2({
@@ -44,15 +44,16 @@ class DiaryEditorPageV2 extends StatefulWidget {
 }
 
 class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
-  late final TextEditingController _bodyController;
+  late final QuillController _editorController;
   late final TextEditingController _tagsController;
+  late final FocusNode _editorFocusNode;
+  late final ScrollController _editorScrollController;
   late DateTime _entryDate;
-  late final List<String> _existingImageIds;
-  final List<String> _removedImageIds = [];
-  final List<_PendingImage> _pendingImages = [];
+  final Set<String> _newImageIds = {};
   String? _mood;
   DiaryLocation? _location;
   bool _isSaving = false;
+  bool _didSave = false;
   late final AutomaticDiaryReplyCoordinatorV2 _automaticReply;
 
   static const _moods = ['😊', '😌', '🥰', '😔', '😴'];
@@ -61,14 +62,23 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
   void initState() {
     super.initState();
     final entry = widget.entry;
-    _bodyController = TextEditingController(
-      text: entry?.body ?? widget.initialBody,
+    _editorController = QuillController(
+      document: diaryDocumentFromContent(
+        deltaJson: entry?.contentDelta,
+        plainText: entry?.body ?? widget.initialBody,
+        trailingImageIds: entry?.contentDelta == null
+            ? entry?.imageIds ?? const []
+            : const [],
+      ),
+      selection: const TextSelection.collapsed(offset: 0),
     );
     _tagsController = TextEditingController(text: entry?.tags.join(', '));
+    _editorFocusNode = FocusNode();
+    _editorScrollController = ScrollController();
     _entryDate = entry?.entryDate.toLocal() ?? DateTime.now();
     _mood = entry?.mood;
     _location = entry?.location;
-    _existingImageIds = [...?entry?.imageIds];
+
     final configurationStore = AiConfigurationStoreV2();
     final aiService = DiaryAiServiceV2(
       GeminiRestClientV2(configurationStore: configurationStore),
@@ -84,8 +94,15 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
 
   @override
   void dispose() {
-    _bodyController.dispose();
+    if (!_didSave) {
+      for (final imageId in _newImageIds) {
+        unawaited(widget.imageStore.delete(imageId));
+      }
+    }
+    _editorController.dispose();
     _tagsController.dispose();
+    _editorFocusNode.dispose();
+    _editorScrollController.dispose();
     super.dispose();
   }
 
@@ -93,8 +110,13 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isEditing ? '编辑日记' : '写下今天'),
+        title: Text(widget.isEditing ? '编辑' : '新日记'),
         actions: [
+          IconButton(
+            tooltip: '日记信息',
+            onPressed: _isSaving ? null : _openMetadata,
+            icon: const Icon(Icons.more_horiz),
+          ),
           TextButton(
             onPressed: _isSaving ? null : _save,
             child: Text(_isSaving ? '保存中…' : '保存'),
@@ -102,177 +124,181 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
           const SizedBox(width: 8),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(24, 12, 24, 48),
+      body: Column(
         children: [
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            leading: const Icon(Icons.calendar_today_outlined),
-            title: const Text('日记日期'),
-            subtitle: Text(_formatDate(_entryDate)),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _pickDate,
-          ),
-          const Divider(height: 1),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            leading: const Icon(Icons.location_on_outlined),
-            title: const Text('地点'),
-            subtitle: Text(_location?.address ?? '添加地点'),
-            trailing: _location == null
-                ? const Icon(Icons.chevron_right)
-                : IconButton(
-                    tooltip: '清除地点',
-                    onPressed: () => setState(() => _location = null),
-                    icon: const Icon(Icons.close),
-                  ),
-            onTap: _pickLocation,
-          ),
-          const SizedBox(height: 28),
-          TextField(
-            controller: _bodyController,
-            autofocus: !widget.isEditing,
-            minLines: 12,
-            maxLines: null,
-            textInputAction: TextInputAction.newline,
-            decoration: InputDecoration(
-              hintText: '今天发生了什么？',
-              alignLabelWithHint: true,
-              filled: false,
-              contentPadding: EdgeInsets.zero,
-              border: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
-              suffixIcon: IconButton(
-                tooltip: '语音输入',
-                onPressed: _isSaving ? null : _openVoiceDraft,
-                icon: const Icon(Icons.mic_none_rounded),
-              ),
-            ),
-            style: Theme.of(
-              context,
-            ).textTheme.bodyLarge?.copyWith(fontSize: 17, height: 1.8),
-          ),
-          const SizedBox(height: 28),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '照片',
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              TextButton.icon(
-                onPressed: _isSaving ? null : _pickImages,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('添加'),
-              ),
-            ],
-          ),
-          if (_existingImageIds.isEmpty && _pendingImages.isEmpty)
-            Text('可以添加多张照片', style: Theme.of(context).textTheme.bodySmall)
-          else
-            SizedBox(
-              height: 112,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  for (final imageId in _existingImageIds)
-                    _ExistingImageTile(
-                      imageStore: widget.imageStore,
-                      imageId: imageId,
-                      onRemove: () {
-                        setState(() {
-                          _existingImageIds.remove(imageId);
-                          _removedImageIds.add(imageId);
-                        });
-                      },
-                    ),
-                  for (final image in _pendingImages)
-                    _ImageTile(
-                      bytes: image.bytes,
-                      onRemove: () {
-                        setState(() => _pendingImages.remove(image));
-                      },
-                    ),
+          Expanded(
+            child: QuillEditor.basic(
+              key: const Key('diary-rich-editor'),
+              controller: _editorController,
+              focusNode: _editorFocusNode,
+              scrollController: _editorScrollController,
+              config: QuillEditorConfig(
+                autoFocus: !widget.isEditing,
+                expands: true,
+                padding: const EdgeInsets.fromLTRB(24, 18, 24, 36),
+                placeholder: '从这里开始写…',
+                scrollBottomInset: 96,
+                customStyles: quietDiaryStyles(context),
+                embedBuilders: [
+                  DiaryImageEmbedBuilderV2(imageStore: widget.imageStore),
                 ],
               ),
             ),
-          const SizedBox(height: 20),
-          Text('此刻心情', style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            children: _moods
-                .map(
-                  (mood) => ChoiceChip(
-                    label: Text(mood, style: const TextStyle(fontSize: 20)),
-                    selected: _mood == mood,
-                    onSelected: (selected) {
-                      setState(() => _mood = selected ? mood : null);
-                    },
-                  ),
-                )
-                .toList(growable: false),
           ),
-          const SizedBox(height: 20),
-          StreamBuilder<List<DiaryEntryV2>>(
-            stream: widget.repository.watchEntries(),
-            builder: (context, snapshot) => TagMemoryFieldV2(
-              controller: _tagsController,
-              suggestions: (snapshot.data ?? const <DiaryEntryV2>[]).expand(
-                (entry) => entry.tags,
-              ),
-              hintText: '生活, 工作, 旅行',
-            ),
+          _QuietEditorToolbar(
+            controller: _editorController,
+            onInsertImage: _isSaving ? null : _pickAndInsertImages,
           ),
         ],
       ),
     );
   }
 
-  Future<void> _pickDate() async {
-    final selected = await showDatePicker(
+  Future<void> _openMetadata() async {
+    await showModalBottomSheet<void>(
       context: context,
-      initialDate: _entryDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (selected != null && mounted) {
-      setState(() => _entryDate = selected);
-    }
-  }
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          Future<void> pickDate() async {
+            final selected = await showDatePicker(
+              context: sheetContext,
+              initialDate: _entryDate,
+              firstDate: DateTime(2000),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
+            );
+            if (selected == null || !mounted) return;
+            setState(() => _entryDate = selected);
+            setSheetState(() {});
+          }
 
-  Future<void> _openVoiceDraft() async {
-    final draft = await Navigator.of(context).push<String>(
-      MaterialPageRoute(
-        builder: (_) => VoiceDiaryPageV2(initialText: _bodyController.text),
+          Future<void> pickLocation() async {
+            final selected = await Navigator.of(sheetContext)
+                .push<DiaryLocation>(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        LocationPickerPageV2(initialLocation: _location),
+                  ),
+                );
+            if (selected == null || !mounted) return;
+            setState(() => _location = selected);
+            setSheetState(() {});
+          }
+
+          return SafeArea(
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                24,
+                22,
+                24,
+                20 + MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '日记信息',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '完成',
+                          onPressed: () => Navigator.of(sheetContext).pop(),
+                          icon: const Icon(Icons.check),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    _MetadataLine(
+                      label: '时间',
+                      value: _formatDate(_entryDate),
+                      onTap: pickDate,
+                    ),
+                    _MetadataLine(
+                      label: '地点',
+                      value: _location?.address ?? '未添加',
+                      onTap: pickLocation,
+                      onClear: _location == null
+                          ? null
+                          : () {
+                              setState(() => _location = null);
+                              setSheetState(() {});
+                            },
+                    ),
+                    const SizedBox(height: 26),
+                    Text('心情', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        for (final mood in _moods)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 14),
+                            child: InkResponse(
+                              radius: 24,
+                              onTap: () {
+                                setState(
+                                  () => _mood = _mood == mood ? null : mood,
+                                );
+                                setSheetState(() {});
+                              },
+                              child: AnimatedOpacity(
+                                duration: const Duration(milliseconds: 160),
+                                opacity: _mood == null || _mood == mood
+                                    ? 1
+                                    : 0.32,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(4),
+                                  child: Text(
+                                    mood,
+                                    style: const TextStyle(fontSize: 25),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Text('标签', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 8),
+                    StreamBuilder<List<DiaryEntryV2>>(
+                      stream: widget.repository.watchEntries(),
+                      builder: (context, snapshot) => TagMemoryFieldV2(
+                        controller: _tagsController,
+                        suggestions: (snapshot.data ?? const <DiaryEntryV2>[])
+                            .expand((entry) => entry.tags),
+                        hintText: '生活, 工作, 旅行',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
-    if (draft == null || !mounted) return;
-    setState(() {
-      _bodyController.text = draft;
-      _bodyController.selection = TextSelection.collapsed(offset: draft.length);
-    });
+    if (mounted) _editorFocusNode.requestFocus();
   }
 
-  Future<void> _pickImages() async {
+  Future<void> _pickAndInsertImages() async {
     try {
       final files = await ImagePicker().pickMultiImage(imageQuality: 90);
-      final images = <_PendingImage>[];
       for (final file in files) {
-        images.add(
-          _PendingImage(
-            bytes: await file.readAsBytes(),
-            extension: path.extension(file.name),
-          ),
+        final extension = path.extension(file.name);
+        final imageId = await widget.imageStore.save(
+          bytes: await file.readAsBytes(),
+          extension: extension.isEmpty ? '.jpg' : extension,
         );
+        _newImageIds.add(imageId);
+        _insertImage(imageId);
       }
-      if (mounted && images.isNotEmpty) {
-        setState(() => _pendingImages.addAll(images));
-      }
+      if (mounted) _editorFocusNode.requestFocus();
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -282,20 +308,31 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
     }
   }
 
-  Future<void> _pickLocation() async {
-    final selected = await Navigator.of(context).push<DiaryLocation>(
-      MaterialPageRoute(
-        builder: (_) => LocationPickerPageV2(initialLocation: _location),
-      ),
+  void _insertImage(String imageId) {
+    final selection = _editorController.selection;
+    final index = selection.start.clamp(
+      0,
+      _editorController.document.length - 1,
     );
-    if (selected != null && mounted) {
-      setState(() => _location = selected);
-    }
+    _editorController.replaceText(
+      index,
+      selection.isValid ? selection.end - selection.start : 0,
+      BlockEmbed.image(imageId),
+      TextSelection.collapsed(offset: index + 1),
+    );
+    _editorController.replaceText(
+      index + 1,
+      0,
+      '\n',
+      TextSelection.collapsed(offset: index + 2),
+    );
   }
 
   Future<void> _save() async {
-    final body = _bodyController.text.trim();
-    if (body.isEmpty) {
+    final document = _editorController.document;
+    final body = diaryPlainText(document);
+    final imageIds = diaryImageIds(document);
+    if (body.isEmpty && imageIds.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('先写一点内容吧')));
@@ -311,22 +348,14 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
         .toSet()
         .toList(growable: false);
     final existing = widget.entry;
-    final newImageIds = <String>[];
 
     try {
-      for (final image in _pendingImages) {
-        newImageIds.add(
-          await widget.imageStore.save(
-            bytes: image.bytes,
-            extension: image.extension,
-          ),
-        );
-      }
-      final imageIds = [..._existingImageIds, ...newImageIds];
+      final contentDelta = encodeDiaryDocument(document);
       final savedEntry = existing == null
           ? DiaryEntryV2(
               id: const Uuid().v4(),
               body: body,
+              contentDelta: contentDelta,
               entryDate: _entryDate,
               createdAt: now,
               updatedAt: now,
@@ -341,6 +370,7 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
             )
           : existing.copyWith(
               body: body,
+              contentDelta: contentDelta,
               entryDate: _entryDate,
               updatedAt: now,
               mood: _mood,
@@ -354,19 +384,18 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
       if (!widget.skipAutomaticReply) {
         unawaited(_runAutomaticReplySafely(savedEntry));
       }
-      for (final imageId in _removedImageIds) {
+
+      final unusedImageIds = {
+        ...?existing?.imageIds,
+        ..._newImageIds,
+      }.difference(imageIds.toSet());
+      for (final imageId in unusedImageIds) {
         await widget.imageStore.delete(imageId);
       }
-      if (mounted) {
-        Navigator.of(context).pop(true);
-      }
+      _didSave = true;
+      if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
-      for (final imageId in newImageIds) {
-        await widget.imageStore.delete(imageId);
-      }
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       setState(() => _isSaving = false);
       ScaffoldMessenger.of(
         context,
@@ -378,81 +407,179 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
     try {
       await _automaticReply.scheduleAndRun(entry);
     } catch (error, stackTrace) {
-      // The diary is already safely stored. A background AI failure must never
-      // surface as a red error screen or make saving appear to have failed.
       debugPrint('Automatic diary reply failed: $error\n$stackTrace');
     }
   }
 
-  String _formatDate(DateTime date) {
-    return '${date.year}年${date.month}月${date.day}日';
-  }
+  String _formatDate(DateTime date) =>
+      '${date.year}年${date.month}月${date.day}日';
 }
 
-class _PendingImage {
-  const _PendingImage({required this.bytes, required this.extension});
-
-  final Uint8List bytes;
-  final String extension;
-}
-
-class _ExistingImageTile extends StatelessWidget {
-  const _ExistingImageTile({
-    required this.imageStore,
-    required this.imageId,
-    required this.onRemove,
+class _QuietEditorToolbar extends StatelessWidget {
+  const _QuietEditorToolbar({
+    required this.controller,
+    required this.onInsertImage,
   });
 
-  final DiaryImageStoreV2 imageStore;
-  final String imageId;
-  final VoidCallback onRemove;
+  final QuillController controller;
+  final VoidCallback? onInsertImage;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder(
-      future: imageStore.read(imageId),
-      builder: (context, snapshot) =>
-          _ImageTile(bytes: snapshot.data, onRemove: onRemove),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          top: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+            width: 0.6,
+          ),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) => SizedBox(
+            height: 52,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                _FormatButton(
+                  tooltip: '小标题',
+                  icon: Icons.title,
+                  selected: _isSelected(Attribute.h2),
+                  onPressed: () => _toggle(Attribute.h2),
+                ),
+                _FormatButton(
+                  tooltip: '粗体',
+                  icon: Icons.format_bold,
+                  selected: _isSelected(Attribute.bold),
+                  onPressed: () => _toggle(Attribute.bold),
+                ),
+                _FormatButton(
+                  tooltip: '斜体',
+                  icon: Icons.format_italic,
+                  selected: _isSelected(Attribute.italic),
+                  onPressed: () => _toggle(Attribute.italic),
+                ),
+                _FormatButton(
+                  tooltip: '项目符号',
+                  icon: Icons.format_list_bulleted,
+                  selected: _isSelected(Attribute.ul),
+                  onPressed: () => _toggle(Attribute.ul),
+                ),
+                _FormatButton(
+                  tooltip: '引用',
+                  icon: Icons.format_quote,
+                  selected: _isSelected(Attribute.blockQuote),
+                  onPressed: () => _toggle(Attribute.blockQuote),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  tooltip: '在这里插入图片',
+                  onPressed: onInsertImage,
+                  icon: const Icon(Icons.image_outlined, size: 21),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _isSelected(Attribute attribute) {
+    final current = controller.getSelectionStyle().attributes[attribute.key];
+    return current?.value == attribute.value;
+  }
+
+  void _toggle(Attribute attribute) {
+    controller.formatSelection(
+      _isSelected(attribute) ? Attribute.clone(attribute, null) : attribute,
     );
   }
 }
 
-class _ImageTile extends StatelessWidget {
-  const _ImageTile({required this.bytes, required this.onRemove});
+class _FormatButton extends StatelessWidget {
+  const _FormatButton({
+    required this.tooltip,
+    required this.icon,
+    required this.selected,
+    required this.onPressed,
+  });
 
-  final Uint8List? bytes;
-  final VoidCallback onRemove;
+  final String tooltip;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 10),
-      child: Stack(
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: SizedBox(
-              width: 112,
-              height: 112,
-              child: bytes == null
-                  ? ColoredBox(
-                      color: Theme.of(context).colorScheme.surfaceContainer,
-                      child: const Icon(Icons.broken_image_outlined),
-                    )
-                  : Image.memory(bytes!, fit: BoxFit.cover),
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        foregroundColor: selected
+            ? Theme.of(context).colorScheme.onSurface
+            : Theme.of(context).colorScheme.onSurfaceVariant,
+        backgroundColor: selected
+            ? Theme.of(context).colorScheme.surfaceContainer
+            : Colors.transparent,
+      ),
+      icon: Icon(icon, size: 21),
+    );
+  }
+}
+
+class _MetadataLine extends StatelessWidget {
+  const _MetadataLine({
+    required this.label,
+    required this.value,
+    required this.onTap,
+    this.onClear,
+  });
+
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+              width: 0.6,
             ),
           ),
-          Positioned(
-            top: 4,
-            right: 4,
-            child: IconButton.filled(
-              visualDensity: VisualDensity.compact,
-              tooltip: '移除照片',
-              onPressed: onRemove,
-              icon: const Icon(Icons.close, size: 18),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 52,
+              child: Text(label, style: Theme.of(context).textTheme.bodySmall),
             ),
-          ),
-        ],
+            Expanded(
+              child: Text(value, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ),
+            if (onClear != null)
+              IconButton(
+                tooltip: '清除$label',
+                visualDensity: VisualDensity.compact,
+                onPressed: onClear,
+                icon: const Icon(Icons.close, size: 17),
+              )
+            else
+              const Icon(Icons.chevron_right, size: 18),
+          ],
+        ),
       ),
     );
   }

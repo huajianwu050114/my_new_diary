@@ -151,6 +151,7 @@ class DiaryBackupServiceV2 {
   Map<String, Object?> _entryToJson(DiaryEntryV2 entry) => {
     'id': entry.id,
     'body': entry.body,
+    'contentDelta': entry.contentDelta,
     'entryDate': entry.entryDate.toIso8601String(),
     'createdAt': entry.createdAt.toIso8601String(),
     'updatedAt': entry.updatedAt.toIso8601String(),
@@ -174,6 +175,7 @@ class DiaryBackupServiceV2 {
     return DiaryEntryV2(
       id: value['id'] as String? ?? const Uuid().v4(),
       body: value['body'] as String? ?? '',
+      contentDelta: value['contentDelta'] as String?,
       entryDate: DateTime.parse(value['entryDate'] as String),
       createdAt: DateTime.parse(value['createdAt'] as String),
       updatedAt: DateTime.parse(value['updatedAt'] as String),

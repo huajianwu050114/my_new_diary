@@ -21,6 +21,7 @@ import '../../../life_guide/presentation/life_fragment_editor_page_v2.dart';
 import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
+import '../widgets/diary_rich_text_v2.dart';
 import 'diary_editor_page_v2.dart';
 
 class DiaryDetailPageV2 extends StatefulWidget {
@@ -184,7 +185,7 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
       children: [
-        if (entry.imageIds.isNotEmpty) ...[
+        if (entry.contentDelta == null && entry.imageIds.isNotEmpty) ...[
           _ImageViewer(
             imageStore: widget.imageStore,
             imageIds: entry.imageIds,
@@ -228,12 +229,18 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
           ),
         ],
         const SizedBox(height: 28),
-        SelectableText(
-          entry.body,
-          style: Theme.of(
-            context,
-          ).textTheme.bodyLarge?.copyWith(fontSize: 17, height: 1.8),
-        ),
+        if (entry.contentDelta case final deltaJson?)
+          DiaryRichTextViewV2(
+            deltaJson: deltaJson,
+            imageStore: widget.imageStore,
+          )
+        else
+          SelectableText(
+            entry.body,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(fontSize: 17, height: 1.8),
+          ),
         if (entry.tags.isNotEmpty) ...[
           const SizedBox(height: 18),
           Text(

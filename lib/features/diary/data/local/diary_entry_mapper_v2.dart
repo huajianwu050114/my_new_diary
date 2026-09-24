@@ -9,6 +9,7 @@ class DiaryEntryMapperV2 {
     return {
       'id': entry.id,
       'body': entry.body,
+      'content_delta': entry.contentDelta,
       'entry_date': entry.entryDate.toUtc().toIso8601String(),
       'created_at': entry.createdAt.toUtc().toIso8601String(),
       'updated_at': entry.updatedAt.toUtc().toIso8601String(),
@@ -31,6 +32,7 @@ class DiaryEntryMapperV2 {
     return DiaryEntryV2(
       id: row['id']! as String,
       body: row['body']! as String,
+      contentDelta: row['content_delta'] as String?,
       entryDate: DateTime.parse(row['entry_date']! as String),
       createdAt: DateTime.parse(row['created_at']! as String),
       updatedAt: DateTime.parse(row['updated_at']! as String),

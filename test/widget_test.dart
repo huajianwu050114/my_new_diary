@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
@@ -42,11 +43,24 @@ Future<void> main() async {
     expect(find.text('陪我聊着写'), findsOneWidget);
     await tester.tap(find.text('直接写'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(EditableText).first, 'v2 的第一篇日记');
+    expect(find.text('日记日期'), findsNothing);
+    expect(find.text('地点'), findsNothing);
+    expect(find.byTooltip('日记信息'), findsOneWidget);
+    expect(find.byTooltip('在这里插入图片'), findsOneWidget);
+    await tester.tap(find.byTooltip('日记信息'));
+    await tester.pumpAndSettle();
+    expect(find.text('时间'), findsOneWidget);
+    expect(find.text('地点'), findsOneWidget);
+    expect(find.text('心情'), findsOneWidget);
+    expect(find.text('标签'), findsWidgets);
+    await tester.tap(find.byTooltip('完成'));
+    await tester.pumpAndSettle();
+    _replaceRichEditorText(tester, 'v2 的第一篇日记');
+    await tester.pump();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
-    expect(find.text('v2 的第一篇日记'), findsOneWidget);
+    expect(find.text('v2 的第一篇日记', findRichText: true), findsOneWidget);
     expect(repository.entries, hasLength(1));
   });
 
@@ -83,8 +97,8 @@ Future<void> main() async {
     await tester.tap(useTranscript);
     await tester.pumpAndSettle();
 
-    expect(find.text('写下今天'), findsOneWidget);
-    expect(find.text('今天说了很多，最后整理成一篇日记。'), findsOneWidget);
+    expect(find.text('新日记'), findsOneWidget);
+    expect(find.text('今天说了很多，最后整理成一篇日记。', findRichText: true), findsOneWidget);
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(repository.entries.single.body, '今天说了很多，最后整理成一篇日记。');
@@ -110,11 +124,12 @@ Future<void> main() async {
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('编辑'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(EditableText).first, 'Edited entry');
+    _replaceRichEditorText(tester, 'Edited entry');
+    await tester.pump();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Edited entry'), findsOneWidget);
+    expect(find.text('Edited entry', findRichText: true), findsOneWidget);
     expect(repository.entries.single.body, 'Edited entry');
   });
 
@@ -573,6 +588,18 @@ Future<void> main() async {
     expect(find.text('时光归档'), findsOneWidget);
     expect(find.text(entries.first.body), findsOneWidget);
   });
+}
+
+void _replaceRichEditorText(WidgetTester tester, String text) {
+  final editor = tester.widget<QuillEditor>(
+    find.byKey(const Key('diary-rich-editor')),
+  );
+  editor.controller.replaceText(
+    0,
+    editor.controller.document.length - 1,
+    text,
+    TextSelection.collapsed(offset: text.length),
+  );
 }
 
 class _MemoryImageStore implements DiaryImageStoreV2 {

@@ -9,7 +9,7 @@ class DiaryDatabaseV2 {
        _databasePath = databasePath ?? _defaultDatabasePath;
 
   static const databaseName = 'diary_v2.db';
-  static const schemaVersion = 8;
+  static const schemaVersion = 9;
 
   final DatabaseFactory _databaseFactory;
   final Future<String> Function() _databasePath;
@@ -51,6 +51,7 @@ class DiaryDatabaseV2 {
       CREATE TABLE diary_entries (
         id TEXT PRIMARY KEY NOT NULL,
         body TEXT NOT NULL,
+        content_delta TEXT,
         entry_date TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -110,6 +111,11 @@ class DiaryDatabaseV2 {
     if (oldVersion >= 6 && oldVersion < 8) {
       await database.execute(
         "ALTER TABLE life_documents ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+      );
+    }
+    if (oldVersion < 9) {
+      await database.execute(
+        'ALTER TABLE diary_entries ADD COLUMN content_delta TEXT',
       );
     }
   }

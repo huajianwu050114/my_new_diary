@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:my_new_diary/features/diary/data/local/diary_database_v2.dart';
@@ -34,6 +37,7 @@ void main() {
       final stored = await repository.getById(entry.id);
 
       expect(stored?.body, entry.body);
+      expect(stored?.contentDelta, entry.contentDelta);
       expect(stored?.tags, entry.tags);
       expect(stored?.location?.latitude, entry.location?.latitude);
       expect(stored?.imageIds, entry.imageIds);
@@ -122,6 +126,65 @@ void main() {
       isEmpty,
     );
   });
+
+  test('upgrades version 8 diaries without changing existing text', () async {
+    final directory = await Directory.systemTemp.createTemp('diary-v8-');
+    final databasePath = path.join(directory.path, 'legacy.db');
+    final legacy = await databaseFactoryFfi.openDatabase(
+      databasePath,
+      options: OpenDatabaseOptions(
+        version: 8,
+        onCreate: (database, _) async {
+          await database.execute('''
+            CREATE TABLE diary_entries (
+              id TEXT PRIMARY KEY NOT NULL,
+              body TEXT NOT NULL,
+              entry_date TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              image_ids TEXT NOT NULL DEFAULT '[]',
+              mood TEXT,
+              tags TEXT NOT NULL DEFAULT '[]',
+              latitude REAL,
+              longitude REAL,
+              address TEXT,
+              ai_analyses TEXT NOT NULL DEFAULT '[]',
+              is_favorite INTEGER NOT NULL DEFAULT 0,
+              deleted_at TEXT
+            )
+          ''');
+        },
+      ),
+    );
+    final timestamp = DateTime.utc(2026, 1, 2).toIso8601String();
+    await legacy.insert('diary_entries', {
+      'id': 'legacy-entry',
+      'body': '旧日记正文',
+      'entry_date': timestamp,
+      'created_at': timestamp,
+      'updated_at': timestamp,
+    });
+    await legacy.close();
+
+    final upgradedOwner = DiaryDatabaseV2(
+      factory: databaseFactoryFfi,
+      databasePath: () async => databasePath,
+    );
+    try {
+      final upgraded = await upgradedOwner.open();
+      final row = (await upgraded.query(
+        'diary_entries',
+        where: 'id = ?',
+        whereArgs: ['legacy-entry'],
+      )).single;
+
+      expect(row['body'], '旧日记正文');
+      expect(row['content_delta'], isNull);
+    } finally {
+      await upgradedOwner.close();
+      await directory.delete(recursive: true);
+    }
+  });
 }
 
 DiaryEntryV2 _entry({
@@ -134,6 +197,7 @@ DiaryEntryV2 _entry({
   return DiaryEntryV2(
     id: id,
     body: body,
+    contentDelta: '[{"insert":"A quiet morning\\n"}]',
     entryDate: entryDate ?? DateTime.utc(2026, 1, 2),
     createdAt: timestamp,
     updatedAt: timestamp,

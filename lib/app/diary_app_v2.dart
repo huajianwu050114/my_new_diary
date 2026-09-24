@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 
 import '../features/diary/application/ports/diary_image_store_v2.dart';
 import '../features/diary/application/legacy_migration_controller_v2.dart';
@@ -43,6 +45,13 @@ class DiaryAppV2 extends StatelessWidget {
       builder: (context, _) => MaterialApp(
         title: '时光日记',
         debugShowCheckedModeBanner: false,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          FlutterQuillLocalizations.delegate,
+        ],
+        supportedLocales: FlutterQuillLocalizations.supportedLocales,
         themeMode: themeController.mode,
         theme: _theme(Brightness.light),
         darkTheme: _theme(Brightness.dark),

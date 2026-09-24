@@ -10,6 +10,7 @@ class DiaryEntryV2 {
     required this.entryDate,
     required this.createdAt,
     required this.updatedAt,
+    this.contentDelta,
     this.imageIds = const [],
     this.mood,
     this.tags = const [],
@@ -24,6 +25,7 @@ class DiaryEntryV2 {
   final DateTime entryDate;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? contentDelta;
   final List<String> imageIds;
   final String? mood;
   final List<String> tags;
@@ -40,6 +42,8 @@ class DiaryEntryV2 {
     DateTime? entryDate,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? contentDelta,
+    bool clearContentDelta = false,
     List<String>? imageIds,
     String? mood,
     bool clearMood = false,
@@ -57,6 +61,9 @@ class DiaryEntryV2 {
       entryDate: entryDate ?? this.entryDate,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      contentDelta: clearContentDelta
+          ? null
+          : contentDelta ?? this.contentDelta,
       imageIds: List.unmodifiable(imageIds ?? this.imageIds),
       mood: clearMood ? null : mood ?? this.mood,
       tags: List.unmodifiable(tags ?? this.tags),

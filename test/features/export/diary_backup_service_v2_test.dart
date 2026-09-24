@@ -62,6 +62,7 @@ void main() {
         DiaryEntryV2(
           id: 'entry-1',
           body: 'Backup me',
+          contentDelta: '[{"insert":"Backup me\\n"}]',
           entryDate: timestamp,
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -138,6 +139,7 @@ void main() {
       expect(report.importedEntries, 1);
       expect(report.importedFestivals, 1);
       expect(restored?.body, 'Backup me');
+      expect(restored?.contentDelta, '[{"insert":"Backup me\\n"}]');
       expect(restored?.isFavorite, isTrue);
       expect(await targetImages.read(restored!.imageIds.single), [1, 2, 3]);
       expect(await targetFestival.watchCustomFestivals().first, hasLength(1));
