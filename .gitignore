@@ -47,6 +47,7 @@ app.*.map.json
 # Local Flutter scratch files and private device backups
 /.tmp_flutter/
 /device_backups/
+/.tools/
 
 # Local secrets and release signing material
 .env
@@ -62,3 +63,4 @@ app.*.map.json
 # Local distributable packages and generated reports
 /dist/
 /android/build/reports/
+/android/.kotlin/
