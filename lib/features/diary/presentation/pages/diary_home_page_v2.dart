@@ -154,11 +154,10 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
         },
       ),
       floatingActionButton: _selectedTab == 0
-          ? FloatingActionButton(
-              heroTag: 'write-diary',
-              tooltip: '写日记',
-              onPressed: _openWriteMenu,
-              child: const Icon(Icons.edit_outlined, size: 22),
+          ? _ExpandableWriteButton(
+              onWrite: () => _openComposer(context),
+              onVoice: _openVoiceComposer,
+              onGuided: _openGuidedComposer,
             )
           : null,
       bottomNavigationBar: DecoratedBox(
@@ -228,62 +227,6 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
         ),
       ),
     );
-  }
-
-  Future<void> _openWriteMenu() async {
-    final action = await showModalBottomSheet<_WriteAction>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('写日记', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text('选择一种开始方式', style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 18),
-                _WriteOption(
-                  icon: Icons.edit_outlined,
-                  title: '直接写',
-                  subtitle: '从一张空白纸开始',
-                  onTap: () =>
-                      Navigator.of(sheetContext).pop(_WriteAction.text),
-                ),
-                _WriteOption(
-                  icon: Icons.mic_none_rounded,
-                  title: '语音成稿',
-                  subtitle: '用输入法说出来，再整理成日记',
-                  onTap: () =>
-                      Navigator.of(sheetContext).pop(_WriteAction.voice),
-                ),
-                _WriteOption(
-                  icon: Icons.forum_outlined,
-                  title: '陪我聊着写',
-                  subtitle: '在对话中慢慢找到想写的话',
-                  showDivider: false,
-                  onTap: () =>
-                      Navigator.of(sheetContext).pop(_WriteAction.guided),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-    if (!mounted || action == null) return;
-
-    switch (action) {
-      case _WriteAction.text:
-        await _openComposer(context);
-      case _WriteAction.voice:
-        await _openVoiceComposer();
-      case _WriteAction.guided:
-        await _openGuidedComposer();
-    }
   }
 
   Future<void> _openSearch(BuildContext context) async {
@@ -389,64 +332,211 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
   }
 }
 
-enum _WriteAction { text, voice, guided }
-
-class _WriteOption extends StatelessWidget {
-  const _WriteOption({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-    this.showDivider = true,
+class _ExpandableWriteButton extends StatefulWidget {
+  const _ExpandableWriteButton({
+    required this.onWrite,
+    required this.onVoice,
+    required this.onGuided,
   });
 
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-  final bool showDivider;
+  final VoidCallback onWrite;
+  final VoidCallback onVoice;
+  final VoidCallback onGuided;
+
+  @override
+  State<_ExpandableWriteButton> createState() => _ExpandableWriteButtonState();
+}
+
+class _ExpandableWriteButtonState extends State<_ExpandableWriteButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 360),
+    reverseDuration: const Duration(milliseconds: 240),
+  );
+
+  bool get _isOpen => _controller.status != AnimationStatus.dismissed;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    if (_isOpen) {
+      _controller.reverse();
+    } else {
+      _controller.forward();
+    }
+  }
+
+  Future<void> _select(VoidCallback action) async {
+    await _controller.reverse();
+    if (mounted) action();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          decoration: BoxDecoration(
-            border: showDivider
-                ? Border(
-                    bottom: BorderSide(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                      width: 0.6,
-                    ),
-                  )
-                : null,
-          ),
-          child: Row(
+    final actions = [
+      _WriteBranchData(
+        label: '陪我聊着写',
+        icon: Icons.forum_outlined,
+        onTap: widget.onGuided,
+      ),
+      _WriteBranchData(
+        label: '语音成稿',
+        icon: Icons.mic_none_rounded,
+        onTap: widget.onVoice,
+      ),
+      _WriteBranchData(
+        label: '直接写',
+        icon: Icons.edit_outlined,
+        onTap: widget.onWrite,
+      ),
+    ];
+
+    return SizedBox(
+      width: 210,
+      height: 246,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Stack(
+            alignment: Alignment.bottomRight,
             children: [
-              Icon(icon, size: 21),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.bodyLarge),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodySmall,
+              for (var index = 0; index < actions.length; index++)
+                Positioned(
+                  right: 0,
+                  bottom: 72 + (index * 58),
+                  child: _WriteBranch(
+                    data: actions[actions.length - 1 - index],
+                    animation: CurvedAnimation(
+                      parent: _controller,
+                      curve: Interval(
+                        index * 0.08,
+                        0.76 + (index * 0.08),
+                        curve: Curves.easeOutBack,
+                      ),
+                      reverseCurve: Curves.easeInCubic,
                     ),
-                  ],
+                    fadeAnimation: CurvedAnimation(
+                      parent: _controller,
+                      curve: Interval(
+                        index * 0.08,
+                        0.48 + (index * 0.08),
+                        curve: Curves.easeOut,
+                      ),
+                      reverseCurve: Curves.easeIn,
+                    ),
+                    onTap: () =>
+                        _select(actions[actions.length - 1 - index].onTap),
+                  ),
+                ),
+              Align(
+                alignment: Alignment.bottomRight,
+                child: Tooltip(
+                  message: _isOpen ? '收起' : '写日记',
+                  child: FloatingActionButton(
+                    heroTag: 'write-diary',
+                    onPressed: _toggle,
+                    child: RotationTransition(
+                      turns: Tween<double>(begin: 0, end: 0.125).animate(
+                        CurvedAnimation(
+                          parent: _controller,
+                          curve: Curves.easeOutBack,
+                          reverseCurve: Curves.easeInCubic,
+                        ),
+                      ),
+                      child: const Icon(Icons.edit_outlined, size: 22),
+                    ),
+                  ),
                 ),
               ),
-              Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
             ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _WriteBranchData {
+  const _WriteBranchData({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+}
+
+class _WriteBranch extends StatelessWidget {
+  const _WriteBranch({
+    required this.data,
+    required this.animation,
+    required this.fadeAnimation,
+    required this.onTap,
+  });
+
+  final _WriteBranchData data;
+  final Animation<double> animation;
+  final Animation<double> fadeAnimation;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return IgnorePointer(
+      ignoring: fadeAnimation.value < 0.8,
+      child: FadeTransition(
+        opacity: fadeAnimation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0.12, 0.55),
+            end: Offset.zero,
+          ).animate(animation),
+          child: ScaleTransition(
+            alignment: Alignment.centerRight,
+            scale: Tween<double>(begin: 0.72, end: 1).animate(animation),
+            child: Semantics(
+              button: true,
+              label: data.label,
+              child: InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(24),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 3, 3, 3),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        data.label,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: colors.onSurface,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Material(
+                        color: colors.surface,
+                        shape: CircleBorder(
+                          side: BorderSide(
+                            color: colors.outlineVariant,
+                            width: 0.6,
+                          ),
+                        ),
+                        child: SizedBox.square(
+                          dimension: 44,
+                          child: Icon(data.icon, size: 20),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),

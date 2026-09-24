@@ -37,6 +37,9 @@ Future<void> main() async {
 
     await tester.tap(find.byTooltip('写日记'));
     await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+    expect(find.text('语音成稿'), findsOneWidget);
+    expect(find.text('陪我聊着写'), findsOneWidget);
     await tester.tap(find.text('直接写'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText).first, 'v2 的第一篇日记');
