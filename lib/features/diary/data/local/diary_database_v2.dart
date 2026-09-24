@@ -9,7 +9,7 @@ class DiaryDatabaseV2 {
        _databasePath = databasePath ?? _defaultDatabasePath;
 
   static const databaseName = 'diary_v2.db';
-  static const schemaVersion = 6;
+  static const schemaVersion = 8;
 
   final DatabaseFactory _databaseFactory;
   final Future<String> Function() _databasePath;
@@ -76,6 +76,7 @@ class DiaryDatabaseV2 {
     await _createCustomFestivalsTable(database);
     await _createLifeFragmentsTable(database);
     await _createLifeFragmentRevisionsTable(database);
+    await _createLifeSpacesTable(database);
     await _createLifeDocumentsTable(database);
   }
 
@@ -101,6 +102,15 @@ class DiaryDatabaseV2 {
     }
     if (oldVersion < 6) {
       await _createLifeDocumentsTable(database);
+    }
+    if (oldVersion < 7) {
+      await _createLifeSpacesTable(database);
+      await _migrateLegacyLifeSpaces(database);
+    }
+    if (oldVersion >= 6 && oldVersion < 8) {
+      await database.execute(
+        "ALTER TABLE life_documents ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+      );
     }
   }
 
@@ -169,6 +179,7 @@ class DiaryDatabaseV2 {
         document_type TEXT NOT NULL DEFAULT 'note',
         document_date TEXT,
         template_id TEXT,
+        tags TEXT NOT NULL DEFAULT '[]',
         is_pinned INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -179,5 +190,56 @@ class DiaryDatabaseV2 {
       CREATE INDEX IF NOT EXISTS life_documents_space_updated_index
       ON life_documents(space, is_pinned DESC, updated_at DESC)
     ''');
+  }
+
+  static Future<void> _createLifeSpacesTable(Database database) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS life_spaces (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        icon_code_point INTEGER NOT NULL,
+        color_value INTEGER NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_system INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )
+    ''');
+    final now = DateTime.now().toUtc().toIso8601String();
+    await database.insert('life_spaces', {
+      'id': 'inbox',
+      'name': '收件箱',
+      'icon_code_point': 0xe156,
+      'color_value': 0xff5c6bc0,
+      'sort_order': -1,
+      'is_system': 1,
+      'created_at': now,
+      'updated_at': now,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  static Future<void> _migrateLegacyLifeSpaces(Database database) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final legacySpaces = await database.rawQuery('''
+      SELECT DISTINCT space FROM life_documents
+      WHERE space IS NOT NULL AND space <> '' AND space <> 'inbox'
+    ''');
+    for (final row in legacySpaces) {
+      final id = row['space']! as String;
+      await database.insert('life_spaces', {
+        'id': id,
+        'name': switch (id) {
+          'cooking' => '厨艺',
+          'habits' => '习惯与计划',
+          _ => id,
+        },
+        'icon_code_point': 0xe2c8,
+        'color_value': 0xff607d8b,
+        'sort_order': 100,
+        'is_system': 0,
+        'created_at': now,
+        'updated_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
   }
 }

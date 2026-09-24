@@ -12,6 +12,7 @@ import '../../festival/domain/festival_repository_v2.dart';
 import '../../festival/domain/festival_v2.dart';
 import '../../life_library/domain/life_document_repository_v2.dart';
 import '../../life_library/domain/life_document_v2.dart';
+import '../../life_library/domain/life_space_v2.dart';
 
 class DiaryBackupServiceV2 {
   const DiaryBackupServiceV2({
@@ -37,6 +38,9 @@ class DiaryBackupServiceV2 {
     final lifeDocuments =
         await lifeDocumentRepository?.watchDocuments().first ??
         const <LifeDocumentV2>[];
+    final lifeSpaces =
+        await lifeDocumentRepository?.watchSpaces().first ??
+        const <LifeSpaceV2>[];
     final archive = Archive();
     final manifest = {
       'format': 'my_new_diary_v2',
@@ -46,6 +50,7 @@ class DiaryBackupServiceV2 {
       'festivals': festivals.map(_festivalToJson).toList(),
       'stopWords': stopWords.toList()..sort(),
       'lifeDocuments': lifeDocuments.map(_lifeDocumentToJson).toList(),
+      'lifeSpaces': lifeSpaces.map(_lifeSpaceToJson).toList(),
     };
     final manifestBytes = utf8.encode(jsonEncode(manifest));
     archive.addFile(
@@ -119,8 +124,15 @@ class DiaryBackupServiceV2 {
       (manifest['stopWords'] as List? ?? const []).whereType<String>().toSet(),
     );
     var importedLifeDocuments = 0;
+    var importedLifeSpaces = 0;
     final lifeRepository = lifeDocumentRepository;
     if (lifeRepository != null) {
+      for (final value
+          in (manifest['lifeSpaces'] as List? ?? const [])
+              .whereType<Map<String, dynamic>>()) {
+        await lifeRepository.saveSpace(_lifeSpaceFromJson(value));
+        importedLifeSpaces++;
+      }
       for (final value
           in (manifest['lifeDocuments'] as List? ?? const [])
               .whereType<Map<String, dynamic>>()) {
@@ -132,6 +144,7 @@ class DiaryBackupServiceV2 {
       importedEntries: importedEntries,
       importedFestivals: importedFestivals,
       importedLifeDocuments: importedLifeDocuments,
+      importedLifeSpaces: importedLifeSpaces,
     );
   }
 
@@ -210,6 +223,7 @@ class DiaryBackupServiceV2 {
     'type': value.type.name,
     'documentDate': value.documentDate?.toIso8601String(),
     'templateId': value.templateId,
+    'tags': value.tags,
     'isPinned': value.isPinned,
     'createdAt': value.createdAt.toIso8601String(),
     'updatedAt': value.updatedAt.toIso8601String(),
@@ -219,7 +233,7 @@ class DiaryBackupServiceV2 {
     final now = DateTime.now().toUtc();
     return LifeDocumentV2(
       id: value['id'] as String? ?? const Uuid().v4(),
-      space: value['space'] as String? ?? LifeSpacesV2.cooking,
+      space: value['space'] as String? ?? LifeSpaceDefaultsV2.inboxId,
       title: value['title'] as String? ?? '未命名文档',
       markdown: value['markdown'] as String? ?? '',
       type: LifeDocumentTypeV2.values.firstWhere(
@@ -228,7 +242,35 @@ class DiaryBackupServiceV2 {
       ),
       documentDate: _optionalDate(value['documentDate']),
       templateId: value['templateId'] as String?,
+      tags: (value['tags'] as List? ?? const []).whereType<String>().toList(
+        growable: false,
+      ),
       isPinned: value['isPinned'] == true,
+      createdAt: _optionalDate(value['createdAt']) ?? now,
+      updatedAt: _optionalDate(value['updatedAt']) ?? now,
+    );
+  }
+
+  Map<String, Object?> _lifeSpaceToJson(LifeSpaceV2 value) => {
+    'id': value.id,
+    'name': value.name,
+    'iconCodePoint': value.iconCodePoint,
+    'colorValue': value.colorValue,
+    'sortOrder': value.sortOrder,
+    'isSystem': value.isSystem,
+    'createdAt': value.createdAt.toIso8601String(),
+    'updatedAt': value.updatedAt.toIso8601String(),
+  };
+
+  LifeSpaceV2 _lifeSpaceFromJson(Map<String, dynamic> value) {
+    final now = DateTime.now().toUtc();
+    return LifeSpaceV2(
+      id: value['id'] as String? ?? const Uuid().v4(),
+      name: value['name'] as String? ?? '未命名空间',
+      iconCodePoint: value['iconCodePoint'] as int? ?? 0xe2c8,
+      colorValue: value['colorValue'] as int? ?? 0xff607d8b,
+      sortOrder: value['sortOrder'] as int? ?? 999,
+      isSystem: value['isSystem'] == true,
       createdAt: _optionalDate(value['createdAt']) ?? now,
       updatedAt: _optionalDate(value['updatedAt']) ?? now,
     );
@@ -243,9 +285,11 @@ class BackupImportReportV2 {
     required this.importedEntries,
     required this.importedFestivals,
     this.importedLifeDocuments = 0,
+    this.importedLifeSpaces = 0,
   });
 
   final int importedEntries;
   final int importedFestivals;
   final int importedLifeDocuments;
+  final int importedLifeSpaces;
 }

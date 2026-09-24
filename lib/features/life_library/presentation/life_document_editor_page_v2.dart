@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../domain/life_document_repository_v2.dart';
 import '../domain/life_document_v2.dart';
+import '../domain/life_space_v2.dart';
 
 class LifeDocumentEditorPageV2 extends StatefulWidget {
   const LifeDocumentEditorPageV2({
@@ -30,8 +34,12 @@ class LifeDocumentEditorPageV2 extends StatefulWidget {
 class _LifeDocumentEditorPageV2State extends State<LifeDocumentEditorPageV2> {
   late final TextEditingController _title;
   late final TextEditingController _markdown;
+  late final TextEditingController _tags;
   late String _space;
   late LifeDocumentTypeV2 _type;
+  DateTime? _documentDate;
+  List<LifeSpaceV2> _spaces = const [];
+  StreamSubscription<List<LifeSpaceV2>>? _spacesSubscription;
   bool _preview = false;
   bool _saving = false;
 
@@ -42,14 +50,22 @@ class _LifeDocumentEditorPageV2State extends State<LifeDocumentEditorPageV2> {
     _markdown = TextEditingController(
       text: widget.document?.markdown ?? widget.initialMarkdown,
     );
+    _tags = TextEditingController(text: widget.document?.tags.join('，') ?? '');
     _space = widget.document?.space ?? widget.initialSpace;
     _type = widget.document?.type ?? widget.initialType;
+    _documentDate = widget.document?.documentDate?.toLocal();
+    _spacesSubscription = widget.repository.watchSpaces().listen((spaces) {
+      if (!mounted) return;
+      setState(() => _spaces = spaces);
+    });
   }
 
   @override
   void dispose() {
     _title.dispose();
     _markdown.dispose();
+    _tags.dispose();
+    _spacesSubscription?.cancel();
     super.dispose();
   }
 
@@ -84,13 +100,13 @@ class _LifeDocumentEditorPageV2State extends State<LifeDocumentEditorPageV2> {
           children: [
             Expanded(
               child: DropdownButtonFormField<String>(
-                value: _space,
+                initialValue: _space,
                 decoration: const InputDecoration(labelText: '分区'),
-                items: LifeSpacesV2.values
+                items: _spaces
                     .map(
                       (space) => DropdownMenuItem(
-                        value: space,
-                        child: Text(LifeSpacesV2.label(space)),
+                        value: space.id,
+                        child: Text(space.name),
                       ),
                     )
                     .toList(growable: false),
@@ -100,9 +116,9 @@ class _LifeDocumentEditorPageV2State extends State<LifeDocumentEditorPageV2> {
             const SizedBox(width: 12),
             Expanded(
               child: DropdownButtonFormField<LifeDocumentTypeV2>(
-                value: _type,
+                initialValue: _type,
                 decoration: const InputDecoration(labelText: '类型'),
-                items: LifeDocumentTypeV2.values
+                items: _availableTypes
                     .map(
                       (type) => DropdownMenuItem(
                         value: type,
@@ -114,6 +130,38 @@ class _LifeDocumentEditorPageV2State extends State<LifeDocumentEditorPageV2> {
               ),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _tags,
+          decoration: const InputDecoration(
+            labelText: '标签（可选）',
+            hintText: '旅行，待读，每周复盘',
+            prefixIcon: Icon(Icons.tag_rounded),
+          ),
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+          tileColor: Theme.of(context).colorScheme.surfaceContainerLowest,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          leading: const Icon(Icons.event_outlined),
+          title: Text(
+            _documentDate == null
+                ? '不安排日期'
+                : DateFormat('yyyy年M月d日').format(_documentDate!),
+          ),
+          subtitle: const Text('设置后会在对应日期和“今天”中出现'),
+          trailing: _documentDate == null
+              ? const Icon(Icons.chevron_right_rounded)
+              : IconButton(
+                  tooltip: '清除日期',
+                  onPressed: () => setState(() => _documentDate = null),
+                  icon: const Icon(Icons.close_rounded),
+                ),
+          onTap: _pickDate,
         ),
         const SizedBox(height: 16),
         SegmentedButton<bool>(
@@ -165,6 +213,27 @@ class _LifeDocumentEditorPageV2State extends State<LifeDocumentEditorPageV2> {
     ),
   );
 
+  List<LifeDocumentTypeV2> get _availableTypes {
+    const common = [
+      LifeDocumentTypeV2.note,
+      LifeDocumentTypeV2.checklist,
+      LifeDocumentTypeV2.plan,
+      LifeDocumentTypeV2.template,
+    ];
+    return common.contains(_type) ? common : [_type, ...common];
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final value = await showDatePicker(
+      context: context,
+      initialDate: _documentDate ?? now,
+      firstDate: DateTime(now.year - 20),
+      lastDate: DateTime(now.year + 20),
+    );
+    if (value != null && mounted) setState(() => _documentDate = value);
+  }
+
   Future<void> _paste() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text?.trim();
@@ -199,14 +268,27 @@ class _LifeDocumentEditorPageV2State extends State<LifeDocumentEditorPageV2> {
     setState(() => _saving = true);
     final now = DateTime.now().toUtc();
     final existing = widget.document;
+    final tags = _tags.text
+        .split(RegExp(r'[,，]'))
+        .map((value) => value.trim().replaceFirst(RegExp(r'^#'), ''))
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
     final value = LifeDocumentV2(
       id: existing?.id ?? const Uuid().v4(),
       space: _space,
       title: title,
       markdown: markdown,
       type: _type,
-      documentDate: existing?.documentDate,
+      documentDate: _documentDate == null
+          ? null
+          : DateTime(
+              _documentDate!.year,
+              _documentDate!.month,
+              _documentDate!.day,
+            ).toUtc(),
       templateId: existing?.templateId,
+      tags: tags,
       isPinned: existing?.isPinned ?? false,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,

@@ -97,6 +97,8 @@ Future<void> main() async {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('Original entry'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Original entry'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('编辑'));
@@ -247,6 +249,8 @@ Future<void> main() async {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('今天完成了一件期待很久的事情'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('今天完成了一件期待很久的事情'));
     await tester.pumpAndSettle();
 
@@ -279,6 +283,8 @@ Future<void> main() async {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Original entry'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Original entry'));
     await tester.pumpAndSettle();
 
@@ -286,56 +292,61 @@ Future<void> main() async {
     expect(find.textContaining('写于 '), findsOneWidget);
   });
 
-  testWidgets('uses the journal, calendar, memories, and profile navigation', (
-    tester,
-  ) async {
-    final now = DateTime.now();
-    final repository = _MemoryDiaryRepository(
-      entries: [
-        DiaryEntryV2(
-          id: 'current-month',
-          body: '这个月的记录',
-          entryDate: now.toUtc(),
-          createdAt: now.toUtc(),
-          updatedAt: now.toUtc(),
+  testWidgets(
+    'uses journal, calendar, life, memories, and profile navigation',
+    (tester) async {
+      final now = DateTime.now();
+      final repository = _MemoryDiaryRepository(
+        entries: [
+          DiaryEntryV2(
+            id: 'current-month',
+            body: '这个月的记录',
+            entryDate: now.toUtc(),
+            createdAt: now.toUtc(),
+            updatedAt: now.toUtc(),
+          ),
+          DiaryEntryV2(
+            id: 'previous-month',
+            body: '上个月的记录',
+            entryDate: DateTime(now.year, now.month - 1, 15).toUtc(),
+            createdAt: now.toUtc(),
+            updatedAt: now.toUtc(),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        DiaryAppV2(
+          repository: repository,
+          imageStore: _MemoryImageStore(),
+          festivalRepository: _MemoryFestivalRepository(),
+          publicHolidayService: PublicHolidayServiceV2(),
+          themeController: ThemeControllerV2(),
+          appLockController: AppLockControllerV2(),
         ),
-        DiaryEntryV2(
-          id: 'previous-month',
-          body: '上个月的记录',
-          entryDate: DateTime(now.year, now.month - 1, 15).toUtc(),
-          createdAt: now.toUtc(),
-          updatedAt: now.toUtc(),
-        ),
-      ],
-    );
-    await tester.pumpWidget(
-      DiaryAppV2(
-        repository: repository,
-        imageStore: _MemoryImageStore(),
-        festivalRepository: _MemoryFestivalRepository(),
-        publicHolidayService: PublicHolidayServiceV2(),
-        themeController: ThemeControllerV2(),
-        appLockController: AppLockControllerV2(),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('今天，想记下什么？'), findsOneWidget);
-    expect(find.text('最近日记'), findsOneWidget);
-    expect(find.byTooltip('写日记'), findsOneWidget);
-    expect(find.text('日历'), findsOneWidget);
-    expect(find.text('回忆'), findsOneWidget);
-    expect(find.text('我的'), findsOneWidget);
+      expect(find.text('今天，想记下什么？'), findsOneWidget);
+      expect(find.text('最近日记'), findsOneWidget);
+      expect(find.text('写下这一刻'), findsOneWidget);
+      expect(find.byTooltip('写日记'), findsOneWidget);
+      expect(find.text('日历'), findsOneWidget);
+      expect(find.text('生活'), findsOneWidget);
+      expect(find.text('回忆'), findsOneWidget);
+      expect(find.text('我的'), findsOneWidget);
 
-    await tester.tap(find.text('回忆'));
-    await tester.pumpAndSettle();
-    expect(find.text('AI 时光回顾'), findsOneWidget);
+      await tester.tap(find.text('回忆'));
+      await tester.pumpAndSettle();
+      expect(find.text('AI 时光回顾'), findsOneWidget);
+      expect(find.text('地点'), findsOneWidget);
 
-    await tester.tap(find.text('我的'));
-    await tester.pumpAndSettle();
-    expect(find.text('统计分析'), findsOneWidget);
-    expect(find.text('设置'), findsOneWidget);
-  });
+      await tester.tap(find.text('我的'));
+      await tester.pumpAndSettle();
+      expect(find.text('统计分析'), findsOneWidget);
+      expect(find.text('导出与备份'), findsOneWidget);
+      expect(find.text('设置'), findsOneWidget);
+    },
+  );
 
   testWidgets('journal page fits in landscape', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 360));
@@ -420,6 +431,8 @@ Future<void> main() async {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('带有两张照片的日记').first);
+    await tester.pumpAndSettle();
     await tester.tap(find.text('带有两张照片的日记').first);
     await tester.pumpAndSettle();
 
@@ -499,6 +512,8 @@ Future<void> main() async {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('拥有多个会话的日记'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('拥有多个会话的日记'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
@@ -514,7 +529,7 @@ Future<void> main() async {
     expect(find.text('2 个 Chat'), findsOneWidget);
   });
 
-  testWidgets('limits the first page and offers a monthly archive', (
+  testWidgets('keeps the first page short and links to the archive', (
     tester,
   ) async {
     final now = DateTime.now().toUtc();
@@ -539,20 +554,17 @@ Future<void> main() async {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('13 篇'), findsOneWidget);
+    expect(find.text('归档测试日记 0'), findsOneWidget);
+    expect(find.text('归档测试日记 6'), findsNothing);
     await tester.scrollUntilVisible(
-      find.text('月份归档'),
+      find.text('继续查看'),
       500,
       scrollable: find.byType(Scrollable).first,
     );
-    expect(find.text('月份归档'), findsOneWidget);
-
-    final targetDate = entries.last.entryDate.toLocal();
-    final targetMonth = '${targetDate.year} 年 ${targetDate.month} 月';
-    await tester.tap(find.text(targetMonth));
+    await tester.tap(find.text('继续查看'));
     await tester.pumpAndSettle();
     expect(find.text('时光归档'), findsOneWidget);
-    expect(find.text(entries.last.body), findsOneWidget);
+    expect(find.text(entries.first.body), findsOneWidget);
   });
 }
 

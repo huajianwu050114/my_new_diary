@@ -42,7 +42,7 @@ android {
 
     defaultConfig {
         applicationId = "com.huajianwu.shiguangdiary.v2"
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

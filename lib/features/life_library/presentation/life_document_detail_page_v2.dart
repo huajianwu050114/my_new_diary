@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/life_document_repository_v2.dart';
 import '../domain/life_document_v2.dart';
+import '../domain/life_space_v2.dart';
 import 'life_document_editor_page_v2.dart';
 
 class LifeDocumentDetailPageV2 extends StatefulWidget {
@@ -24,11 +25,13 @@ class LifeDocumentDetailPageV2 extends StatefulWidget {
 
 class _LifeDocumentDetailPageV2State extends State<LifeDocumentDetailPageV2> {
   late LifeDocumentV2 _document;
+  String _spaceName = LifeSpaceDefaultsV2.inboxName;
 
   @override
   void initState() {
     super.initState();
     _document = widget.document;
+    _loadSpaceName();
   }
 
   @override
@@ -66,8 +69,18 @@ class _LifeDocumentDetailPageV2State extends State<LifeDocumentDetailPageV2> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              Chip(label: Text(LifeSpacesV2.label(_document.space))),
+              Chip(label: Text(_spaceName)),
               Chip(label: Text(_document.type.label)),
+              if (_document.documentDate != null)
+                Chip(
+                  avatar: const Icon(Icons.event_outlined, size: 18),
+                  label: Text(
+                    DateFormat(
+                      'yyyy年M月d日',
+                    ).format(_document.documentDate!.toLocal()),
+                  ),
+                ),
+              for (final tag in _document.tags) Chip(label: Text('#$tag')),
               if (_document.checklistTotal > 0)
                 Chip(
                   avatar: const Icon(Icons.check_circle_outline, size: 18),
@@ -132,6 +145,7 @@ class _LifeDocumentDetailPageV2State extends State<LifeDocumentDetailPageV2> {
       ),
     );
     if (updated != null && mounted) setState(() => _document = updated);
+    if (updated != null) await _loadSpaceName();
   }
 
   Future<void> _togglePinned() async {
@@ -156,15 +170,39 @@ class _LifeDocumentDetailPageV2State extends State<LifeDocumentDetailPageV2> {
 
   Future<void> _createTodayLog() async {
     final now = DateTime.now();
+    final existingLogs = await widget.repository.watchDocuments().first;
+    for (final item in existingLogs) {
+      final date = item.documentDate?.toLocal();
+      if (item.templateId == _document.id &&
+          date != null &&
+          date.year == now.year &&
+          date.month == now.month &&
+          date.day == now.day) {
+        if (!mounted) return;
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute(
+            builder: (_) => LifeDocumentDetailPageV2(
+              document: item,
+              repository: widget.repository,
+            ),
+          ),
+        );
+        return;
+      }
+    }
     final createdAt = now.toUtc();
     final log = LifeDocumentV2(
       id: const Uuid().v4(),
       space: _document.space,
       title: '${DateFormat('M月d日').format(now)} · ${_document.title}',
-      markdown: _document.markdown,
+      markdown: _document.markdown.replaceAllMapped(
+        RegExp(r'^(\s*[-*+]\s+)\[[xX]\]', multiLine: true),
+        (match) => '${match.group(1)}[ ]',
+      ),
       type: LifeDocumentTypeV2.dailyLog,
       documentDate: DateTime(now.year, now.month, now.day).toUtc(),
       templateId: _document.id,
+      tags: _document.tags,
       createdAt: createdAt,
       updatedAt: createdAt,
     );
@@ -177,6 +215,15 @@ class _LifeDocumentDetailPageV2State extends State<LifeDocumentDetailPageV2> {
           repository: widget.repository,
         ),
       ),
+    );
+  }
+
+  Future<void> _loadSpaceName() async {
+    final space = await widget.repository.getSpaceById(_document.space);
+    if (!mounted) return;
+    setState(
+      () => _spaceName =
+          space?.name ?? LifeSpaceDefaultsV2.legacyName(_document.space),
     );
   }
 

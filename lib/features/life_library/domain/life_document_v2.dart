@@ -11,6 +11,7 @@ class LifeDocumentV2 {
     required this.updatedAt,
     this.documentDate,
     this.templateId,
+    this.tags = const [],
     this.isPinned = false,
     this.deletedAt,
   });
@@ -22,6 +23,7 @@ class LifeDocumentV2 {
   final LifeDocumentTypeV2 type;
   final DateTime? documentDate;
   final String? templateId;
+  final List<String> tags;
   final bool isPinned;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -34,6 +36,7 @@ class LifeDocumentV2 {
     LifeDocumentTypeV2? type,
     DateTime? documentDate,
     String? templateId,
+    List<String>? tags,
     bool? isPinned,
     DateTime? updatedAt,
     DateTime? deletedAt,
@@ -45,6 +48,7 @@ class LifeDocumentV2 {
     type: type ?? this.type,
     documentDate: documentDate ?? this.documentDate,
     templateId: templateId ?? this.templateId,
+    tags: tags ?? this.tags,
     isPinned: isPinned ?? this.isPinned,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -60,18 +64,6 @@ class LifeDocumentV2 {
     r'^\s*[-*+]\s+\[[xX]\]\s+',
     multiLine: true,
   ).allMatches(markdown).length;
-}
-
-abstract final class LifeSpacesV2 {
-  static const cooking = 'cooking';
-  static const habits = 'habits';
-  static const values = [cooking, habits];
-
-  static String label(String value) => switch (value) {
-    cooking => '厨艺',
-    habits => '习惯与计划',
-    _ => value,
-  };
 }
 
 extension LifeDocumentTypeLabelV2 on LifeDocumentTypeV2 {

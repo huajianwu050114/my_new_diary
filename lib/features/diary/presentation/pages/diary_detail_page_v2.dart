@@ -74,7 +74,11 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
   Future<void> _refreshAfterAutomaticReply() async {
     await _automaticReply.retryIfNeeded(widget.entryId);
     final refreshed = widget.repository.getById(widget.entryId);
-    if (mounted) setState(() => _entry = refreshed);
+    if (mounted) {
+      setState(() {
+        _entry = refreshed;
+      });
+    }
   }
 
   @override

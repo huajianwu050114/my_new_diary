@@ -13,6 +13,9 @@ import 'package:my_new_diary/features/export/application/diary_backup_service_v2
 import 'package:my_new_diary/features/export/application/diary_pdf_service_v2.dart';
 import 'package:my_new_diary/features/festival/data/sqlite_festival_repository_v2.dart';
 import 'package:my_new_diary/features/festival/domain/festival_v2.dart';
+import 'package:my_new_diary/features/life_library/data/sqlite_life_document_repository_v2.dart';
+import 'package:my_new_diary/features/life_library/domain/life_document_v2.dart';
+import 'package:my_new_diary/features/life_library/domain/life_space_v2.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +50,9 @@ void main() {
         await sourceDatabase.open(),
       );
       final sourceImages = _MemoryImageStore();
+      final sourceLife = SqliteLifeDocumentRepositoryV2(
+        await sourceDatabase.open(),
+      );
       final imageId = await sourceImages.save(
         bytes: Uint8List.fromList([1, 2, 3]),
         extension: 'jpg',
@@ -73,6 +79,29 @@ void main() {
           createdAt: timestamp,
         ),
       );
+      await sourceLife.saveSpace(
+        LifeSpaceV2(
+          id: 'reading-space',
+          name: '我的阅读',
+          iconCodePoint: 0xe865,
+          colorValue: 0xff7e57c2,
+          sortOrder: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+      );
+      await sourceLife.save(
+        LifeDocumentV2(
+          id: 'reading-list',
+          space: 'reading-space',
+          title: '阅读清单',
+          markdown: '# 阅读清单\n\n- [ ] 第一本书',
+          type: LifeDocumentTypeV2.checklist,
+          tags: const ['阅读'],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+      );
       final stopWords = StopWordsStoreV2();
       await stopWords.save({'private'});
 
@@ -81,6 +110,7 @@ void main() {
         imageStore: sourceImages,
         festivalRepository: sourceFestival,
         stopWordsStore: stopWords,
+        lifeDocumentRepository: sourceLife,
       ).exportZip();
 
       SharedPreferences.setMockInitialValues({});
@@ -93,11 +123,15 @@ void main() {
         await targetDatabase.open(),
       );
       final targetImages = _MemoryImageStore();
+      final targetLife = SqliteLifeDocumentRepositoryV2(
+        await targetDatabase.open(),
+      );
       final report = await DiaryBackupServiceV2(
         diaryRepository: targetDiary,
         imageStore: targetImages,
         festivalRepository: targetFestival,
         stopWordsStore: stopWords,
+        lifeDocumentRepository: targetLife,
       ).importZip(bytes);
 
       final restored = await targetDiary.getById('entry-1');
@@ -108,12 +142,22 @@ void main() {
       expect(await targetImages.read(restored!.imageIds.single), [1, 2, 3]);
       expect(await targetFestival.watchCustomFestivals().first, hasLength(1));
       expect(await stopWords.load(), {'private'});
+      expect(report.importedLifeSpaces, 2);
+      expect(report.importedLifeDocuments, 1);
+      expect((await targetLife.getSpaceById('reading-space'))?.name, '我的阅读');
+      expect(
+        (await targetLife.getById('reading-list'))?.markdown,
+        contains('第一本书'),
+      );
+      expect((await targetLife.getById('reading-list'))?.tags, ['阅读']);
 
       await sourceDiary.dispose();
       await sourceFestival.dispose();
+      await sourceLife.dispose();
       await sourceDatabase.close();
       await targetDiary.dispose();
       await targetFestival.dispose();
+      await targetLife.dispose();
       await targetDatabase.close();
     },
   );
