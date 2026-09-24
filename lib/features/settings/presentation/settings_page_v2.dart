@@ -34,72 +34,6 @@ class SettingsPageV2 extends StatefulWidget {
   State<SettingsPageV2> createState() => _SettingsPageV2State();
 }
 
-class _PaletteChoice extends StatelessWidget {
-  const _PaletteChoice({
-    required this.palette,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final AppPaletteV2 palette;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Material(
-      color: selected ? colors.primaryContainer : colors.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: selected ? colors.primary : colors.outlineVariant,
-          width: selected ? 2 : 1,
-        ),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(13),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: palette.seedColor,
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.white70, width: 2),
-                ),
-                child: selected
-                    ? const Icon(Icons.check, size: 19, color: Colors.white)
-                    : null,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      palette.label,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    Text(
-                      palette.description,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SettingsPageV2State extends State<SettingsPageV2> {
   LocalProfileV2? _profile;
   PrivacySettingsV2? _privacySettings;
@@ -190,38 +124,6 @@ class _SettingsPageV2State extends State<SettingsPageV2> {
                               })
                               .toList(growable: false),
                         ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        '配色主题',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 9),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final width = constraints.maxWidth >= 520
-                              ? (constraints.maxWidth - 20) / 3
-                              : (constraints.maxWidth - 10) / 2;
-                          return Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: AppPaletteV2.values
-                                .map(
-                                  (palette) => SizedBox(
-                                    width: width,
-                                    child: _PaletteChoice(
-                                      palette: palette,
-                                      selected:
-                                          widget.themeController.palette ==
-                                          palette,
-                                      onTap: () => widget.themeController
-                                          .setPalette(palette),
-                                    ),
-                                  ),
-                                )
-                                .toList(growable: false),
-                          );
-                        },
                       ),
                     ],
                   ),

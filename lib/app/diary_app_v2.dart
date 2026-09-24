@@ -44,8 +44,8 @@ class DiaryAppV2 extends StatelessWidget {
         title: '时光日记',
         debugShowCheckedModeBanner: false,
         themeMode: themeController.mode,
-        theme: _theme(Brightness.light, themeController.palette),
-        darkTheme: _theme(Brightness.dark, themeController.palette),
+        theme: _theme(Brightness.light),
+        darkTheme: _theme(Brightness.dark),
         home: AppLockGateV2(
           controller: appLockController,
           child: DiaryHomePageV2(
@@ -64,7 +64,7 @@ class DiaryAppV2 extends StatelessWidget {
     );
   }
 
-  ThemeData _theme(Brightness brightness, AppPaletteV2 palette) {
+  ThemeData _theme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
     final colors =
         ColorScheme.fromSeed(
