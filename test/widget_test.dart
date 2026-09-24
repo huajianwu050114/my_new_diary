@@ -37,6 +37,8 @@ Future<void> main() async {
 
     await tester.tap(find.byTooltip('写日记'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('直接写'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(EditableText).first, 'v2 的第一篇日记');
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
@@ -61,7 +63,9 @@ Future<void> main() async {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('语音写日记').last);
+    await tester.tap(find.byTooltip('写日记'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('语音成稿'));
     await tester.pumpAndSettle();
     expect(find.text('语音成稿'), findsOneWidget);
 
@@ -328,7 +332,7 @@ Future<void> main() async {
 
       expect(find.text('今天，想记下什么？'), findsOneWidget);
       expect(find.text('最近日记'), findsOneWidget);
-      expect(find.text('写下这一刻'), findsOneWidget);
+      expect(find.text('写下这一刻'), findsNothing);
       expect(find.byTooltip('写日记'), findsOneWidget);
       expect(find.text('日历'), findsOneWidget);
       expect(find.text('生活'), findsOneWidget);

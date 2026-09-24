@@ -104,9 +104,6 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
           return switch (_selectedTab) {
             0 => _JournalTab(
               entries: entries,
-              onWrite: () => _openComposer(context),
-              onVoice: _openVoiceComposer,
-              onGuided: _openGuidedComposer,
               onEntryTap: _openEntry,
               onArchive: () => _openArchive(),
               onMonthArchive: (year, month) =>
@@ -160,7 +157,7 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
           ? FloatingActionButton(
               heroTag: 'write-diary',
               tooltip: '写日记',
-              onPressed: () => _openComposer(context),
+              onPressed: _openWriteMenu,
               child: const Icon(Icons.edit_outlined, size: 22),
             )
           : null,
@@ -231,6 +228,62 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
         ),
       ),
     );
+  }
+
+  Future<void> _openWriteMenu() async {
+    final action = await showModalBottomSheet<_WriteAction>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 22, 24, 18),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('写日记', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 4),
+                Text('选择一种开始方式', style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 18),
+                _WriteOption(
+                  icon: Icons.edit_outlined,
+                  title: '直接写',
+                  subtitle: '从一张空白纸开始',
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_WriteAction.text),
+                ),
+                _WriteOption(
+                  icon: Icons.mic_none_rounded,
+                  title: '语音成稿',
+                  subtitle: '用输入法说出来，再整理成日记',
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_WriteAction.voice),
+                ),
+                _WriteOption(
+                  icon: Icons.forum_outlined,
+                  title: '陪我聊着写',
+                  subtitle: '在对话中慢慢找到想写的话',
+                  showDivider: false,
+                  onTap: () =>
+                      Navigator.of(sheetContext).pop(_WriteAction.guided),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case _WriteAction.text:
+        await _openComposer(context);
+      case _WriteAction.voice:
+        await _openVoiceComposer();
+      case _WriteAction.guided:
+        await _openGuidedComposer();
+    }
   }
 
   Future<void> _openSearch(BuildContext context) async {
@@ -336,21 +389,80 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
   }
 }
 
+enum _WriteAction { text, voice, guided }
+
+class _WriteOption extends StatelessWidget {
+  const _WriteOption({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.showDivider = true,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool showDivider;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          decoration: BoxDecoration(
+            border: showDivider
+                ? Border(
+                    bottom: BorderSide(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                      width: 0.6,
+                    ),
+                  )
+                : null,
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 21),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: Theme.of(context).textTheme.bodyLarge),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _JournalTab extends StatefulWidget {
   const _JournalTab({
     required this.entries,
-    required this.onWrite,
-    required this.onVoice,
-    required this.onGuided,
     required this.onEntryTap,
     required this.onArchive,
     required this.onMonthArchive,
   });
 
   final List<DiaryEntryV2> entries;
-  final VoidCallback onWrite;
-  final VoidCallback onVoice;
-  final VoidCallback onGuided;
   final ValueChanged<DiaryEntryV2> onEntryTap;
   final VoidCallback onArchive;
   final void Function(int year, int month) onMonthArchive;
@@ -387,50 +499,7 @@ class _JournalTabState extends State<_JournalTab> {
         Text('今天，想记下什么？', style: Theme.of(context).textTheme.headlineMedium),
         const SizedBox(height: 28),
         const DailyEncouragementCardV2(),
-        const SizedBox(height: 28),
-        Divider(color: Theme.of(context).colorScheme.outlineVariant),
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: widget.onWrite,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 18),
-              child: Row(
-                children: [
-                  const Icon(Icons.edit_outlined, size: 21),
-                  const SizedBox(width: 16),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '写下这一刻',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        SizedBox(height: 2),
-                        Text('几句话、一种心情，或者一张照片', style: TextStyle(fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '语音写日记',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: widget.onVoice,
-                    icon: const Icon(Icons.mic_none_rounded, size: 20),
-                  ),
-                  IconButton(
-                    tooltip: '陪我聊着写',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: widget.onGuided,
-                    icon: const Icon(Icons.forum_outlined, size: 19),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Divider(color: Theme.of(context).colorScheme.outlineVariant),
-        const SizedBox(height: 38),
+        const SizedBox(height: 44),
         Row(
           children: [
             Expanded(
