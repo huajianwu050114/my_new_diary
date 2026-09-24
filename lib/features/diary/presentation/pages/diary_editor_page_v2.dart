@@ -103,7 +103,7 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: const EdgeInsets.fromLTRB(24, 12, 24, 48),
         children: [
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 4),
@@ -113,6 +113,7 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
             trailing: const Icon(Icons.chevron_right),
             onTap: _pickDate,
           ),
+          const Divider(height: 1),
           ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 4),
             leading: const Icon(Icons.location_on_outlined),
@@ -127,24 +128,34 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
                   ),
             onTap: _pickLocation,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 28),
           TextField(
             controller: _bodyController,
             autofocus: !widget.isEditing,
-            minLines: 10,
+            minLines: 12,
             maxLines: null,
             textInputAction: TextInputAction.newline,
             decoration: InputDecoration(
               hintText: '今天发生了什么？',
               alignLabelWithHint: true,
+              filled: false,
+              contentPadding: EdgeInsets.zero,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
               suffixIcon: IconButton(
                 tooltip: '语音输入',
                 onPressed: _isSaving ? null : _openVoiceDraft,
                 icon: const Icon(Icons.mic_none_rounded),
               ),
             ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyLarge?.copyWith(fontSize: 17, height: 1.8),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 28),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(

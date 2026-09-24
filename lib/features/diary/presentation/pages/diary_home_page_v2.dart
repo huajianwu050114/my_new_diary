@@ -72,6 +72,14 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
     return Scaffold(
       appBar: AppBar(
         title: Text(const ['日记', '日历', '生活', '回忆', '我的'][_selectedTab]),
+        toolbarHeight: 58,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(0.6),
+          child: Divider(
+            height: 0.6,
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
         actions: _selectedTab == 0
             ? [
                 IconButton(
@@ -149,55 +157,54 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
         },
       ),
       floatingActionButton: _selectedTab == 0
-          ? Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                FloatingActionButton.small(
-                  heroTag: 'voice-diary',
-                  tooltip: '语音写日记',
-                  onPressed: _openVoiceComposer,
-                  child: const Icon(Icons.mic_none_rounded),
-                ),
-                const SizedBox(width: 12),
-                FloatingActionButton(
-                  heroTag: 'write-diary',
-                  tooltip: '写日记',
-                  onPressed: () => _openComposer(context),
-                  child: const Icon(Icons.edit_outlined),
-                ),
-              ],
+          ? FloatingActionButton(
+              heroTag: 'write-diary',
+              tooltip: '写日记',
+              onPressed: () => _openComposer(context),
+              child: const Icon(Icons.edit_outlined, size: 22),
             )
           : null,
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedTab,
-        onDestinationSelected: (index) => setState(() => _selectedTab = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.menu_book_outlined),
-            selectedIcon: Icon(Icons.menu_book),
-            label: '日记',
+      bottomNavigationBar: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+              width: 0.6,
+            ),
           ),
-          NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month),
-            label: '日历',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.grid_view_outlined),
-            selectedIcon: Icon(Icons.grid_view_rounded),
-            label: '生活',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.auto_awesome_mosaic_outlined),
-            selectedIcon: Icon(Icons.auto_awesome_mosaic),
-            label: '回忆',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: '我的',
-          ),
-        ],
+        ),
+        child: NavigationBar(
+          selectedIndex: _selectedTab,
+          onDestinationSelected: (index) =>
+              setState(() => _selectedTab = index),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.menu_book_outlined),
+              selectedIcon: Icon(Icons.menu_book),
+              label: '日记',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.calendar_today_outlined),
+              selectedIcon: Icon(Icons.calendar_today),
+              label: '日历',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.grid_view_outlined),
+              selectedIcon: Icon(Icons.grid_view_rounded),
+              label: '生活',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.history_outlined),
+              selectedIcon: Icon(Icons.history),
+              label: '回忆',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: Icon(Icons.person),
+              label: '我的',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -367,77 +374,63 @@ class _JournalTabState extends State<_JournalTab> {
     };
     final monthSummaries = _monthSummaries(sortedEntries).take(3).toList();
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),
+      padding: const EdgeInsets.fromLTRB(24, 22, 24, 112),
       children: [
         Text(
           '${now.month}月${now.day}日 · ${_TodayHeader._weekdays[now.weekday - 1]}',
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
-            color: Theme.of(context).colorScheme.primary,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            fontWeight: FontWeight.w400,
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          '今天，想记下什么？',
-          style: Theme.of(
-            context,
-          ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w700),
-        ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 10),
+        Text('今天，想记下什么？', style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 28),
         const DailyEncouragementCardV2(),
-        const SizedBox(height: 20),
+        const SizedBox(height: 28),
+        Divider(color: Theme.of(context).colorScheme.outlineVariant),
         Material(
-          color: Theme.of(context).colorScheme.surfaceContainerLowest,
-          borderRadius: BorderRadius.circular(20),
-          clipBehavior: Clip.antiAlias,
+          color: Colors.transparent,
           child: InkWell(
             onTap: widget.onWrite,
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.symmetric(vertical: 18),
               child: Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(Icons.edit_outlined),
-                  ),
-                  const SizedBox(width: 15),
+                  const Icon(Icons.edit_outlined, size: 21),
+                  const SizedBox(width: 16),
                   const Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           '写下这一刻',
-                          style: TextStyle(fontWeight: FontWeight.w700),
+                          style: TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        SizedBox(height: 4),
-                        Text('几句话、一种心情，或者一张照片'),
+                        SizedBox(height: 2),
+                        Text('几句话、一种心情，或者一张照片', style: TextStyle(fontSize: 13)),
                       ],
                     ),
                   ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: '陪我聊着写',
-                        onPressed: widget.onGuided,
-                        icon: const Icon(Icons.forum_outlined),
-                      ),
-                      IconButton(
-                        tooltip: '语音写日记',
-                        onPressed: widget.onVoice,
-                        icon: const Icon(Icons.mic_none_rounded),
-                      ),
-                    ],
+                  IconButton(
+                    tooltip: '语音写日记',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.onVoice,
+                    icon: const Icon(Icons.mic_none_rounded, size: 20),
+                  ),
+                  IconButton(
+                    tooltip: '陪我聊着写',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: widget.onGuided,
+                    icon: const Icon(Icons.forum_outlined, size: 19),
                   ),
                 ],
               ),
             ),
           ),
         ),
-        const SizedBox(height: 30),
+        Divider(color: Theme.of(context).colorScheme.outlineVariant),
+        const SizedBox(height: 38),
         Row(
           children: [
             Expanded(
@@ -452,29 +445,23 @@ class _JournalTabState extends State<_JournalTab> {
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: SegmentedButton<_HomeDiaryFilter>(
-            showSelectedIcon: false,
-            segments: const [
-              ButtonSegment(
-                value: _HomeDiaryFilter.recent,
-                label: Text('最近'),
-                icon: Icon(Icons.schedule_rounded),
-              ),
-              ButtonSegment(
-                value: _HomeDiaryFilter.favorites,
-                label: Text('收藏'),
-                icon: Icon(Icons.favorite_border_rounded),
-              ),
-            ],
-            selected: {_filter},
-            onSelectionChanged: (selected) =>
-                setState(() => _filter = selected.first),
-          ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            _JournalFilterButton(
+              label: '最近',
+              selected: _filter == _HomeDiaryFilter.recent,
+              onTap: () => setState(() => _filter = _HomeDiaryFilter.recent),
+            ),
+            const SizedBox(width: 22),
+            _JournalFilterButton(
+              label: '收藏',
+              selected: _filter == _HomeDiaryFilter.favorites,
+              onTap: () => setState(() => _filter = _HomeDiaryFilter.favorites),
+            ),
+          ],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 8),
         if (visibleEntries.isEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 42),
@@ -495,7 +482,7 @@ class _JournalTabState extends State<_JournalTab> {
             ),
           ),
         if (monthSummaries.isNotEmpty) ...[
-          const SizedBox(height: 22),
+          const SizedBox(height: 34),
           Row(
             children: [
               Expanded(
@@ -507,26 +494,21 @@ class _JournalTabState extends State<_JournalTab> {
               TextButton(onPressed: widget.onArchive, child: const Text('全部')),
             ],
           ),
-          const SizedBox(height: 4),
-          Material(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(18),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                for (var index = 0; index < monthSummaries.length; index++) ...[
-                  _MonthArchiveTile(
-                    summary: monthSummaries[index],
-                    onTap: () => widget.onMonthArchive(
-                      monthSummaries[index].year,
-                      monthSummaries[index].month,
-                    ),
+          const SizedBox(height: 2),
+          Column(
+            children: [
+              for (var index = 0; index < monthSummaries.length; index++) ...[
+                _MonthArchiveTile(
+                  summary: monthSummaries[index],
+                  onTap: () => widget.onMonthArchive(
+                    monthSummaries[index].year,
+                    monthSummaries[index].month,
                   ),
-                  if (index != monthSummaries.length - 1)
-                    const Divider(height: 1, indent: 18, endIndent: 18),
-                ],
+                ),
+                if (index != monthSummaries.length - 1)
+                  const Divider(height: 1),
               ],
-            ),
+            ],
           ),
         ],
       ],
@@ -564,6 +546,39 @@ extension on _HomeDiaryFilter {
     _HomeDiaryFilter.recent => '还没有日记，从此刻开始吧',
     _HomeDiaryFilter.favorites => '还没有收藏的日记',
   };
+}
+
+class _JournalFilterButton extends StatelessWidget {
+  const _JournalFilterButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text(
+          label,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: selected ? colors.onSurface : colors.onSurfaceVariant,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            decoration: selected ? TextDecoration.underline : null,
+            decorationThickness: 1.5,
+            decorationColor: colors.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MonthSummary {
@@ -614,69 +629,65 @@ class _PaperDiaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final date = entry.entryDate.toLocal();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Theme.of(context).colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(18),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 48,
-                  child: Column(
-                    children: [
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                width: 0.6,
+              ),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 42,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${date.day}',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    Text(
+                      '${date.month}月',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      entry.body,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                    if (entry.tags.isNotEmpty) ...[
+                      const SizedBox(height: 10),
                       Text(
-                        '${date.day}',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        '${date.month}月',
+                        entry.tags.map((tag) => '#$tag').join('  '),
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
-                  ),
+                  ],
                 ),
-                Container(
-                  width: 1,
-                  height: 62,
-                  margin: const EdgeInsets.symmetric(horizontal: 14),
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        entry.body,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodyLarge?.copyWith(height: 1.55),
-                      ),
-                      if (entry.tags.isNotEmpty) ...[
-                        const SizedBox(height: 9),
-                        Text(
-                          entry.tags.map((tag) => '#$tag').join('  '),
-                          style: Theme.of(context).textTheme.bodySmall
-                              ?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                if (entry.mood != null) Text(entry.mood!),
+              ),
+              if (entry.mood != null) ...[
+                const SizedBox(width: 12),
+                Text(entry.mood!, style: const TextStyle(fontSize: 16)),
               ],
-            ),
+            ],
           ),
         ),
       ),
@@ -714,36 +725,21 @@ class _MemoriesTab extends StatelessWidget {
     }).toList();
     final photos = entries.where((entry) => entry.imageIds.isNotEmpty).take(8);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      padding: const EdgeInsets.fromLTRB(24, 18, 24, 40),
       children: [
-        Row(
-          children: [
-            if (onLifeGuideTap != null) ...[
-              Expanded(child: _LifeGuideEntryCard(onTap: onLifeGuideTap!)),
-              const SizedBox(width: 12),
-            ],
-            Expanded(child: _AiRecapCard(onTap: onAiTap)),
-          ],
+        Text('回到那些值得记住的时刻', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 24),
+        if (onLifeGuideTap != null) _LifeGuideEntryCard(onTap: onLifeGuideTap!),
+        _AiRecapCard(onTap: onAiTap),
+        _MemoryShortcut(
+          icon: Icons.place_outlined,
+          label: '地点',
+          onTap: onLocationsTap,
         ),
-        const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: _MemoryShortcut(
-                icon: Icons.place_outlined,
-                label: '地点',
-                onTap: onLocationsTap,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _MemoryShortcut(
-                icon: Icons.celebration_outlined,
-                label: '纪念日',
-                onTap: onFestivalsTap,
-              ),
-            ),
-          ],
+        _MemoryShortcut(
+          icon: Icons.celebration_outlined,
+          label: '纪念日',
+          onTap: onFestivalsTap,
         ),
         if (onThisDay.isNotEmpty) ...[
           const _SectionTitle(title: '那年今日', icon: Icons.history_rounded),
@@ -796,7 +792,7 @@ class _MeTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
       children: [
         FutureBuilder<LocalProfileV2>(
           future: profileStore.load(),
@@ -824,7 +820,7 @@ class _MeTab extends StatelessWidget {
             );
           },
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 36),
         _MeItem(
           icon: Icons.insights_outlined,
           title: '统计分析',
@@ -864,12 +860,21 @@ class _MeItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-      leading: Icon(icon),
-      title: Text(title),
-      trailing: const Icon(Icons.chevron_right_rounded),
-      onTap: onTap,
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+            width: 0.6,
+          ),
+        ),
+      ),
+      child: ListTile(
+        leading: Icon(icon, size: 21),
+        title: Text(title),
+        trailing: const Icon(Icons.chevron_right_rounded, size: 19),
+        onTap: onTap,
+      ),
     );
   }
 }
@@ -881,12 +886,9 @@ class _LifeGuideEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return _MemoryFeatureButton(
       icon: Icons.auto_stories_rounded,
       label: '我的人生指南',
-      backgroundColor: colors.secondaryContainer,
-      foregroundColor: colors.onSecondaryContainer,
       onTap: onTap,
     );
   }
@@ -906,15 +908,26 @@ class _MemoryShortcut extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(18),
-      clipBehavior: Clip.antiAlias,
+      color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                width: 0.6,
+              ),
+            ),
+          ),
           child: Row(
-            children: [Icon(icon), const SizedBox(width: 10), Text(label)],
+            children: [
+              Icon(icon, size: 21),
+              const SizedBox(width: 16),
+              Expanded(child: Text(label)),
+              const Icon(Icons.chevron_right_rounded, size: 19),
+            ],
           ),
         ),
       ),
@@ -926,55 +939,49 @@ class _MemoryFeatureButton extends StatelessWidget {
   const _MemoryFeatureButton({
     required this.icon,
     required this.label,
-    required this.backgroundColor,
-    required this.foregroundColor,
     required this.onTap,
   });
 
   final IconData icon;
   final String label;
-  final Color backgroundColor;
-  final Color foregroundColor;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 76,
-      child: Material(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(18),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: backgroundColor,
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  alignment: Alignment.center,
-                  child: Icon(icon, size: 22, color: foregroundColor),
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                ),
-              ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: Theme.of(context).colorScheme.outlineVariant,
+                width: 0.6,
+              ),
             ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 21,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, size: 19),
+            ],
           ),
         ),
       ),
@@ -1637,12 +1644,9 @@ class _AiRecapCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
     return _MemoryFeatureButton(
       icon: Icons.auto_awesome_rounded,
       label: 'AI 时光回顾',
-      backgroundColor: colors.primaryContainer,
-      foregroundColor: colors.onPrimaryContainer,
       onTap: onTap,
     );
   }

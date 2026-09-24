@@ -76,15 +76,12 @@ class _DailyEncouragementCardV2State extends State<DailyEncouragementCardV2>
     final colors = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: colors.primaryContainer.withValues(alpha: 0.42),
-        borderRadius: BorderRadius.circular(18),
+        border: Border(left: BorderSide(color: colors.onSurface, width: 1.5)),
       ),
-      padding: const EdgeInsets.fromLTRB(16, 14, 10, 15),
+      padding: const EdgeInsets.fromLTRB(18, 2, 0, 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.format_quote_rounded, color: colors.primary, size: 24),
-          const SizedBox(width: 11),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -92,16 +89,16 @@ class _DailyEncouragementCardV2State extends State<DailyEncouragementCardV2>
                 Text(
                   current ? '今日小笺' : '昨日余温',
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: colors.primary,
-                    fontWeight: FontWeight.w700,
+                    color: colors.onSurfaceVariant,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 Text(
                   value.text,
                   style: Theme.of(
                     context,
-                  ).textTheme.bodyMedium?.copyWith(height: 1.55),
+                  ).textTheme.bodyLarge?.copyWith(height: 1.65),
                 ),
               ],
             ),

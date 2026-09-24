@@ -98,28 +98,21 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
                       onPressed: () => _openChat(entry),
                       icon: const Icon(Icons.auto_awesome_outlined),
                     ),
-                    if (widget.lifeFragmentRepository != null)
-                      IconButton(
-                        tooltip: '提炼为人生碎片',
-                        onPressed: () => _extractLifeFragment(entry),
-                        icon: const Icon(Icons.psychology_alt_outlined),
+                    Tooltip(
+                      message: '编辑',
+                      child: TextButton(
+                        onPressed: () => _edit(entry),
+                        child: const Text('编辑'),
                       ),
-                    IconButton(
-                      tooltip: entry.isFavorite ? '取消收藏' : '收藏',
-                      onPressed: () => _toggleFavorite(entry),
-                      icon: Icon(
-                        entry.isFavorite
-                            ? Icons.favorite
-                            : Icons.favorite_border,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '编辑',
-                      onPressed: () => _edit(entry),
-                      icon: const Icon(Icons.edit_outlined),
                     ),
                     PopupMenuButton<_DetailAction>(
                       onSelected: (action) {
+                        if (action == _DetailAction.favorite) {
+                          _toggleFavorite(entry);
+                        }
+                        if (action == _DetailAction.lifeFragment) {
+                          _extractLifeFragment(entry);
+                        }
                         if (action == _DetailAction.memorySuggestions) {
                           _suggestMemories(entry);
                         }
@@ -127,8 +120,29 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
                           _moveToTrash(entry);
                         }
                       },
-                      itemBuilder: (_) => const [
+                      itemBuilder: (_) => [
                         PopupMenuItem(
+                          value: _DetailAction.favorite,
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(
+                              entry.isFavorite
+                                  ? Icons.favorite
+                                  : Icons.favorite_border,
+                            ),
+                            title: Text(entry.isFavorite ? '取消收藏' : '收藏'),
+                          ),
+                        ),
+                        if (widget.lifeFragmentRepository != null)
+                          const PopupMenuItem(
+                            value: _DetailAction.lifeFragment,
+                            child: ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: Icon(Icons.psychology_alt_outlined),
+                              title: Text('提炼为人生碎片'),
+                            ),
+                          ),
+                        const PopupMenuItem(
                           value: _DetailAction.memorySuggestions,
                           child: ListTile(
                             contentPadding: EdgeInsets.zero,
@@ -136,7 +150,7 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
                             title: Text('让AI提出记忆建议'),
                           ),
                         ),
-                        PopupMenuItem(
+                        const PopupMenuItem(
                           value: _DetailAction.trash,
                           child: ListTile(
                             contentPadding: EdgeInsets.zero,
@@ -194,23 +208,23 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
         ),
         if (entry.location != null) ...[
           const SizedBox(height: 12),
-          Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: ListTile(
-              dense: true,
-              leading: Icon(
+          Row(
+            children: [
+              Icon(
                 Icons.location_on_outlined,
-                color: Theme.of(context).colorScheme.primary,
+                size: 17,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-              title: Text(
-                entry.location!.address ??
-                    '${entry.location!.latitude.toStringAsFixed(5)}, '
-                        '${entry.location!.longitude.toStringAsFixed(5)}',
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  entry.location!.address ??
+                      '${entry.location!.latitude.toStringAsFixed(5)}, '
+                          '${entry.location!.longitude.toStringAsFixed(5)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ),
-            ),
+            ],
           ),
         ],
         const SizedBox(height: 28),
@@ -222,12 +236,9 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
         ),
         if (entry.tags.isNotEmpty) ...[
           const SizedBox(height: 18),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: entry.tags
-                .map((tag) => Chip(label: Text('#$tag')))
-                .toList(growable: false),
+          Text(
+            entry.tags.map((tag) => '#$tag').join('   '),
+            style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
         const SizedBox(height: 32),
@@ -277,12 +288,15 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
     if (latest == null) return const SizedBox.shrink();
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+        border: Border(
+          top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+          bottom: BorderSide(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
+        ),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 10, 16),
+        padding: const EdgeInsets.fromLTRB(0, 18, 0, 18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -753,7 +767,7 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
   }
 }
 
-enum _DetailAction { memorySuggestions, trash }
+enum _DetailAction { favorite, lifeFragment, memorySuggestions, trash }
 
 class _ImageViewer extends StatelessWidget {
   const _ImageViewer({

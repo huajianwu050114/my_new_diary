@@ -65,29 +65,221 @@ class DiaryAppV2 extends StatelessWidget {
   }
 
   ThemeData _theme(Brightness brightness, AppPaletteV2 palette) {
-    final colors = ColorScheme.fromSeed(
-      seedColor: palette.seedColor,
+    final isDark = brightness == Brightness.dark;
+    final colors =
+        ColorScheme.fromSeed(
+          seedColor: const Color(0xFF202020),
+          brightness: brightness,
+        ).copyWith(
+          primary: isDark ? const Color(0xFFF2F2F2) : const Color(0xFF171717),
+          onPrimary: isDark ? const Color(0xFF171717) : Colors.white,
+          secondary: isDark ? const Color(0xFFB8B8B8) : const Color(0xFF5F5F5F),
+          onSecondary: isDark ? const Color(0xFF171717) : Colors.white,
+          surface: isDark ? const Color(0xFF101010) : const Color(0xFFFCFCFB),
+          surfaceContainerLowest: isDark
+              ? const Color(0xFF101010)
+              : const Color(0xFFFCFCFB),
+          surfaceContainerLow: isDark
+              ? const Color(0xFF151515)
+              : const Color(0xFFF7F7F5),
+          surfaceContainer: isDark
+              ? const Color(0xFF1B1B1B)
+              : const Color(0xFFF1F1EF),
+          surfaceContainerHigh: isDark
+              ? const Color(0xFF222222)
+              : const Color(0xFFEAEAE7),
+          outline: isDark ? const Color(0xFF777777) : const Color(0xFF777777),
+          outlineVariant: isDark
+              ? const Color(0xFF2C2C2C)
+              : const Color(0xFFE3E3E0),
+        );
+    final baseTextTheme = ThemeData(
       brightness: brightness,
-    );
+      fontFamily: 'MiSans',
+    ).textTheme;
     return ThemeData(
       colorScheme: colors,
       brightness: brightness,
       useMaterial3: true,
       fontFamily: 'MiSans',
-      scaffoldBackgroundColor: brightness == Brightness.light
-          ? palette.lightBackground
-          : palette.darkBackground,
-      appBarTheme: const AppBarTheme(
+      scaffoldBackgroundColor: colors.surface,
+      canvasColor: colors.surface,
+      splashFactory: InkSparkle.splashFactory,
+      textTheme: baseTextTheme.copyWith(
+        displaySmall: baseTextTheme.displaySmall?.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: -1.2,
+          height: 1.12,
+        ),
+        headlineMedium: baseTextTheme.headlineMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.7,
+          height: 1.2,
+        ),
+        headlineSmall: baseTextTheme.headlineSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.35,
+          height: 1.25,
+        ),
+        titleLarge: baseTextTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.2,
+        ),
+        titleMedium: baseTextTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+        bodyLarge: baseTextTheme.bodyLarge?.copyWith(height: 1.7),
+        bodyMedium: baseTextTheme.bodyMedium?.copyWith(height: 1.65),
+        bodySmall: baseTextTheme.bodySmall?.copyWith(
+          color: colors.onSurfaceVariant,
+          height: 1.5,
+        ),
+        labelLarge: baseTextTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.1,
+        ),
+      ),
+      appBarTheme: AppBarTheme(
         centerTitle: false,
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        titleTextStyle: TextStyle(
+          color: colors.onSurface,
+          fontFamily: 'MiSans',
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.3,
+        ),
+        iconTheme: IconThemeData(color: colors.onSurface, size: 22),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: colors.surfaceContainerLowest,
+        fillColor: colors.surfaceContainerLow,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 15,
+        ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: colors.onSurface, width: 1),
+        ),
+      ),
+      dividerTheme: DividerThemeData(
+        color: colors.outlineVariant,
+        thickness: 0.6,
+        space: 1,
+      ),
+      cardTheme: CardThemeData(
+        color: colors.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: const RoundedRectangleBorder(),
+      ),
+      listTileTheme: ListTileThemeData(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+        iconColor: colors.onSurfaceVariant,
+        minLeadingWidth: 28,
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          foregroundColor: colors.onSurface,
+          minimumSize: const Size(44, 44),
+          shape: const CircleBorder(),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: colors.onSurface,
+          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: colors.primary,
+          foregroundColor: colors.onPrimary,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: colors.onSurface,
+          side: BorderSide(color: colors.outlineVariant),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: Colors.transparent,
+        selectedColor: colors.surfaceContainerHigh,
+        disabledColor: Colors.transparent,
+        side: BorderSide(color: colors.outlineVariant, width: 0.7),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        labelStyle: TextStyle(color: colors.onSurface, fontSize: 13),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: colors.primary,
+        foregroundColor: colors.onPrimary,
+        elevation: 0,
+        focusElevation: 0,
+        hoverElevation: 0,
+        highlightElevation: 0,
+        shape: const CircleBorder(),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        height: 66,
+        elevation: 0,
+        backgroundColor: colors.surface,
+        surfaceTintColor: Colors.transparent,
+        indicatorColor: Colors.transparent,
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
+          return IconThemeData(
+            color: selected ? colors.onSurface : colors.onSurfaceVariant,
+            size: 23,
+          );
+        }),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
+          return TextStyle(
+            color: selected ? colors.onSurface : colors.onSurfaceVariant,
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          );
+        }),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: colors.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shape: const RoundedRectangleBorder(),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: colors.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: colors.outlineVariant),
         ),
       ),
     );
