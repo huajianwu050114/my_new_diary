@@ -185,6 +185,67 @@ void main() {
       await directory.delete(recursive: true);
     }
   });
+
+  test('repairs a version 9 database missing the rich text column', () async {
+    final directory = await Directory.systemTemp.createTemp('diary-v9-');
+    final databasePath = path.join(directory.path, 'broken-v9.db');
+    final legacy = await databaseFactoryFfi.openDatabase(
+      databasePath,
+      options: OpenDatabaseOptions(
+        version: 9,
+        onCreate: (database, _) async {
+          await database.execute('''
+            CREATE TABLE diary_entries (
+              id TEXT PRIMARY KEY NOT NULL,
+              body TEXT NOT NULL,
+              entry_date TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              image_ids TEXT NOT NULL DEFAULT '[]',
+              mood TEXT,
+              tags TEXT NOT NULL DEFAULT '[]',
+              latitude REAL,
+              longitude REAL,
+              address TEXT,
+              ai_analyses TEXT NOT NULL DEFAULT '[]',
+              is_favorite INTEGER NOT NULL DEFAULT 0,
+              deleted_at TEXT
+            )
+          ''');
+        },
+      ),
+    );
+    final timestamp = DateTime.utc(2026, 1, 2).toIso8601String();
+    await legacy.insert('diary_entries', {
+      'id': 'legacy-entry',
+      'body': '旧日记正文',
+      'entry_date': timestamp,
+      'created_at': timestamp,
+      'updated_at': timestamp,
+    });
+    await legacy.close();
+
+    final repairedOwner = DiaryDatabaseV2(
+      factory: databaseFactoryFfi,
+      databasePath: () async => databasePath,
+    );
+    final repairedRepository = SqliteDiaryRepositoryV2(
+      await repairedOwner.open(),
+    );
+    try {
+      await repairedRepository.save(_entry(id: 'new-entry'));
+
+      expect((await repairedRepository.getById('legacy-entry'))?.body, '旧日记正文');
+      expect(
+        (await repairedRepository.getById('new-entry'))?.contentDelta,
+        isNotNull,
+      );
+    } finally {
+      await repairedRepository.dispose();
+      await repairedOwner.close();
+      await directory.delete(recursive: true);
+    }
+  });
 }
 
 DiaryEntryV2 _entry({

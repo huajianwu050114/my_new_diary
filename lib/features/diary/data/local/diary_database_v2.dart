@@ -9,7 +9,7 @@ class DiaryDatabaseV2 {
        _databasePath = databasePath ?? _defaultDatabasePath;
 
   static const databaseName = 'diary_v2.db';
-  static const schemaVersion = 9;
+  static const schemaVersion = 10;
 
   final DatabaseFactory _databaseFactory;
   final Future<String> Function() _databasePath;
@@ -31,6 +31,7 @@ class DiaryDatabaseV2 {
         },
         onCreate: _createSchema,
         onUpgrade: _upgradeSchema,
+        onOpen: _repairSchema,
       ),
     );
     return _database!;
@@ -113,7 +114,21 @@ class DiaryDatabaseV2 {
         "ALTER TABLE life_documents ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
       );
     }
-    if (oldVersion < 9) {
+    if (oldVersion < 10) {
+      await _ensureContentDeltaColumn(database);
+    }
+  }
+
+  static Future<void> _repairSchema(Database database) async {
+    await _ensureContentDeltaColumn(database);
+  }
+
+  static Future<void> _ensureContentDeltaColumn(Database database) async {
+    final columns = await database.rawQuery('PRAGMA table_info(diary_entries)');
+    final hasContentDelta = columns.any(
+      (column) => column['name'] == 'content_delta',
+    );
+    if (!hasContentDelta) {
       await database.execute(
         'ALTER TABLE diary_entries ADD COLUMN content_delta TEXT',
       );
