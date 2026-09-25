@@ -8,21 +8,23 @@ import 'package:my_new_diary/features/ai/data/daily_quote_api_client_v2.dart';
 
 void main() {
   test('parses a Hitokoto quote with attribution and source link', () async {
+    late Uri requestedUri;
     final client = DailyQuoteApiClientV2(
-      providerOrder: const [DailyQuoteProviderV2.hitokoto],
-      httpClient: MockClient(
-        (_) async => http.Response.bytes(
+      httpClient: MockClient((request) async {
+        requestedUri = request.url;
+        return http.Response.bytes(
           utf8.encode(
             jsonEncode({
               'hitokoto': '生活最佳状态是冷冷清清地风风火火。',
+              'type': 'd',
               'from_who': '木心',
               'from': '云雀叫了一整天',
               'uuid': 'quote-id',
             }),
           ),
           200,
-        ),
-      ),
+        );
+      }),
     );
 
     final quote = await client.fetch(dateKey: '2026-09-25', recentTexts: []);
@@ -32,20 +34,18 @@ void main() {
     expect(quote.work, '云雀叫了一整天');
     expect(quote.provider, '一言');
     expect(quote.sourceUrl, 'https://hitokoto.cn?uuid=quote-id');
+    expect(
+      requestedUri.queryParametersAll['c'],
+      containsAll(['d', 'e', 'f', 'k']),
+    );
+    expect(requestedUri.queryParametersAll['c'], isNot(contains('i')));
   });
 
-  test('parses a Jinrishici quote with author and work', () async {
+  test('rejects a poetry response even if the API returns one', () async {
     final client = DailyQuoteApiClientV2(
-      providerOrder: const [DailyQuoteProviderV2.jinrishici],
       httpClient: MockClient(
         (_) async => http.Response.bytes(
-          utf8.encode(
-            jsonEncode({
-              'content': '行到水穷处，坐看云起时。',
-              'author': '王维',
-              'origin': '终南别业',
-            }),
-          ),
+          utf8.encode(jsonEncode({'hitokoto': '行到水穷处，坐看云起时。', 'type': 'i'})),
           200,
         ),
       ),
@@ -53,42 +53,24 @@ void main() {
 
     final quote = await client.fetch(dateKey: '2026-09-25', recentTexts: []);
 
-    expect(quote.text, '行到水穷处，坐看云起时。');
-    expect(quote.author, '王维');
-    expect(quote.work, '终南别业');
-    expect(quote.provider, '今日诗词');
+    expect(quote.text, isNot('行到水穷处，坐看云起时。'));
+    expect(quote.provider, isNull);
   });
 
-  test('skips a non-Chinese result and tries the next provider', () async {
+  test('uses a non-poetry offline line for a non-Chinese result', () async {
     final client = DailyQuoteApiClientV2(
-      providerOrder: const [
-        DailyQuoteProviderV2.hitokoto,
-        DailyQuoteProviderV2.jinrishici,
-      ],
-      httpClient: MockClient((request) async {
-        if (request.url.host == 'v1.hitokoto.cn') {
-          return http.Response(
-            jsonEncode({'hitokoto': 'Stay hungry, stay foolish.'}),
-            200,
-          );
-        }
-        return http.Response.bytes(
-          utf8.encode(
-            jsonEncode({
-              'content': '人闲桂花落，夜静春山空。',
-              'author': '王维',
-              'origin': '鸟鸣涧',
-            }),
-          ),
+      httpClient: MockClient(
+        (_) async => http.Response(
+          jsonEncode({'hitokoto': 'Stay hungry, stay foolish.', 'type': 'k'}),
           200,
-        );
-      }),
+        ),
+      ),
     );
 
     final quote = await client.fetch(dateKey: '2026-09-26', recentTexts: []);
 
-    expect(quote.text, '人闲桂花落，夜静春山空。');
-    expect(quote.provider, '今日诗词');
+    expect(quote.text, isNot('Stay hungry, stay foolish.'));
+    expect(quote.provider, isNull);
   });
 
   test('uses a dated offline quote when every API is unavailable', () async {
@@ -107,6 +89,6 @@ void main() {
 
     expect(first.text, isNotEmpty);
     expect(first.text, second.text);
-    expect(first.author, isNotEmpty);
+    expect(first.provider, isNull);
   });
 }

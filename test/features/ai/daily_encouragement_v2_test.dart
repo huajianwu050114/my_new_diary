@@ -129,19 +129,19 @@ void main() {
     await store.write(
       DailyEncouragementV2(
         dateKey: '2026-08-01',
-        text: '行到水穷处，坐看云起时。',
+        text: '生活最佳状态是冷冷清清地风风火火。',
         createdAt: DateTime.utc(2026, 8, 1),
-        author: '王维',
-        work: '终南别业',
-        provider: '今日诗词',
-        sourceUrl: 'https://www.jinrishici.com',
+        author: '木心',
+        work: '云雀叫了一整天',
+        provider: '一言',
+        sourceUrl: 'https://hitokoto.cn',
       ),
     );
 
     final restored = await store.read('2026-08-01');
-    expect(restored?.attribution, '王维 · 《终南别业》');
-    expect(restored?.provider, '今日诗词');
-    expect(restored?.sourceUrl, 'https://www.jinrishici.com');
+    expect(restored?.attribution, '木心 · 《云雀叫了一整天》');
+    expect(restored?.provider, '一言');
+    expect(restored?.sourceUrl, 'https://hitokoto.cn');
   });
 }
 

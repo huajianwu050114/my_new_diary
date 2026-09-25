@@ -27,15 +27,13 @@ Future<void> main() async {
     final dateKey =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
     SharedPreferences.setMockInitialValues({
-      'v2_daily_quotes': jsonEncode({
+      'v2_daily_prose_quotes': jsonEncode({
         dateKey: {
           'dateKey': dateKey,
-          'text': '行到水穷处，坐看云起时。',
+          'text': '允许事情慢一点，也允许自己暂时没有答案。',
           'createdAt': now.toUtc().toIso8601String(),
-          'author': '王维',
-          'work': '终南别业',
-          'provider': '今日诗词',
-          'sourceUrl': 'https://www.jinrishici.com',
+          'provider': '一言',
+          'sourceUrl': 'https://hitokoto.cn',
         },
       }),
     });
@@ -56,7 +54,7 @@ Future<void> main() async {
     await tester.pumpAndSettle();
 
     expect(find.text('每日一句'), findsOneWidget);
-    expect(find.text('行到水穷处，坐看云起时。'), findsOneWidget);
+    expect(find.text('允许事情慢一点，也允许自己暂时没有答案。'), findsOneWidget);
     expect(find.text('还没有日记，从此刻开始吧'), findsOneWidget);
 
     await tester.tap(find.byTooltip('写日记'));
