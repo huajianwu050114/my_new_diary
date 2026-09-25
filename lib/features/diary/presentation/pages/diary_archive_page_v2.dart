@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
+import '../widgets/diary_mood_text_v2.dart';
 import '../../../life_guide/domain/life_fragment_repository_v2.dart';
 import 'diary_detail_page_v2.dart';
 import 'diary_search_page_v2.dart';
@@ -359,7 +360,14 @@ class _TimelineEntryTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-      trailing: entry.mood == null ? null : Text(entry.mood!),
+      trailing: entry.mood == null
+          ? null
+          : DiaryMoodTextV2(
+              mood: entry.mood!,
+              maxWidth: 96,
+              maxLines: 2,
+              textAlign: TextAlign.end,
+            ),
     );
   }
 }

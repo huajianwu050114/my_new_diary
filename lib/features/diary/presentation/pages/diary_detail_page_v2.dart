@@ -22,6 +22,7 @@ import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
 import '../widgets/diary_rich_text_v2.dart';
+import '../widgets/diary_mood_text_v2.dart';
 import 'diary_editor_page_v2.dart';
 
 class DiaryDetailPageV2 extends StatefulWidget {
@@ -204,7 +205,14 @@ class _DiaryDetailPageV2State extends State<DiaryDetailPageV2> {
               ),
             ),
             if (entry.mood != null)
-              Text(entry.mood!, style: const TextStyle(fontSize: 30)),
+              Flexible(
+                child: DiaryMoodTextV2(
+                  mood: entry.mood!,
+                  prominent: true,
+                  maxLines: 2,
+                  textAlign: TextAlign.end,
+                ),
+              ),
           ],
         ),
         if (entry.location != null) ...[

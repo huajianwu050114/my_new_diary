@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
+import '../widgets/diary_mood_text_v2.dart';
 import '../../../life_guide/domain/life_fragment_repository_v2.dart';
 import 'diary_detail_page_v2.dart';
 
@@ -426,7 +427,9 @@ class _SearchResults extends StatelessWidget {
         final entry = entries[index];
         final date = entry.entryDate.toLocal();
         return ListTile(
-          leading: entry.mood == null ? null : Text(entry.mood!),
+          leading: entry.mood == null
+              ? null
+              : DiaryMoodTextV2(mood: entry.mood!, maxWidth: 72, maxLines: 2),
           title: _HighlightedText(text: entry.body, query: query),
           subtitle: Text(
             [

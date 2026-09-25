@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:my_new_diary/app/diary_app_v2.dart';
 import 'package:my_new_diary/features/ai/domain/ai_chat_session_v2.dart';
@@ -20,6 +21,8 @@ import 'package:my_new_diary/features/settings/application/app_lock_controller_v
 
 Future<void> main() async {
   await initializeDateFormatting('zh_CN');
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('creates the first local diary entry', (tester) async {
     final repository = _MemoryDiaryRepository();
     await tester.pumpWidget(
@@ -61,6 +64,30 @@ Future<void> main() async {
     expect(find.text('地点'), findsOneWidget);
     expect(find.text('心情'), findsOneWidget);
     expect(find.text('标签'), findsWidgets);
+    expect(find.byKey(const Key('custom-mood-field')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('custom-mood-field')),
+      '期待又紧张 🌧️',
+    );
+    await tester.tap(find.text('保存当前'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('metadata-template-name')),
+      '学校',
+    );
+    await tester.tap(find.text('存下'));
+    await tester.pumpAndSettle();
+    expect(find.text('学校'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('custom-mood-field')), '');
+    await tester.tap(find.text('学校'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('custom-mood-field')))
+          .controller!
+          .text,
+      '期待又紧张 🌧️',
+    );
     await tester.tap(find.byTooltip('完成'));
     await tester.pumpAndSettle();
     _replaceRichEditorText(tester, 'v2 的第一篇日记');
@@ -70,6 +97,7 @@ Future<void> main() async {
 
     expect(find.text('v2 的第一篇日记', findRichText: true), findsOneWidget);
     expect(repository.entries, hasLength(1));
+    expect(repository.entries.single.mood, '期待又紧张 🌧️');
   });
 
   testWidgets('turns a voice transcript into an editable diary draft', (

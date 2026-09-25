@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_heatmap_calendar/flutter_heatmap_calendar.dart';
 
 import '../../diary/domain/entities/diary_entry.dart';
+import '../../diary/presentation/widgets/diary_mood_text_v2.dart';
 import '../../diary/domain/repositories/diary_repository_v2.dart';
 import '../data/stop_words_store_v2.dart';
 import '../domain/diary_analysis_v2.dart';
@@ -200,12 +201,21 @@ class _MoodDistribution extends StatelessWidget {
           const Text('这个时间范围内还没有心情记录')
         else
           ...analysis.moodCounts.entries.map(
-            (entry) => ListTile(
-              leading: Text(entry.key, style: const TextStyle(fontSize: 24)),
-              title: LinearProgressIndicator(
-                value: maximum == 0 ? 0 : entry.value / maximum,
+            (entry) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                children: [
+                  DiaryMoodTextV2(mood: entry.key, maxWidth: 104, maxLines: 2),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: LinearProgressIndicator(
+                      value: maximum == 0 ? 0 : entry.value / maximum,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text('${entry.value}'),
+                ],
               ),
-              trailing: Text('${entry.value}'),
             ),
           ),
       ],

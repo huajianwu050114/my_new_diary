@@ -14,7 +14,9 @@ import '../../../ai/data/ai_reply_task_store_v2.dart';
 import '../../../ai/data/gemini_rest_client_v2.dart';
 import '../../../ai/domain/ai_chat_session_v2.dart';
 import '../../application/ports/diary_image_store_v2.dart';
+import '../../data/local/diary_metadata_template_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
+import '../../domain/entities/diary_metadata_template_v2.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
 import '../widgets/diary_rich_text_v2.dart';
 import 'location_picker_page_v2.dart';
@@ -27,6 +29,7 @@ class DiaryEditorPageV2 extends StatefulWidget {
     this.initialBody = '',
     this.initialAiSession,
     this.skipAutomaticReply = false,
+    this.metadataTemplateStore,
     super.key,
   });
 
@@ -36,6 +39,7 @@ class DiaryEditorPageV2 extends StatefulWidget {
   final String initialBody;
   final AiChatSessionV2? initialAiSession;
   final bool skipAutomaticReply;
+  final DiaryMetadataTemplateStoreV2? metadataTemplateStore;
 
   bool get isEditing => entry != null;
 
@@ -46,8 +50,10 @@ class DiaryEditorPageV2 extends StatefulWidget {
 class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
   late final QuillController _editorController;
   late final TextEditingController _tagsController;
+  late final TextEditingController _moodController;
   late final FocusNode _editorFocusNode;
   late final ScrollController _editorScrollController;
+  late final DiaryMetadataTemplateStoreV2 _metadataTemplateStore;
   late DateTime _entryDate;
   final Set<String> _newImageIds = {};
   String? _mood;
@@ -73,8 +79,11 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
       selection: const TextSelection.collapsed(offset: 0),
     );
     _tagsController = TextEditingController(text: entry?.tags.join(', '));
+    _moodController = TextEditingController(text: entry?.mood);
     _editorFocusNode = FocusNode();
     _editorScrollController = ScrollController();
+    _metadataTemplateStore =
+        widget.metadataTemplateStore ?? DiaryMetadataTemplateStoreV2();
     _entryDate = entry?.entryDate.toLocal() ?? DateTime.now();
     _mood = entry?.mood;
     _location = entry?.location;
@@ -101,6 +110,7 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
     }
     _editorController.dispose();
     _tagsController.dispose();
+    _moodController.dispose();
     _editorFocusNode.dispose();
     _editorScrollController.dispose();
     super.dispose();
@@ -155,6 +165,11 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
   }
 
   Future<void> _openMetadata() async {
+    var templates = (await _metadataTemplateStore.load()).toList();
+    if (!mounted) return;
+    final templateNameController = TextEditingController();
+    var isNamingTemplate = false;
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -182,6 +197,41 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
                 );
             if (selected == null || !mounted) return;
             setState(() => _location = selected);
+            setSheetState(() {});
+          }
+
+          void applyTemplate(DiaryMetadataTemplateV2 template) {
+            setState(() {
+              _mood = template.mood;
+              _moodController.text = template.mood ?? '';
+              _tagsController.text = template.tags.join(', ');
+              _location = template.location;
+            });
+            setSheetState(() {});
+          }
+
+          Future<void> saveTemplate() async {
+            final name = templateNameController.text.trim();
+            if (name.isEmpty) return;
+            final template = DiaryMetadataTemplateV2(
+              id: const Uuid().v4(),
+              name: name,
+              mood: _mood,
+              tags: _currentTags(),
+              location: _location,
+            );
+            await _metadataTemplateStore.save(template);
+            if (!sheetContext.mounted) return;
+            templates = [...templates, template];
+            templateNameController.clear();
+            isNamingTemplate = false;
+            setSheetState(() {});
+          }
+
+          Future<void> deleteTemplate(String id) async {
+            await _metadataTemplateStore.delete(id);
+            if (!sheetContext.mounted) return;
+            templates.removeWhere((template) => template.id == id);
             setSheetState(() {});
           }
 
@@ -214,6 +264,69 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
                       ],
                     ),
                     const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '信息模板',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: () {
+                            isNamingTemplate = true;
+                            setSheetState(() {});
+                          },
+                          icon: const Icon(Icons.add, size: 17),
+                          label: const Text('保存当前'),
+                        ),
+                      ],
+                    ),
+                    if (templates.isEmpty && !isNamingTemplate)
+                      Text(
+                        '保存常用的地点、心情和标签，下次轻点一次即可填入。',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    for (final template in templates)
+                      _MetadataTemplateLine(
+                        template: template,
+                        onApply: () => applyTemplate(template),
+                        onDelete: () => deleteTemplate(template.id),
+                      ),
+                    if (isNamingTemplate)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6, bottom: 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                key: const Key('metadata-template-name'),
+                                controller: templateNameController,
+                                autofocus: true,
+                                textInputAction: TextInputAction.done,
+                                onSubmitted: (_) => saveTemplate(),
+                                decoration: const InputDecoration(
+                                  hintText: '模板名称，例如：学校',
+                                  border: UnderlineInputBorder(),
+                                ),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                templateNameController.clear();
+                                isNamingTemplate = false;
+                                setSheetState(() {});
+                              },
+                              child: const Text('取消'),
+                            ),
+                            TextButton(
+                              onPressed: saveTemplate,
+                              child: const Text('存下'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 12),
                     _MetadataLine(
                       label: '时间',
                       value: _formatDate(_entryDate),
@@ -241,9 +354,10 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
                             child: InkResponse(
                               radius: 24,
                               onTap: () {
-                                setState(
-                                  () => _mood = _mood == mood ? null : mood,
-                                );
+                                setState(() {
+                                  _mood = _mood == mood ? null : mood;
+                                  _moodController.text = _mood ?? '';
+                                });
                                 setSheetState(() {});
                               },
                               child: AnimatedOpacity(
@@ -263,7 +377,27 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const Key('custom-mood-field'),
+                      controller: _moodController,
+                      maxLength: 24,
+                      textInputAction: TextInputAction.done,
+                      onChanged: (value) {
+                        setState(
+                          () => _mood = value.trim().isEmpty
+                              ? null
+                              : value.trim(),
+                        );
+                        setSheetState(() {});
+                      },
+                      decoration: const InputDecoration(
+                        hintText: '或写下自己的心情，例如：期待又紧张 🌧️',
+                        counterText: '',
+                        border: UnderlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
                     Text('标签', style: Theme.of(context).textTheme.labelLarge),
                     const SizedBox(height: 8),
                     StreamBuilder<List<DiaryEntryV2>>(
@@ -283,6 +417,7 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
         },
       ),
     );
+    templateNameController.dispose();
     if (mounted) _editorFocusNode.requestFocus();
   }
 
@@ -341,12 +476,7 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
 
     setState(() => _isSaving = true);
     final now = DateTime.now().toUtc();
-    final tags = _tagsController.text
-        .split(RegExp(r'[,，]'))
-        .map((tag) => tag.trim())
-        .where((tag) => tag.isNotEmpty)
-        .toSet()
-        .toList(growable: false);
+    final tags = _currentTags();
     final existing = widget.entry;
 
     try {
@@ -413,6 +543,13 @@ class _DiaryEditorPageV2State extends State<DiaryEditorPageV2> {
 
   String _formatDate(DateTime date) =>
       '${date.year}年${date.month}月${date.day}日';
+
+  List<String> _currentTags() => _tagsController.text
+      .split(RegExp(r'[,，]'))
+      .map((tag) => tag.trim())
+      .where((tag) => tag.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
 }
 
 class _QuietEditorToolbar extends StatelessWidget {
@@ -529,6 +666,72 @@ class _FormatButton extends StatelessWidget {
             : Colors.transparent,
       ),
       icon: Icon(icon, size: 21),
+    );
+  }
+}
+
+class _MetadataTemplateLine extends StatelessWidget {
+  const _MetadataTemplateLine({
+    required this.template,
+    required this.onApply,
+    required this.onDelete,
+  });
+
+  final DiaryMetadataTemplateV2 template;
+  final VoidCallback onApply;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final details = [
+      if (template.location != null)
+        template.location!.address?.trim().isNotEmpty == true
+            ? template.location!.address!.trim()
+            : '已保存位置',
+      if (template.mood?.trim().isNotEmpty == true) template.mood!.trim(),
+      ...template.tags.map((tag) => '#$tag'),
+    ];
+    return InkWell(
+      onTap: onApply,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: Theme.of(context).colorScheme.outlineVariant,
+              width: 0.6,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(template.name),
+                  if (details.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      details.join(' · '),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Text('使用', style: Theme.of(context).textTheme.labelMedium),
+            IconButton(
+              tooltip: '删除模板',
+              visualDensity: VisualDensity.compact,
+              onPressed: onDelete,
+              icon: const Icon(Icons.close, size: 17),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

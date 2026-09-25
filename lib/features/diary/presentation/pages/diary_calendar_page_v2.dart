@@ -4,6 +4,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
+import '../widgets/diary_mood_text_v2.dart';
 import '../../../life_guide/domain/life_fragment_repository_v2.dart';
 import 'diary_detail_page_v2.dart';
 
@@ -163,9 +164,10 @@ class _DiaryCalendarPageV2State extends State<DiaryCalendarPageV2> {
                       ListTile(
                         leading: selectedEntries[index].mood == null
                             ? const Icon(Icons.notes)
-                            : Text(
-                                selectedEntries[index].mood!,
-                                style: const TextStyle(fontSize: 24),
+                            : DiaryMoodTextV2(
+                                mood: selectedEntries[index].mood!,
+                                maxWidth: 56,
+                                maxLines: 2,
                               ),
                         title: Text(
                           selectedEntries[index].body,
