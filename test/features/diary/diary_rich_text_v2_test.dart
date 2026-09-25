@@ -36,4 +36,41 @@ void main() {
     expect(restored.toDelta().toJson(), controller.document.toDelta().toJson());
     controller.dispose();
   });
+
+  test('bold is stored for selected text and newly entered text', () {
+    bool containsBoldText(QuillController controller) {
+      return controller.document.toDelta().toJson().any((operation) {
+        final attributes = operation['attributes'];
+        return operation['insert'] == 'bold' &&
+            attributes is Map &&
+            attributes['bold'] == true;
+      });
+    }
+
+    final selectedTextController = QuillController.basic();
+    selectedTextController
+      ..replaceText(
+        0,
+        0,
+        'plain bold',
+        const TextSelection.collapsed(offset: 10),
+      )
+      ..updateSelection(
+        const TextSelection(baseOffset: 6, extentOffset: 10),
+        ChangeSource.local,
+      )
+      ..formatSelection(Attribute.bold);
+
+    expect(containsBoldText(selectedTextController), isTrue);
+
+    final newlyEnteredTextController = QuillController.basic();
+    newlyEnteredTextController
+      ..formatSelection(Attribute.bold)
+      ..replaceText(0, 0, 'bold', const TextSelection.collapsed(offset: 4));
+
+    expect(containsBoldText(newlyEnteredTextController), isTrue);
+
+    selectedTextController.dispose();
+    newlyEnteredTextController.dispose();
+  });
 }

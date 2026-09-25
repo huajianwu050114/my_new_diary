@@ -118,7 +118,7 @@ DefaultStyles quietDiaryStyles(BuildContext context) {
         height: 1.68,
       ).copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
     ),
-    bold: const TextStyle(fontFamily: 'MiSans', fontWeight: FontWeight.w500),
+    bold: const TextStyle(fontFamily: 'MiSans', fontWeight: FontWeight.w700),
   );
 }
 

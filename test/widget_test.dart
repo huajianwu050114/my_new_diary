@@ -50,7 +50,7 @@ Future<void> main() async {
       richEditor.config.customStyles?.paragraph?.style.fontWeight,
       FontWeight.w400,
     );
-    expect(richEditor.config.customStyles?.bold?.fontWeight, FontWeight.w500);
+    expect(richEditor.config.customStyles?.bold?.fontWeight, FontWeight.w700);
     expect(find.text('日记日期'), findsNothing);
     expect(find.text('地点'), findsNothing);
     expect(find.byTooltip('日记信息'), findsOneWidget);
