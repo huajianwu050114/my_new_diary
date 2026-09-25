@@ -17,7 +17,7 @@ void main() {
       clock: () => DateTime(2026, 8, 1, 9),
       generate: ({required dateKey, required recentTexts}) async {
         requests++;
-        return '慢一点也没关系，今天仍有属于你的从容。';
+        return _draft('慢一点也没关系，今天仍有属于你的从容。');
       },
     );
 
@@ -40,9 +40,11 @@ void main() {
       generate: ({required dateKey, required recentTexts}) async {
         requests++;
         receivedHistory = recentTexts;
-        return dateKey == '2026-08-01'
-            ? '先照顾好眼前的一小步，远方会慢慢靠近。'
-            : '窗边的新光已经到了，你也可以按自己的速度开始。';
+        return _draft(
+          dateKey == '2026-08-01'
+              ? '先照顾好眼前的一小步，远方会慢慢靠近。'
+              : '窗边的新光已经到了，你也可以按自己的速度开始。',
+        );
       },
     );
 
@@ -80,7 +82,7 @@ void main() {
   });
 
   test('并发加载只发出一次生成请求', () async {
-    final completer = Completer<String>();
+    final completer = Completer<DailyEncouragementDraftV2>();
     var requests = 0;
     final coordinator = DailyEncouragementCoordinatorV2(
       store: _MemoryDailyEncouragementStore(),
@@ -93,7 +95,7 @@ void main() {
 
     final first = coordinator.loadToday();
     final second = coordinator.loadToday();
-    completer.complete('今日小笺：“给自己留一点空白，也是在认真生活。”');
+    completer.complete(_draft('每日一句：“给自己留一点空白，也是在认真生活。”'));
 
     final values = await Future.wait([first, second]);
     expect(requests, 1);
@@ -120,7 +122,31 @@ void main() {
     expect((await restored.recent(limit: 40)), hasLength(30));
     expect((await restored.read('2026-07-31'))?.text, '第 31 天');
   });
+
+  test('本地存储保留作者、出处与来源', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = SharedPreferencesDailyEncouragementStoreV2();
+    await store.write(
+      DailyEncouragementV2(
+        dateKey: '2026-08-01',
+        text: '行到水穷处，坐看云起时。',
+        createdAt: DateTime.utc(2026, 8, 1),
+        author: '王维',
+        work: '终南别业',
+        provider: '今日诗词',
+        sourceUrl: 'https://www.jinrishici.com',
+      ),
+    );
+
+    final restored = await store.read('2026-08-01');
+    expect(restored?.attribution, '王维 · 《终南别业》');
+    expect(restored?.provider, '今日诗词');
+    expect(restored?.sourceUrl, 'https://www.jinrishici.com');
+  });
 }
+
+DailyEncouragementDraftV2 _draft(String text) =>
+    DailyEncouragementDraftV2(text: text);
 
 class _MemoryDailyEncouragementStore implements DailyEncouragementStoreV2 {
   final Map<String, DailyEncouragementV2> values = {};

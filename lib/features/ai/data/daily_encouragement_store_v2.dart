@@ -14,7 +14,7 @@ abstract interface class DailyEncouragementStoreV2 {
 
 class SharedPreferencesDailyEncouragementStoreV2
     implements DailyEncouragementStoreV2 {
-  static const _key = 'v2_daily_encouragements';
+  static const _key = 'v2_daily_quotes';
   static const _maximumStoredDays = 30;
 
   @override

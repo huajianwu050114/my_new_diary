@@ -3,10 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../application/daily_encouragement_coordinator_v2.dart';
-import '../application/diary_ai_service_v2.dart';
-import '../data/ai_configuration_store_v2.dart';
 import '../data/daily_encouragement_store_v2.dart';
-import '../data/gemini_rest_client_v2.dart';
+import '../data/daily_quote_api_client_v2.dart';
 import '../domain/daily_encouragement_v2.dart';
 
 class DailyEncouragementCardV2 extends StatefulWidget {
@@ -29,17 +27,10 @@ class _DailyEncouragementCardV2State extends State<DailyEncouragementCardV2>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    final configurationStore = AiConfigurationStoreV2();
-    final service = DiaryAiServiceV2(
-      GeminiRestClientV2(configurationStore: configurationStore),
-    );
+    final quoteClient = DailyQuoteApiClientV2();
     _coordinator = DailyEncouragementCoordinatorV2(
       store: SharedPreferencesDailyEncouragementStoreV2(),
-      generate: ({required dateKey, required recentTexts}) async =>
-          (await service.dailyEncouragement(
-            dateKey: dateKey,
-            recentTexts: recentTexts,
-          )).text,
+      generate: quoteClient.fetch,
     );
     _load();
     _scheduleMidnightRefresh();
@@ -66,54 +57,54 @@ class _DailyEncouragementCardV2State extends State<DailyEncouragementCardV2>
     final value = _value;
     if (value == null) {
       return _loading
-          ? const SizedBox(
-              height: 72,
-              child: Center(child: Icon(Icons.more_horiz_rounded, size: 22)),
+          ? SizedBox(
+              height: 82,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Text(
+                  '正在翻一页…',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
             )
           : const SizedBox.shrink();
     }
     final current = _isCurrent(value);
     final colors = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        border: Border(left: BorderSide(color: colors.onSurface, width: 1.5)),
-      ),
-      padding: const EdgeInsets.fromLTRB(18, 2, 0, 2),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  current ? '今日小笺' : '昨日余温',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: colors.onSurfaceVariant,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  value.text,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyLarge?.copyWith(height: 1.65),
-                ),
-              ],
+    final attribution = [
+      if (value.attribution case final attribution?) attribution,
+      if (value.provider case final provider?) provider,
+    ].join(' · ');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          current ? '每日一句' : '昨日一句',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: colors.onSurfaceVariant,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 9),
+        Text(
+          value.text,
+          style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.65),
+        ),
+        if (attribution.isNotEmpty) ...[
+          const SizedBox(height: 7),
+          Text(
+            '— $attribution',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: colors.onSurfaceVariant,
+              height: 1.4,
             ),
           ),
-          if (!current || _loading)
-            IconButton(
-              tooltip: '刷新今日小笺',
-              visualDensity: VisualDensity.compact,
-              onPressed: _loading ? null : _load,
-              icon: _loading
-                  ? const Icon(Icons.more_horiz_rounded, size: 20)
-                  : const Icon(Icons.refresh_rounded, size: 20),
-            ),
         ],
-      ),
+        if (!current && _loading) ...[
+          const SizedBox(height: 6),
+          Text('正在寻找今天的句子…', style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ],
     );
   }
 

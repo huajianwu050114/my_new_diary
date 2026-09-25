@@ -2,7 +2,7 @@ import '../data/daily_encouragement_store_v2.dart';
 import '../domain/daily_encouragement_v2.dart';
 
 typedef DailyEncouragementGeneratorV2 =
-    Future<String> Function({
+    Future<DailyEncouragementDraftV2> Function({
       required String dateKey,
       required List<String> recentTexts,
     });
@@ -33,17 +33,20 @@ class DailyEncouragementCoordinatorV2 {
 
     final recent = await _store.recent(limit: 14);
     try {
-      final generated = _clean(
-        await _generate(
-          dateKey: dateKey,
-          recentTexts: recent.map((value) => value.text).toList(),
-        ),
+      final draft = await _generate(
+        dateKey: dateKey,
+        recentTexts: recent.map((value) => value.text).toList(),
       );
+      final generated = _clean(draft.text);
       if (generated.isEmpty) return recent.firstOrNull;
       final value = DailyEncouragementV2(
         dateKey: dateKey,
         text: generated,
         createdAt: now.toUtc(),
+        author: draft.author,
+        work: draft.work,
+        provider: draft.provider,
+        sourceUrl: draft.sourceUrl,
       );
       await _store.write(value);
       return value;

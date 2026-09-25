@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -21,7 +22,24 @@ import 'package:my_new_diary/features/settings/application/app_lock_controller_v
 
 Future<void> main() async {
   await initializeDateFormatting('zh_CN');
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    final now = DateTime.now();
+    final dateKey =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    SharedPreferences.setMockInitialValues({
+      'v2_daily_quotes': jsonEncode({
+        dateKey: {
+          'dateKey': dateKey,
+          'text': '行到水穷处，坐看云起时。',
+          'createdAt': now.toUtc().toIso8601String(),
+          'author': '王维',
+          'work': '终南别业',
+          'provider': '今日诗词',
+          'sourceUrl': 'https://www.jinrishici.com',
+        },
+      }),
+    });
+  });
 
   testWidgets('creates the first local diary entry', (tester) async {
     final repository = _MemoryDiaryRepository();
@@ -37,6 +55,8 @@ Future<void> main() async {
     );
     await tester.pumpAndSettle();
 
+    expect(find.text('每日一句'), findsOneWidget);
+    expect(find.text('行到水穷处，坐看云起时。'), findsOneWidget);
     expect(find.text('还没有日记，从此刻开始吧'), findsOneWidget);
 
     await tester.tap(find.byTooltip('写日记'));
