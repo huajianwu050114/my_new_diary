@@ -43,6 +43,14 @@ Future<void> main() async {
     expect(find.text('陪我聊着写'), findsOneWidget);
     await tester.tap(find.text('直接写'));
     await tester.pumpAndSettle();
+    final richEditor = tester.widget<QuillEditor>(
+      find.byKey(const Key('diary-rich-editor')),
+    );
+    expect(
+      richEditor.config.customStyles?.paragraph?.style.fontWeight,
+      FontWeight.w400,
+    );
+    expect(richEditor.config.customStyles?.bold?.fontWeight, FontWeight.w500);
     expect(find.text('日记日期'), findsNothing);
     expect(find.text('地点'), findsNothing);
     expect(find.byTooltip('日记信息'), findsOneWidget);

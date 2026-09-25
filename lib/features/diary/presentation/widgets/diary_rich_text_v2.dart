@@ -66,12 +66,13 @@ DefaultStyles quietDiaryStyles(BuildContext context) {
     DefaultTextBlockStyle? block, {
     required double size,
     required double height,
-    FontWeight? weight,
+    FontWeight weight = FontWeight.w400,
   }) => (block?.style ?? const TextStyle()).copyWith(
     fontFamily: 'MiSans',
     fontSize: size,
     height: height,
     fontWeight: weight,
+    letterSpacing: 0.08,
     color: Theme.of(context).colorScheme.onSurface,
   );
 
@@ -84,7 +85,7 @@ DefaultStyles quietDiaryStyles(BuildContext context) {
         defaults.h1,
         size: 28,
         height: 1.32,
-        weight: FontWeight.w600,
+        weight: FontWeight.w500,
       ),
     ),
     h2: defaults.h2?.copyWith(
@@ -92,7 +93,7 @@ DefaultStyles quietDiaryStyles(BuildContext context) {
         defaults.h2,
         size: 22,
         height: 1.42,
-        weight: FontWeight.w600,
+        weight: FontWeight.w500,
       ),
     ),
     h3: defaults.h3?.copyWith(
@@ -100,7 +101,7 @@ DefaultStyles quietDiaryStyles(BuildContext context) {
         defaults.h3,
         size: 19,
         height: 1.5,
-        weight: FontWeight.w600,
+        weight: FontWeight.w500,
       ),
     ),
     quote: defaults.quote?.copyWith(
@@ -117,6 +118,7 @@ DefaultStyles quietDiaryStyles(BuildContext context) {
         height: 1.68,
       ).copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
     ),
+    bold: const TextStyle(fontFamily: 'MiSans', fontWeight: FontWeight.w500),
   );
 }
 
