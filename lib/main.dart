@@ -23,9 +23,14 @@ import 'features/life_library/data/sqlite_life_document_repository_v2.dart';
 import 'features/self_engine/application/self_engine_job_recovery_v2.dart';
 import 'features/self_engine/application/configured_self_engine_availability_v2.dart';
 import 'features/self_engine/application/memory_atom_job_processor_v2.dart';
+import 'features/self_engine/application/memory_thread_link_job_processor_v2.dart';
 import 'features/self_engine/application/ports/self_engine_runner_v2.dart';
+import 'features/self_engine/application/self_engine_pipeline_runner_v2.dart';
 import 'features/self_engine/application/self_engine_worker_v2.dart';
+import 'features/self_engine/application/thread_link_worker_v2.dart';
 import 'features/self_engine/data/ai/ai_memory_extractor_v2.dart';
+import 'features/self_engine/data/ai/ai_memory_thread_linker_v2.dart';
+import 'features/self_engine/data/local/sqlite_memory_thread_candidate_retriever_v2.dart';
 import 'features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
 
 Future<void> main() async {
@@ -43,22 +48,39 @@ Future<void> main() async {
   final database = await databaseOwner.open();
   final selfEngineRepository = SqliteSelfEngineRepositoryV2(database);
   final aiConfigurationStore = AiConfigurationStoreV2();
+  final aiClient = GeminiRestClientV2(configurationStore: aiConfigurationStore);
+  final selfEngineAvailability = ConfiguredSelfEngineAvailabilityV2(
+    aiConfigurationStore,
+  );
   const selfEngineLeaseDuration = Duration(minutes: 5);
-  final selfEngineWorker = SelfEngineWorkerV2(
+  final extractionWorker = SelfEngineWorkerV2(
     repository: selfEngineRepository,
     processor: MemoryAtomJobProcessorV2(
       repository: selfEngineRepository,
-      extractor: AiMemoryExtractorV2(
-        GeminiRestClientV2(configurationStore: aiConfigurationStore),
-      ),
+      extractor: AiMemoryExtractorV2(aiClient),
       leaseDuration: selfEngineLeaseDuration,
     ),
-    availability: ConfiguredSelfEngineAvailabilityV2(aiConfigurationStore),
+    availability: selfEngineAvailability,
     leaseDuration: selfEngineLeaseDuration,
+  );
+  final threadLinkWorker = ThreadLinkWorkerV2(
+    repository: selfEngineRepository,
+    processor: MemoryThreadLinkJobProcessorV2(
+      repository: selfEngineRepository,
+      candidateRetriever: SqliteMemoryThreadCandidateRetrieverV2(database),
+      linker: AiMemoryThreadLinkerV2(aiClient),
+      leaseDuration: selfEngineLeaseDuration,
+    ),
+    availability: selfEngineAvailability,
+    leaseDuration: selfEngineLeaseDuration,
+  );
+  final selfEngineRunner = SelfEnginePipelineRunnerV2(
+    extractionRunner: extractionWorker,
+    threadLinkRunner: threadLinkWorker,
   );
   void scheduleSelfEngineWork() {
     unawaited(
-      selfEngineWorker.runOnce().catchError((Object error) {
+      selfEngineRunner.runOnce().catchError((Object error) {
         debugPrint('Self Engine worker could not run: $error');
         return SelfEngineRunResultV2.ownershipLost;
       }),
@@ -92,6 +114,7 @@ Future<void> main() async {
   try {
     await selfEngineRecovery.afterColdStart();
     await selfEngineRecovery.reconcileLegacyDiaries();
+    await selfEngineRecovery.reconcileThreadLinkJobs();
   } catch (error) {
     debugPrint('Self Engine job recovery could not run: $error');
   }
@@ -109,7 +132,7 @@ Future<void> main() async {
       lifeDocumentRepository: lifeDocumentRepository,
       selfEngineRepository: selfEngineRepository,
       selfEngineRecovery: selfEngineRecovery,
-      selfEngineRunner: selfEngineWorker,
+      selfEngineRunner: selfEngineRunner,
       backupSnapshotReader: BackupSqliteSnapshotReaderV2(database),
       publicHolidayService: PublicHolidayServiceV2(),
       themeController: themeController,

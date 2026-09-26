@@ -2,7 +2,9 @@ import '../entities/diary_revision_v2.dart';
 import '../entities/self_engine_derived_result_v2.dart';
 import '../entities/self_engine_job_v2.dart';
 import '../entities/memory_atom_v2.dart';
+import '../entities/memory_thread_link_v2.dart';
 import '../entities/source_computation_v2.dart';
+import '../entities/thread_link_job_v2.dart';
 
 abstract interface class SelfEngineRepositoryV2 {
   Future<DiaryRevisionV2?> getLatestRevision(String diaryId);
@@ -25,6 +27,10 @@ abstract interface class SelfEngineRepositoryV2 {
   Future<SourceComputationResultV2?> getComputationResult(String computationId);
 
   Future<List<MemoryAtomV2>> getAtomsForRevision(String revisionId);
+
+  Future<List<ThreadLinkJobV2>> getThreadLinkJobs({
+    SelfEngineJobStatusV2? status,
+  });
 
   Future<SelfEngineJobV2?> claimNextJob({
     required DateTime now,
@@ -55,9 +61,40 @@ abstract interface class SelfEngineRepositoryV2 {
 
   Future<int> recoverExpiredLeases({required DateTime now});
 
+  Future<ThreadLinkJobV2?> claimNextThreadLinkJob({
+    required DateTime now,
+    SelfEngineJobOriginV2 origin = SelfEngineJobOriginV2.live,
+    Duration leaseDuration = const Duration(minutes: 5),
+  });
+
+  Future<bool> renewThreadLinkLease(
+    String id, {
+    required String leaseId,
+    required DateTime now,
+    Duration leaseDuration = const Duration(minutes: 5),
+  });
+
+  Future<bool> publishThreadLinks(
+    String jobId, {
+    required String leaseId,
+    required DateTime publishedAt,
+    required List<ThreadLinkOperationV2> operations,
+  });
+
+  Future<bool> markThreadLinkJobFailed(
+    String id, {
+    required String leaseId,
+    required DateTime failedAt,
+    required String error,
+  });
+
+  Future<int> recoverExpiredThreadLinkLeases({required DateTime now});
+
   Future<void> clearAllDerivedDataForGlobalRebuild();
 
   Future<void> rebuildDerivedDataForDiary(String diaryId);
 
   Future<int> backfillMissingRevisions({int limit = 50});
+
+  Future<int> backfillMissingThreadLinkJobs({int limit = 50});
 }

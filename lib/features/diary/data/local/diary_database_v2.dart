@@ -11,7 +11,7 @@ class DiaryDatabaseV2 {
        _databasePath = databasePath ?? _defaultDatabasePath;
 
   static const databaseName = 'diary_v2.db';
-  static const schemaVersion = 12;
+  static const schemaVersion = 13;
 
   final DatabaseFactory _databaseFactory;
   final Future<String> Function() _databasePath;
@@ -84,6 +84,7 @@ class DiaryDatabaseV2 {
     await _createLifeDocumentsTable(database);
     await SelfEngineSchemaV2.createV11(database);
     await SelfEngineSchemaV2.createV12(database);
+    await SelfEngineSchemaV2.createV13(database);
   }
 
   static Future<void> _upgradeSchema(
@@ -127,6 +128,9 @@ class DiaryDatabaseV2 {
     if (oldVersion < 12) {
       await SelfEngineSchemaV2.createV12(database);
     }
+    if (oldVersion < 13) {
+      await SelfEngineSchemaV2.createV13(database);
+    }
   }
 
   static Future<void> _validateSchema(Database database) async {
@@ -136,7 +140,7 @@ class DiaryDatabaseV2 {
     if (!diaryColumns.any((column) => column['name'] == 'content_delta')) {
       throw StateError('Schema drift: diary_entries.content_delta is missing.');
     }
-    await SelfEngineSchemaV2.validateV12(database);
+    await SelfEngineSchemaV2.validateV13(database);
   }
 
   static Future<void> _ensureContentDeltaColumn(Database database) async {

@@ -392,6 +392,25 @@ void main() {
         'generation': 1,
         'created_at': now,
       });
+      await source.db.insert('thread_derivation_atoms', {
+        'thread_id': 'derived-thread',
+        'atom_id': 'derived-atom',
+        'generation': 1,
+        'created_at': now,
+      });
+      await source.db.insert('thread_link_jobs', {
+        'id': 'derived-link-job',
+        'revision_id': revision.id,
+        'origin': 'live',
+        'status': 'pending',
+        'attempt_count': 0,
+        'pipeline_version': 1,
+        'generation': 1,
+        'created_at': now,
+        'updated_at': now,
+      });
+      expect(await source.db.query('thread_link_jobs'), isNotEmpty);
+      expect(await source.db.query('thread_derivation_atoms'), isNotEmpty);
       expect(await source.db.query('self_engine_computations'), isNotEmpty);
       expect(await source.db.query('self_engine_jobs'), isNotEmpty);
       final computation = (await source.db.query(
@@ -419,6 +438,8 @@ void main() {
       expect(manifest, isNot(contains('selfEngineComputations')));
       expect(manifest, isNot(contains('selfEngineComputationResults')));
       expect(manifest, isNot(contains('selfEngineJobs')));
+      expect(manifest, isNot(contains('threadLinkJobs')));
+      expect(manifest, isNot(contains('threadDerivationAtoms')));
     } finally {
       await source.dispose();
     }

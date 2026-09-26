@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
 import '../../../self_engine/data/local/self_engine_outbox_writer_v2.dart';
+import '../../../self_engine/data/local/thread_link_work_v2.dart';
 import '../../../self_engine/domain/entities/self_engine_job_v2.dart';
 import 'diary_entry_mapper_v2.dart';
 
@@ -77,27 +78,74 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
 
   @override
   Future<void> moveToTrash(String id, {required DateTime deletedAt}) async {
-    await _database.update(
-      _table,
-      {
-        'deleted_at': deletedAt.toUtc().toIso8601String(),
-        'updated_at': deletedAt.toUtc().toIso8601String(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await _database.transaction((transaction) async {
+      final generation = await _generation(transaction);
+      await ThreadLinkWorkV2.invalidateThreadsUsingDiary(
+        transaction,
+        diaryId: id,
+        generation: generation,
+        now: deletedAt,
+      );
+      await transaction.update(
+        _table,
+        {
+          'deleted_at': deletedAt.toUtc().toIso8601String(),
+          'updated_at': deletedAt.toUtc().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
     _changes.add(null);
+    _onSourceSaved?.call();
   }
 
   @override
   Future<void> restore(String id) async {
-    await _database.update(
-      _table,
-      {'deleted_at': null},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await _database.transaction((transaction) async {
+      await transaction.update(
+        _table,
+        {'deleted_at': null},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      final generation = await _generation(transaction);
+      final revisions = await transaction.rawQuery(
+        '''
+        SELECT r.id, j.origin
+        FROM diary_revisions r
+        JOIN self_engine_jobs j ON j.revision_id = r.id
+        WHERE r.diary_id = ?
+          AND r.revision_no = (
+            SELECT MAX(latest.revision_no)
+            FROM diary_revisions latest
+            WHERE latest.diary_id = r.diary_id
+          )
+          AND EXISTS (
+            SELECT 1 FROM memory_atoms a
+            WHERE a.revision_id = r.id
+              AND a.generation = ?
+              AND a.superseded_at IS NULL
+          )
+        LIMIT 1
+        ''',
+        [id, generation],
+      );
+      if (revisions.isNotEmpty) {
+        await ThreadLinkWorkV2.enqueueRevision(
+          transaction,
+          revisionId: revisions.single['id']! as String,
+          origin: SelfEngineJobOriginV2.values.byName(
+            revisions.single['origin']! as String,
+          ),
+          generation: generation,
+          now: DateTime.now().toUtc(),
+          reset: true,
+        );
+      }
+    });
     _changes.add(null);
+    _onSourceSaved?.call();
   }
 
   @override
@@ -114,6 +162,13 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
   @override
   Future<void> deletePermanently(String id) async {
     await _database.transaction((transaction) async {
+      final generation = await _generation(transaction);
+      await ThreadLinkWorkV2.invalidateThreadsUsingDiary(
+        transaction,
+        diaryId: id,
+        generation: generation,
+        now: DateTime.now().toUtc(),
+      );
       await transaction.delete(_table, where: 'id = ?', whereArgs: [id]);
       // Jobs are the durable references from historical revisions to a
       // revision-neutral computation. Delete private cached quotes as soon as
@@ -128,6 +183,20 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
       ''');
     });
     _changes.add(null);
+    _onSourceSaved?.call();
+  }
+
+  Future<int> _generation(DatabaseExecutor database) async {
+    final rows = await database.query(
+      'self_engine_state',
+      columns: const ['generation'],
+      where: 'id = 1',
+      limit: 1,
+    );
+    if (rows.length != 1) {
+      throw StateError('Self Engine generation state is missing.');
+    }
+    return rows.single['generation']! as int;
   }
 
   @override

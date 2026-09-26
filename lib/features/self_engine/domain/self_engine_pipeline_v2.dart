@@ -8,4 +8,8 @@ abstract final class SelfEnginePipelineV2 {
   static const pipelineVersion = semanticVersion;
   static const extractorVersion = semanticVersion;
   static const promptVersion = semanticVersion;
+
+  // Thread decisions depend on the current graph and are never cached by
+  // source hash. Bump this for incompatible linker/prompt semantics.
+  static const threadPipelineVersion = 1;
 }

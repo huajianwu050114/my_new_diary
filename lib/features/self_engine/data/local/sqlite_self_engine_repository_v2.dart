@@ -9,11 +9,16 @@ import '../../domain/entities/diary_revision_v2.dart';
 import '../../domain/entities/self_engine_derived_result_v2.dart';
 import '../../domain/entities/self_engine_job_v2.dart';
 import '../../domain/entities/memory_atom_v2.dart';
+import '../../domain/entities/memory_thread_link_v2.dart';
+import '../../domain/entities/memory_thread_v2.dart';
 import '../../domain/entities/source_computation_v2.dart';
+import '../../domain/entities/thread_link_job_v2.dart';
 import '../../domain/repositories/self_engine_repository_v2.dart';
+import '../../domain/self_engine_pipeline_v2.dart';
 import '../../domain/self_engine_retry_policy_v2.dart';
 import 'self_engine_outbox_writer_v2.dart';
 import 'self_engine_schema_v2.dart';
+import 'thread_link_work_v2.dart';
 
 class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
   SqliteSelfEngineRepositoryV2(
@@ -335,7 +340,7 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
       final timestamp = publishedAt.toUtc().toIso8601String();
       final rows = await transaction.rawQuery(
         '''
-        SELECT j.*, r.body AS revision_body,
+        SELECT j.*, r.body AS revision_body, r.diary_id,
                s.generation AS current_generation
         FROM self_engine_jobs j
         JOIN diary_revisions r
@@ -386,6 +391,35 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
           result: computationResult,
         );
       }
+      await ThreadLinkWorkV2.invalidateThreadsUsingDiary(
+        transaction,
+        diaryId: job['diary_id']! as String,
+        generation: generation,
+        now: publishedAt,
+      );
+      await transaction.rawDelete(
+        '''
+        DELETE FROM thread_link_jobs
+        WHERE revision_id IN (
+          SELECT id FROM diary_revisions
+          WHERE diary_id = ? AND id != ?
+        )
+        ''',
+        [job['diary_id'], job['revision_id']],
+      );
+      await transaction.rawUpdate(
+        '''
+        UPDATE memory_atoms
+        SET superseded_at = ?
+        WHERE generation = ?
+          AND superseded_at IS NULL
+          AND revision_id IN (
+            SELECT id FROM diary_revisions
+            WHERE diary_id = ? AND id != ?
+          )
+        ''',
+        [timestamp, generation, job['diary_id'], job['revision_id']],
+      );
       for (final atom in result.atoms) {
         final values = <String, Object?>{
           'revision_id': atom.revisionId,
@@ -422,6 +456,16 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
           }
           await transaction.insert('memory_atoms', {'id': atom.id, ...values});
         }
+      }
+      if (result.atoms.isNotEmpty) {
+        await ThreadLinkWorkV2.enqueueRevision(
+          transaction,
+          revisionId: job['revision_id']! as String,
+          origin: SelfEngineJobOriginV2.values.byName(job['origin']! as String),
+          generation: generation,
+          now: publishedAt,
+          reset: true,
+        );
       }
       for (final thread in result.threads) {
         final values = <String, Object?>{
@@ -831,12 +875,559 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
   }
 
   @override
+  Future<List<ThreadLinkJobV2>> getThreadLinkJobs({
+    SelfEngineJobStatusV2? status,
+  }) async {
+    final rows = await _database.rawQuery('''
+      SELECT j.*, r.diary_id
+      FROM thread_link_jobs j
+      JOIN diary_revisions r ON r.id = j.revision_id
+      ${status == null ? '' : 'WHERE j.status = ?'}
+      ORDER BY j.created_at, j.id
+      ''', status == null ? null : [status.name]);
+    return rows.map(_threadLinkJobFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<ThreadLinkJobV2?> claimNextThreadLinkJob({
+    required DateTime now,
+    SelfEngineJobOriginV2 origin = SelfEngineJobOriginV2.live,
+    Duration leaseDuration = const Duration(minutes: 5),
+  }) async {
+    if (leaseDuration <= Duration.zero) {
+      throw ArgumentError.value(leaseDuration, 'leaseDuration');
+    }
+    await recoverExpiredThreadLinkLeases(now: now);
+    return _database.transaction((transaction) async {
+      final timestamp = now.toUtc().toIso8601String();
+      final rows = await transaction.rawQuery(
+        '''
+        SELECT j.*, r.diary_id
+        FROM thread_link_jobs j
+        JOIN diary_revisions r ON r.id = j.revision_id
+        WHERE j.origin = ?
+          AND j.generation = (
+            SELECT generation FROM self_engine_state WHERE id = 1
+          )
+          AND j.attempt_count < ?
+          AND (
+            j.status = 'pending'
+            OR (j.status = 'retryable' AND j.next_retry_at <= ?)
+          )
+        ORDER BY
+          CASE WHEN j.status = 'pending' THEN 0 ELSE 1 END,
+          COALESCE(j.next_retry_at, j.created_at),
+          j.created_at
+        LIMIT 1
+        ''',
+        [origin.name, _retryPolicy.maxAttempts, timestamp],
+      );
+      if (rows.isEmpty) return null;
+      final row = rows.single;
+      final leaseId = _createId();
+      final changed = await transaction.update(
+        'thread_link_jobs',
+        {
+          'status': SelfEngineJobStatusV2.processing.name,
+          'attempt_count': (row['attempt_count']! as int) + 1,
+          'updated_at': timestamp,
+          'next_retry_at': null,
+          'error': null,
+          'lease_id': leaseId,
+          'lease_expires_at': now.toUtc().add(leaseDuration).toIso8601String(),
+        },
+        where: '''
+          id = ? AND origin = ? AND attempt_count = ? AND (
+            status = 'pending'
+            OR (status = 'retryable' AND next_retry_at <= ?)
+          )
+        ''',
+        whereArgs: [row['id'], origin.name, row['attempt_count'], timestamp],
+      );
+      if (changed != 1) return null;
+      final claimed = (await transaction.rawQuery(
+        '''
+        SELECT j.*, r.diary_id
+        FROM thread_link_jobs j
+        JOIN diary_revisions r ON r.id = j.revision_id
+        WHERE j.id = ?
+        ''',
+        [row['id']],
+      )).single;
+      return _threadLinkJobFromRow(claimed);
+    });
+  }
+
+  @override
+  Future<bool> renewThreadLinkLease(
+    String id, {
+    required String leaseId,
+    required DateTime now,
+    Duration leaseDuration = const Duration(minutes: 5),
+  }) async {
+    if (leaseDuration <= Duration.zero) {
+      throw ArgumentError.value(leaseDuration, 'leaseDuration');
+    }
+    final timestamp = now.toUtc().toIso8601String();
+    final changed = await _database.update(
+      'thread_link_jobs',
+      {
+        'updated_at': timestamp,
+        'lease_expires_at': now.toUtc().add(leaseDuration).toIso8601String(),
+      },
+      where: '''
+        id = ? AND status = 'processing' AND lease_id = ?
+        AND lease_expires_at > ?
+      ''',
+      whereArgs: [id, leaseId, timestamp],
+    );
+    return changed == 1;
+  }
+
+  @override
+  Future<bool> publishThreadLinks(
+    String jobId, {
+    required String leaseId,
+    required DateTime publishedAt,
+    required List<ThreadLinkOperationV2> operations,
+  }) {
+    return _database.transaction((transaction) async {
+      final timestamp = publishedAt.toUtc().toIso8601String();
+      final rows = await transaction.rawQuery(
+        '''
+        SELECT j.*, r.diary_id, r.revision_no, d.deleted_at,
+               s.generation AS current_generation,
+               (
+                 SELECT MAX(latest.revision_no)
+                 FROM diary_revisions latest
+                 WHERE latest.diary_id = r.diary_id
+               ) AS latest_revision_no
+        FROM thread_link_jobs j
+        JOIN diary_revisions r ON r.id = j.revision_id
+        JOIN diary_entries d ON d.id = r.diary_id
+        JOIN self_engine_state s ON s.id = 1
+        WHERE j.id = ?
+        ''',
+        [jobId],
+      );
+      if (rows.isEmpty) return false;
+      final job = rows.single;
+      final generation = job['generation']! as int;
+      final ownsLease =
+          job['status'] == SelfEngineJobStatusV2.processing.name &&
+          job['lease_id'] == leaseId &&
+          DateTime.parse(
+            job['lease_expires_at']! as String,
+          ).isAfter(publishedAt.toUtc()) &&
+          generation == job['current_generation'];
+      if (!ownsLease) return false;
+      final revisionIsActive =
+          job['deleted_at'] == null &&
+          job['revision_no'] == job['latest_revision_no'];
+      if (!revisionIsActive && operations.isNotEmpty) {
+        throw StateError('Inactive revision cannot publish Thread links.');
+      }
+
+      final operationCountByAtom = <String, int>{};
+      final affectedThreadIds = <String>{};
+      for (var index = 0; index < operations.length; index++) {
+        final operation = operations[index];
+        final count = (operationCountByAtom[operation.currentAtomId] ?? 0) + 1;
+        if (count > 2) {
+          throw StateError('A Memory Atom cannot join more than two Threads.');
+        }
+        operationCountByAtom[operation.currentAtomId] = count;
+        final currentRows = await transaction.rawQuery(
+          '''
+          SELECT a.id, r.diary_id
+          FROM memory_atoms a
+          JOIN diary_revisions r ON r.id = a.revision_id
+          JOIN diary_entries d ON d.id = r.diary_id
+          WHERE a.id = ?
+            AND a.revision_id = ?
+            AND a.generation = ?
+            AND a.superseded_at IS NULL
+            AND d.deleted_at IS NULL
+            AND r.revision_no = (
+              SELECT MAX(latest.revision_no)
+              FROM diary_revisions latest
+              WHERE latest.diary_id = r.diary_id
+            )
+          LIMIT 1
+          ''',
+          [operation.currentAtomId, job['revision_id'], generation],
+        );
+        if (currentRows.isEmpty) {
+          throw StateError('Thread operation references an inactive Atom.');
+        }
+        final currentDiaryId = currentRows.single['diary_id']! as String;
+        if (operation.type == MemoryThreadLinkActionTypeV2.attach) {
+          final thread = await transaction.query(
+            'memory_threads',
+            columns: const ['id'],
+            where: "id = ? AND generation = ? AND status = 'active'",
+            whereArgs: [operation.threadId, generation],
+            limit: 1,
+          );
+          if (thread.isEmpty) {
+            throw StateError('Attach references an unavailable Thread.');
+          }
+        } else {
+          _validateNewThreadText(operation.title, operation.description);
+          if (operation.candidateAtomIds.isEmpty ||
+              operation.candidateAtomIds.toSet().length !=
+                  operation.candidateAtomIds.length ||
+              operation.derivationAtomIds.isEmpty ||
+              operation.derivationAtomIds.toSet().length !=
+                  operation.derivationAtomIds.length ||
+              !operation.derivationAtomIds.contains(operation.currentAtomId) ||
+              !operation.threadId.startsWith('thread-$jobId-')) {
+            throw StateError('Create operation has invalid identity.');
+          }
+          final placeholders = List.filled(
+            operation.candidateAtomIds.length,
+            '?',
+          ).join(',');
+          final candidates = await transaction.rawQuery(
+            '''
+            SELECT a.id, r.diary_id
+            FROM memory_atoms a
+            JOIN diary_revisions r ON r.id = a.revision_id
+            JOIN diary_entries d ON d.id = r.diary_id
+            WHERE a.id IN ($placeholders)
+              AND a.generation = ?
+              AND a.superseded_at IS NULL
+              AND d.deleted_at IS NULL
+              AND r.diary_id != ?
+              AND r.revision_no = (
+                SELECT MAX(latest.revision_no)
+                FROM diary_revisions latest
+                WHERE latest.diary_id = r.diary_id
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM thread_memberships m
+                WHERE m.atom_id = a.id
+                  AND m.generation = a.generation
+                  AND m.removed_at IS NULL
+              )
+            ''',
+            [...operation.candidateAtomIds, generation, currentDiaryId],
+          );
+          if (candidates.length != operation.candidateAtomIds.length) {
+            throw StateError('Create references unavailable candidate Atoms.');
+          }
+          final derivationPlaceholders = List.filled(
+            operation.derivationAtomIds.length,
+            '?',
+          ).join(',');
+          final derivationAtoms = await transaction.rawQuery(
+            '''
+            SELECT a.id
+            FROM memory_atoms a
+            JOIN diary_revisions r ON r.id = a.revision_id
+            JOIN diary_entries d ON d.id = r.diary_id
+            WHERE a.id IN ($derivationPlaceholders)
+              AND a.generation = ?
+              AND a.superseded_at IS NULL
+              AND d.deleted_at IS NULL
+              AND r.revision_no = (
+                SELECT MAX(latest.revision_no)
+                FROM diary_revisions latest
+                WHERE latest.diary_id = r.diary_id
+              )
+            ''',
+            [...operation.derivationAtomIds, generation],
+          );
+          if (derivationAtoms.length != operation.derivationAtomIds.length) {
+            throw StateError('Create has inactive derivation evidence.');
+          }
+          await transaction.insert('memory_threads', {
+            'id': operation.threadId,
+            'title': operation.title!.trim(),
+            'description': operation.description!.trim(),
+            'status': MemoryThreadStatusV2.active.name,
+            // Recalculated from memberships below before commit.
+            'first_seen': timestamp,
+            'last_seen': timestamp,
+            'merged_into_id': null,
+            'pipeline_version': job['pipeline_version'],
+            'generation': generation,
+            'created_at': timestamp,
+            'updated_at': timestamp,
+          });
+          for (final candidateId in operation.candidateAtomIds) {
+            await _upsertAutomaticMembership(
+              transaction,
+              threadId: operation.threadId,
+              atomId: candidateId,
+              generation: generation,
+              timestamp: timestamp,
+            );
+          }
+          for (final derivationAtomId in operation.derivationAtomIds) {
+            await transaction.insert('thread_derivation_atoms', {
+              'thread_id': operation.threadId,
+              'atom_id': derivationAtomId,
+              'generation': generation,
+              'created_at': timestamp,
+            });
+          }
+        }
+        await _upsertAutomaticMembership(
+          transaction,
+          threadId: operation.threadId,
+          atomId: operation.currentAtomId,
+          generation: generation,
+          timestamp: timestamp,
+        );
+        affectedThreadIds.add(operation.threadId);
+      }
+
+      for (final atomId in operationCountByAtom.keys) {
+        final memberships = Sqflite.firstIntValue(
+          await transaction.rawQuery(
+            '''
+            SELECT COUNT(*)
+            FROM thread_memberships
+            WHERE atom_id = ? AND generation = ? AND removed_at IS NULL
+            ''',
+            [atomId, generation],
+          ),
+        )!;
+        if (memberships > 2) {
+          throw StateError('A Memory Atom belongs to too many Threads.');
+        }
+      }
+      for (final threadId in affectedThreadIds) {
+        await _refreshThreadRange(
+          transaction,
+          threadId: threadId,
+          generation: generation,
+          timestamp: timestamp,
+        );
+      }
+      final changed = await transaction.update(
+        'thread_link_jobs',
+        {
+          'status': SelfEngineJobStatusV2.completed.name,
+          'updated_at': timestamp,
+          'next_retry_at': null,
+          'error': null,
+          'lease_id': null,
+          'lease_expires_at': null,
+        },
+        where: '''
+          id = ? AND status = 'processing' AND lease_id = ?
+          AND lease_expires_at > ? AND generation = ?
+          AND generation = (SELECT generation FROM self_engine_state WHERE id = 1)
+        ''',
+        whereArgs: [jobId, leaseId, timestamp, generation],
+      );
+      if (changed != 1) {
+        throw StateError('Thread link job $jobId lost publish ownership.');
+      }
+      return true;
+    });
+  }
+
+  Future<void> _upsertAutomaticMembership(
+    DatabaseExecutor database, {
+    required String threadId,
+    required String atomId,
+    required int generation,
+    required String timestamp,
+  }) async {
+    final changed = await database.update(
+      'thread_memberships',
+      {
+        'relevance': 1.0,
+        'origin': 'automatic',
+        'generation': generation,
+        'removed_at': null,
+      },
+      where: 'thread_id = ? AND atom_id = ? AND generation = ?',
+      whereArgs: [threadId, atomId, generation],
+    );
+    if (changed == 0) {
+      await database.insert('thread_memberships', {
+        'thread_id': threadId,
+        'atom_id': atomId,
+        'relevance': 1.0,
+        'origin': 'automatic',
+        'generation': generation,
+        'created_at': timestamp,
+        'removed_at': null,
+      });
+    }
+  }
+
+  Future<void> _refreshThreadRange(
+    DatabaseExecutor database, {
+    required String threadId,
+    required int generation,
+    required String timestamp,
+  }) async {
+    final rows = await database.rawQuery(
+      '''
+      SELECT MIN(COALESCE(a.observed_at, r.entry_date)) AS first_seen,
+             MAX(COALESCE(a.observed_at, r.entry_date)) AS last_seen,
+             COUNT(DISTINCT r.diary_id) AS diary_count
+      FROM thread_memberships m
+      JOIN memory_atoms a ON a.id = m.atom_id AND a.generation = m.generation
+      JOIN diary_revisions r ON r.id = a.revision_id
+      JOIN diary_entries d ON d.id = r.diary_id
+      WHERE m.thread_id = ?
+        AND m.generation = ?
+        AND m.removed_at IS NULL
+        AND a.superseded_at IS NULL
+        AND d.deleted_at IS NULL
+        AND r.revision_no = (
+          SELECT MAX(latest.revision_no)
+          FROM diary_revisions latest
+          WHERE latest.diary_id = r.diary_id
+        )
+      ''',
+      [threadId, generation],
+    );
+    final row = rows.single;
+    if ((row['diary_count']! as int) < 2 ||
+        row['first_seen'] == null ||
+        row['last_seen'] == null) {
+      throw StateError('A Thread requires two distinct active Diaries.');
+    }
+    await database.update(
+      'memory_threads',
+      {
+        'first_seen': row['first_seen'],
+        'last_seen': row['last_seen'],
+        'updated_at': timestamp,
+      },
+      where: "id = ? AND generation = ? AND status = 'active'",
+      whereArgs: [threadId, generation],
+    );
+  }
+
+  void _validateNewThreadText(String? title, String? description) {
+    final normalizedTitle = title?.trim() ?? '';
+    final normalizedDescription = description?.trim() ?? '';
+    const forbidden = ['人格', '障碍', '缺爱', '失败人生', '诊断'];
+    if (normalizedTitle.isEmpty ||
+        normalizedTitle.length > 40 ||
+        normalizedDescription.isEmpty ||
+        normalizedDescription.length > 240 ||
+        forbidden.any(
+          (term) =>
+              normalizedTitle.contains(term) ||
+              normalizedDescription.contains(term),
+        )) {
+      throw StateError('Thread title or description is invalid.');
+    }
+  }
+
+  @override
+  Future<bool> markThreadLinkJobFailed(
+    String id, {
+    required String leaseId,
+    required DateTime failedAt,
+    required String error,
+  }) => _markThreadLinkJobFailed(
+    id,
+    leaseId: leaseId,
+    failedAt: failedAt,
+    error: error,
+  );
+
+  Future<bool> _markThreadLinkJobFailed(
+    String id, {
+    required String leaseId,
+    required DateTime failedAt,
+    required String error,
+  }) {
+    return _database.transaction((transaction) async {
+      final timestamp = failedAt.toUtc().toIso8601String();
+      final rows = await transaction.query(
+        'thread_link_jobs',
+        columns: const ['attempt_count'],
+        where: '''
+          id = ? AND status = 'processing' AND lease_id = ?
+          AND lease_expires_at > ?
+        ''',
+        whereArgs: [id, leaseId, timestamp],
+        limit: 1,
+      );
+      if (rows.isEmpty) return false;
+      final attempts = rows.single['attempt_count']! as int;
+      final terminal = attempts >= _retryPolicy.maxAttempts;
+      final changed = await transaction.update(
+        'thread_link_jobs',
+        {
+          'status': terminal ? 'failed' : 'retryable',
+          'updated_at': timestamp,
+          'next_retry_at': terminal
+              ? null
+              : failedAt
+                    .toUtc()
+                    .add(_retryPolicy.delayAfterAttempt(attempts))
+                    .toIso8601String(),
+          'error': error,
+          'lease_id': null,
+          'lease_expires_at': null,
+        },
+        where: '''
+          id = ? AND status = 'processing' AND lease_id = ?
+          AND lease_expires_at > ?
+        ''',
+        whereArgs: [id, leaseId, timestamp],
+      );
+      return changed == 1;
+    });
+  }
+
+  @override
+  Future<int> recoverExpiredThreadLinkLeases({required DateTime now}) {
+    return _database.transaction((transaction) async {
+      final timestamp = now.toUtc().toIso8601String();
+      final rows = await transaction.query(
+        'thread_link_jobs',
+        columns: const ['id', 'attempt_count'],
+        where: "status = 'processing' AND lease_expires_at <= ?",
+        whereArgs: [timestamp],
+      );
+      var changed = 0;
+      for (final row in rows) {
+        final attempts = row['attempt_count']! as int;
+        final terminal = attempts >= _retryPolicy.maxAttempts;
+        changed += await transaction.update(
+          'thread_link_jobs',
+          {
+            'status': terminal ? 'failed' : 'retryable',
+            'updated_at': timestamp,
+            'next_retry_at': terminal
+                ? null
+                : now
+                      .toUtc()
+                      .add(_retryPolicy.delayAfterAttempt(attempts))
+                      .toIso8601String(),
+            'error': 'Processing lease expired.',
+            'lease_id': null,
+            'lease_expires_at': null,
+          },
+          where: "id = ? AND status = 'processing' AND lease_expires_at <= ?",
+          whereArgs: [row['id'], timestamp],
+        );
+      }
+      return changed;
+    });
+  }
+
+  @override
   Future<void> clearAllDerivedDataForGlobalRebuild() {
     return _database.transaction((transaction) async {
       final generation = await _generation(transaction) + 1;
       await transaction.update('self_engine_state', {
         'generation': generation,
       }, where: 'id = 1');
+      await transaction.delete('thread_link_jobs');
       await transaction.delete('thread_memberships');
       await transaction.delete('memory_atoms');
       await transaction.delete('memory_threads');
@@ -848,6 +1439,21 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
   Future<void> rebuildDerivedDataForDiary(String diaryId) {
     return _database.transaction((transaction) async {
       final generation = await _generation(transaction);
+      await ThreadLinkWorkV2.invalidateThreadsUsingDiary(
+        transaction,
+        diaryId: diaryId,
+        generation: generation,
+        now: DateTime.now().toUtc(),
+      );
+      await transaction.rawDelete(
+        '''
+        DELETE FROM thread_link_jobs
+        WHERE revision_id IN (
+          SELECT id FROM diary_revisions WHERE diary_id = ?
+        )
+        ''',
+        [diaryId],
+      );
       await transaction.delete(
         'memory_atoms',
         where: '''
@@ -856,15 +1462,6 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
           )
         ''',
         whereArgs: [diaryId],
-      );
-      await transaction.delete(
-        'memory_threads',
-        where: '''
-          NOT EXISTS (
-            SELECT 1 FROM thread_memberships m
-            WHERE m.thread_id = memory_threads.id
-          )
-        ''',
       );
       await _resetJobs(transaction, generation: generation, diaryId: diaryId);
     });
@@ -919,6 +1516,57 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
           transaction,
           _diaryMapper.fromRow(row),
           origin: SelfEngineJobOriginV2.historical,
+        );
+      }
+      return rows.length;
+    });
+  }
+
+  @override
+  Future<int> backfillMissingThreadLinkJobs({int limit = 50}) {
+    if (limit <= 0) throw ArgumentError.value(limit, 'limit');
+    return _database.transaction((transaction) async {
+      final generation = await _generation(transaction);
+      final rows = await transaction.rawQuery(
+        '''
+        SELECT DISTINCT r.id AS revision_id, j.origin
+        FROM diary_revisions r
+        JOIN diary_entries d ON d.id = r.diary_id
+        JOIN memory_atoms a ON a.revision_id = r.id
+        JOIN self_engine_jobs j
+          ON j.revision_id = r.id
+         AND j.pipeline_version = a.pipeline_version
+        WHERE a.generation = ?
+          AND a.superseded_at IS NULL
+          AND d.deleted_at IS NULL
+          AND r.revision_no = (
+            SELECT MAX(latest.revision_no)
+            FROM diary_revisions latest
+            WHERE latest.diary_id = r.diary_id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM thread_link_jobs link
+            WHERE link.revision_id = r.id
+              AND link.pipeline_version = ?
+              AND link.generation = ?
+          )
+        ORDER BY r.created_at, r.id
+        LIMIT ?
+        ''',
+        [
+          generation,
+          SelfEnginePipelineV2.threadPipelineVersion,
+          generation,
+          limit,
+        ],
+      );
+      for (final row in rows) {
+        await ThreadLinkWorkV2.enqueueRevision(
+          transaction,
+          revisionId: row['revision_id']! as String,
+          origin: SelfEngineJobOriginV2.values.byName(row['origin']! as String),
+          generation: generation,
+          now: DateTime.now().toUtc(),
         );
       }
       return rows.length;
@@ -1034,6 +1682,24 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
     leaseId: row['lease_id'] as String?,
     leaseExpiresAt: _date(row['lease_expires_at']),
   );
+
+  ThreadLinkJobV2 _threadLinkJobFromRow(Map<String, Object?> row) =>
+      ThreadLinkJobV2(
+        id: row['id']! as String,
+        diaryId: row['diary_id']! as String,
+        revisionId: row['revision_id']! as String,
+        origin: SelfEngineJobOriginV2.values.byName(row['origin']! as String),
+        status: SelfEngineJobStatusV2.values.byName(row['status']! as String),
+        attemptCount: row['attempt_count']! as int,
+        pipelineVersion: row['pipeline_version']! as int,
+        generation: row['generation']! as int,
+        createdAt: DateTime.parse(row['created_at']! as String),
+        updatedAt: DateTime.parse(row['updated_at']! as String),
+        nextRetryAt: _date(row['next_retry_at']),
+        error: row['error'] as String?,
+        leaseId: row['lease_id'] as String?,
+        leaseExpiresAt: _date(row['lease_expires_at']),
+      );
 
   MemoryAtomV2 _atomFromRow(Map<String, Object?> row) => MemoryAtomV2(
     id: row['id']! as String,

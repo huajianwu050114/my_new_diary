@@ -743,7 +743,7 @@ void main() {
     expect(runner.calls, 1);
   });
 
-  group('schema v12', () {
+  group('schema v12/v13', () {
     test('fresh database creates computation result table and FK', () async {
       final owner = DiaryDatabaseV2(
         factory: databaseFactoryFfi,
@@ -794,6 +794,9 @@ void main() {
       await firstOwner.close();
 
       final raw = await databaseFactoryFfi.openDatabase(dbPath);
+      await raw.execute('DROP TABLE thread_derivation_atoms');
+      await raw.execute('DROP TABLE thread_link_jobs');
+      await raw.execute('DROP INDEX memory_atoms_active_candidate_index');
       await raw.execute('DROP TABLE self_engine_computation_results');
       await raw.execute('DROP INDEX self_engine_jobs_origin_ready_index');
       await raw.execute('ALTER TABLE self_engine_jobs DROP COLUMN origin');

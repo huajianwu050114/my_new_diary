@@ -303,6 +303,164 @@ abstract final class SelfEngineSchemaV2 {
     }
   }
 
+  static Future<void> createV13(Database database) async {
+    await validateV12(database);
+    await database.execute('''
+      CREATE TABLE thread_link_jobs (
+        id TEXT PRIMARY KEY NOT NULL,
+        revision_id TEXT NOT NULL,
+        origin TEXT NOT NULL CHECK(origin IN ('live', 'historical')),
+        status TEXT NOT NULL CHECK(
+          status IN ('pending', 'processing', 'completed', 'retryable', 'failed')
+        ),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+        pipeline_version INTEGER NOT NULL,
+        generation INTEGER NOT NULL CHECK(generation > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        next_retry_at TEXT,
+        error TEXT,
+        lease_id TEXT,
+        lease_expires_at TEXT,
+        CHECK(
+          (status = 'processing' AND lease_id IS NOT NULL AND lease_expires_at IS NOT NULL)
+          OR
+          (status != 'processing' AND lease_id IS NULL AND lease_expires_at IS NULL)
+        ),
+        CHECK(status != 'retryable' OR next_retry_at IS NOT NULL),
+        FOREIGN KEY(revision_id) REFERENCES diary_revisions(id) ON DELETE CASCADE,
+        UNIQUE(revision_id, pipeline_version, generation)
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX thread_link_jobs_origin_ready_index
+      ON thread_link_jobs(
+        origin, status, next_retry_at, lease_expires_at, created_at
+      )
+    ''');
+    await database.execute('''
+      CREATE TRIGGER thread_link_jobs_generation_insert_guard
+      BEFORE INSERT ON thread_link_jobs
+      WHEN NEW.generation != (
+        SELECT generation FROM self_engine_state WHERE id = 1
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'stale Self Engine generation');
+      END
+    ''');
+    await database.execute('''
+      CREATE TRIGGER thread_link_jobs_generation_update_guard
+      BEFORE UPDATE ON thread_link_jobs
+      WHEN OLD.generation != (
+        SELECT generation FROM self_engine_state WHERE id = 1
+      ) OR NEW.generation != (
+        SELECT generation FROM self_engine_state WHERE id = 1
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'stale Self Engine generation');
+      END
+    ''');
+    await database.execute('''
+      CREATE INDEX memory_atoms_active_candidate_index
+      ON memory_atoms(generation, superseded_at, observed_at DESC)
+    ''');
+    await database.execute('''
+      CREATE TABLE thread_derivation_atoms (
+        thread_id TEXT NOT NULL,
+        atom_id TEXT NOT NULL,
+        generation INTEGER NOT NULL CHECK(generation > 0),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(thread_id, atom_id),
+        FOREIGN KEY(thread_id, generation)
+          REFERENCES memory_threads(id, generation) ON DELETE CASCADE,
+        FOREIGN KEY(atom_id, generation)
+          REFERENCES memory_atoms(id, generation) ON DELETE CASCADE
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX thread_derivation_atoms_atom_index
+      ON thread_derivation_atoms(atom_id, generation)
+    ''');
+  }
+
+  static Future<void> validateV13(Database database) async {
+    await validateV12(database);
+    await _validateColumns(database, 'thread_link_jobs', const {
+      'id',
+      'revision_id',
+      'origin',
+      'status',
+      'attempt_count',
+      'pipeline_version',
+      'generation',
+      'created_at',
+      'updated_at',
+      'next_retry_at',
+      'error',
+      'lease_id',
+      'lease_expires_at',
+    });
+    await _validateColumns(database, 'thread_derivation_atoms', const {
+      'thread_id',
+      'atom_id',
+      'generation',
+      'created_at',
+    });
+    await _requireIndex(database, 'thread_link_jobs', const [
+      'revision_id',
+      'pipeline_version',
+      'generation',
+    ], unique: true);
+    await _requireIndex(database, 'thread_link_jobs', const [
+      'origin',
+      'status',
+      'next_retry_at',
+      'lease_expires_at',
+      'created_at',
+    ], unique: false);
+    await _requireIndex(database, 'memory_atoms', const [
+      'generation',
+      'superseded_at',
+      'observed_at',
+    ], unique: false);
+    await _requireIndex(database, 'thread_derivation_atoms', const [
+      'atom_id',
+      'generation',
+    ], unique: false);
+    await _requireForeignKey(
+      database,
+      'thread_link_jobs',
+      parent: 'diary_revisions',
+      from: const ['revision_id'],
+      to: const ['id'],
+      onDelete: 'CASCADE',
+    );
+    await _requireTriggers(database, const {
+      'thread_link_jobs_generation_insert_guard',
+      'thread_link_jobs_generation_update_guard',
+    });
+    await _requireForeignKey(
+      database,
+      'thread_derivation_atoms',
+      parent: 'memory_threads',
+      from: const ['thread_id', 'generation'],
+      to: const ['id', 'generation'],
+      onDelete: 'CASCADE',
+    );
+    await _requireForeignKey(
+      database,
+      'thread_derivation_atoms',
+      parent: 'memory_atoms',
+      from: const ['atom_id', 'generation'],
+      to: const ['id', 'generation'],
+      onDelete: 'CASCADE',
+    );
+    final violations = await database.rawQuery('PRAGMA foreign_key_check');
+    if (violations.isNotEmpty) {
+      throw StateError('Database foreign-key validation failed: $violations');
+    }
+  }
+
   static Future<void> validateV11(
     Database database, {
     bool hasJobOrigin = false,

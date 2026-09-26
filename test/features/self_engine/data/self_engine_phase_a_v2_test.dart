@@ -865,7 +865,7 @@ void main() {
   );
 
   test(
-    'per-diary rebuild preserves a thread shared by another diary',
+    'per-diary rebuild invalidates an affected thread and requeues survivors',
     () async {
       await diaryRepository.save(_entry(id: 'a'));
       await diaryRepository.save(_entry(id: 'b', body: 'B'));
@@ -909,11 +909,12 @@ void main() {
       }
 
       await selfRepository.rebuildDerivedDataForDiary('a');
-      expect(await database.query('memory_threads'), hasLength(1));
+      expect(await database.query('memory_threads'), isEmpty);
       expect(await database.query('memory_atoms'), hasLength(1));
+      expect(await database.query('thread_memberships'), isEmpty);
       expect(
-        (await database.query('thread_memberships')).single['atom_id'],
-        'atom-b',
+        (await database.query('thread_link_jobs')).single['revision_id'],
+        revisions.singleWhere((revision) => revision.diaryId == 'b').id,
       );
     },
   );

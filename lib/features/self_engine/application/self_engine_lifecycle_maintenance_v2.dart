@@ -10,6 +10,7 @@ class SelfEngineLifecycleMaintenanceV2 {
   Future<int> afterResume() async {
     final recovered = await recovery.afterResume();
     await recovery.reconcileLegacyDiaries();
+    await recovery.reconcileThreadLinkJobs();
     await runner?.runOnce();
     return recovered;
   }
