@@ -5,12 +5,13 @@ import '../../../ai/domain/ai_models_v2.dart';
 import '../../application/ports/memory_extractor_v2.dart';
 import '../../domain/entities/diary_revision_v2.dart';
 import '../../domain/entities/memory_extraction_v2.dart';
+import '../../domain/self_engine_pipeline_v2.dart';
 
 class AiMemoryExtractorV2 implements MemoryExtractorV2 {
   const AiMemoryExtractorV2(this._client);
 
-  static const extractorVersion = 1;
-  static const promptVersion = 1;
+  static const extractorVersion = SelfEnginePipelineV2.extractorVersion;
+  static const promptVersion = SelfEnginePipelineV2.promptVersion;
   static const maxAtoms = 6;
 
   final GeminiRestClientV2 _client;

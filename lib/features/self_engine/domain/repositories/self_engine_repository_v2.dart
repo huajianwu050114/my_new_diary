@@ -28,6 +28,7 @@ abstract interface class SelfEngineRepositoryV2 {
 
   Future<SelfEngineJobV2?> claimNextJob({
     required DateTime now,
+    SelfEngineJobOriginV2 origin = SelfEngineJobOriginV2.live,
     Duration leaseDuration = const Duration(minutes: 5),
   });
 

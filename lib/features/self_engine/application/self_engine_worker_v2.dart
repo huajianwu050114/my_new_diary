@@ -23,17 +23,33 @@ class SelfEngineWorkerV2 implements SelfEngineRunnerV2 {
   final DateTime Function() _clock;
   final Duration leaseDuration;
   Future<SelfEngineRunResultV2>? _activeRun;
+  bool _rerunRequested = false;
 
   @override
   Future<SelfEngineRunResultV2> runOnce() {
     final active = _activeRun;
-    if (active != null) return active;
+    if (active != null) {
+      _rerunRequested = true;
+      return active;
+    }
     late final Future<SelfEngineRunResultV2> run;
-    run = _runOnce().whenComplete(() {
+    run = _runCoalesced().whenComplete(() {
       if (identical(_activeRun, run)) _activeRun = null;
     });
     _activeRun = run;
     return run;
+  }
+
+  Future<SelfEngineRunResultV2> _runCoalesced() async {
+    late SelfEngineRunResultV2 result;
+    do {
+      _rerunRequested = false;
+      result = await _runOnce();
+      // Triggers received during this attempt coalesce into one more
+      // processing opportunity. The live-only claim prevents this from
+      // draining historical backlog.
+    } while (_rerunRequested);
+    return result;
   }
 
   Future<SelfEngineRunResultV2> _runOnce() async {

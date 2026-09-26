@@ -1,6 +1,7 @@
 import '../domain/entities/diary_revision_v2.dart';
 import '../domain/entities/memory_atom_v2.dart';
 import '../domain/entities/memory_extraction_v2.dart';
+import '../domain/self_engine_pipeline_v2.dart';
 
 class MemoryAtomValidatorV2 {
   const MemoryAtomValidatorV2({
@@ -65,6 +66,11 @@ class MemoryAtomValidatorV2 {
         ),
       );
     }
+    if (batch.candidates.isNotEmpty && valid.isEmpty) {
+      throw const MemoryExtractionValidationFailureV2(
+        'Extraction returned candidates, but none passed local validation.',
+      );
+    }
     return List.unmodifiable(valid);
   }
 
@@ -86,8 +92,8 @@ class MemoryAtomValidatorV2 {
             ),
           )
           .toList(growable: false),
-      extractorVersion: 1,
-      promptVersion: 1,
+      extractorVersion: SelfEnginePipelineV2.extractorVersion,
+      promptVersion: SelfEnginePipelineV2.promptVersion,
       modelIdentifier: 'cached',
     ),
   );

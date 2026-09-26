@@ -2,6 +2,8 @@ enum SelfEngineJobTypeV2 { sourceChanged }
 
 enum SelfEngineJobStatusV2 { pending, processing, completed, retryable, failed }
 
+enum SelfEngineJobOriginV2 { live, historical }
+
 class SelfEngineJobV2 {
   const SelfEngineJobV2({
     required this.id,
@@ -12,6 +14,7 @@ class SelfEngineJobV2 {
     required this.fingerprintVersion,
     required this.type,
     required this.status,
+    required this.origin,
     required this.attemptCount,
     required this.pipelineVersion,
     required this.createdAt,
@@ -31,6 +34,7 @@ class SelfEngineJobV2 {
   final int fingerprintVersion;
   final SelfEngineJobTypeV2 type;
   final SelfEngineJobStatusV2 status;
+  final SelfEngineJobOriginV2 origin;
   final int attemptCount;
   final int pipelineVersion;
   final DateTime createdAt;

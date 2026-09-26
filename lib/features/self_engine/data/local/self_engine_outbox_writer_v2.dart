@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../diary/domain/entities/diary_entry.dart';
 import '../../domain/diary_source_fingerprint_v2.dart';
+import '../../domain/entities/self_engine_job_v2.dart';
 import 'self_engine_schema_v2.dart';
 
 class SelfEngineOutboxWriterV2 {
@@ -19,8 +20,9 @@ class SelfEngineOutboxWriterV2 {
 
   Future<bool> recordSourceChange(
     DatabaseExecutor database,
-    DiaryEntryV2 entry,
-  ) async {
+    DiaryEntryV2 entry, {
+    SelfEngineJobOriginV2 origin = SelfEngineJobOriginV2.live,
+  }) async {
     final sourceHash = DiarySourceFingerprintV2.calculate(entry);
     final latest = await database.query(
       'diary_revisions',
@@ -85,6 +87,7 @@ class SelfEngineOutboxWriterV2 {
       'fingerprint_version': fingerprintVersion,
       'job_type': jobType,
       'status': 'pending',
+      'origin': origin.name,
       'attempt_count': 0,
       'pipeline_version': pipelineVersion,
       'generation': state.single['generation']! as int,

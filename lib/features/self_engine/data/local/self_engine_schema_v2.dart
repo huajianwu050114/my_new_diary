@@ -1,7 +1,9 @@
 import 'package:sqflite/sqflite.dart';
 
+import '../../domain/self_engine_pipeline_v2.dart';
+
 abstract final class SelfEngineSchemaV2 {
-  static const pipelineVersion = 1;
+  static const pipelineVersion = SelfEnginePipelineV2.pipelineVersion;
 
   static Future<void> createV11(DatabaseExecutor database) async {
     await database.execute('''
@@ -239,7 +241,23 @@ abstract final class SelfEngineSchemaV2 {
     ''');
   }
 
-  static Future<void> createV12(DatabaseExecutor database) async {
+  static Future<void> createV12(Database database) async {
+    // Migration is allowed to proceed only from an intact v11 graph. This
+    // keeps SQL failures from obscuring pre-existing schema drift.
+    await validateV11(database);
+    // Existing v11 jobs have no trustworthy live-vs-history provenance.
+    // Fail safe: they remain historical until a future explicit flow opts in.
+    await database.execute('''
+      ALTER TABLE self_engine_jobs
+      ADD COLUMN origin TEXT NOT NULL DEFAULT 'historical'
+        CHECK(origin IN ('live', 'historical'))
+    ''');
+    await database.execute('''
+      CREATE INDEX self_engine_jobs_origin_ready_index
+      ON self_engine_jobs(
+        origin, status, next_retry_at, lease_expires_at, created_at
+      )
+    ''');
     await database.execute('''
       CREATE TABLE self_engine_computation_results (
         computation_id TEXT PRIMARY KEY NOT NULL,
@@ -255,7 +273,7 @@ abstract final class SelfEngineSchemaV2 {
   }
 
   static Future<void> validateV12(Database database) async {
-    await validateV11(database);
+    await validateV11(database, hasJobOrigin: true);
     await _validateColumns(database, 'self_engine_computation_results', const {
       'computation_id',
       'result_json',
@@ -272,13 +290,23 @@ abstract final class SelfEngineSchemaV2 {
       to: const ['id'],
       onDelete: 'CASCADE',
     );
+    await _requireIndex(database, 'self_engine_jobs', const [
+      'origin',
+      'status',
+      'next_retry_at',
+      'lease_expires_at',
+      'created_at',
+    ], unique: false);
     final violations = await database.rawQuery('PRAGMA foreign_key_check');
     if (violations.isNotEmpty) {
       throw StateError('Database foreign-key validation failed: $violations');
     }
   }
 
-  static Future<void> validateV11(Database database) async {
+  static Future<void> validateV11(
+    Database database, {
+    bool hasJobOrigin = false,
+  }) async {
     await _validateColumns(database, 'self_engine_state', const {
       'id',
       'generation',
@@ -307,7 +335,7 @@ abstract final class SelfEngineSchemaV2 {
       'job_type',
       'created_at',
     });
-    await _validateColumns(database, 'self_engine_jobs', const {
+    await _validateColumns(database, 'self_engine_jobs', {
       'id',
       'revision_id',
       'computation_id',
@@ -324,6 +352,7 @@ abstract final class SelfEngineSchemaV2 {
       'error',
       'lease_id',
       'lease_expires_at',
+      if (hasJobOrigin) 'origin',
     });
     await _validateColumns(database, 'memory_atoms', const {
       'id',

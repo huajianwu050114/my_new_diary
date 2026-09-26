@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
 import '../../../self_engine/data/local/self_engine_outbox_writer_v2.dart';
+import '../../../self_engine/domain/entities/self_engine_job_v2.dart';
 import 'diary_entry_mapper_v2.dart';
 
 class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
@@ -51,6 +52,7 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
         await _selfEngineOutbox.recordSourceChange(
           transaction,
           _mapper.fromRow(existingRows.single),
+          origin: SelfEngineJobOriginV2.historical,
         );
         await transaction.update(
           _table,
@@ -111,7 +113,20 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
 
   @override
   Future<void> deletePermanently(String id) async {
-    await _database.delete(_table, where: 'id = ?', whereArgs: [id]);
+    await _database.transaction((transaction) async {
+      await transaction.delete(_table, where: 'id = ?', whereArgs: [id]);
+      // Jobs are the durable references from historical revisions to a
+      // revision-neutral computation. Delete private cached quotes as soon as
+      // the last such reference disappears.
+      await transaction.rawDelete('''
+        DELETE FROM self_engine_computations
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM self_engine_jobs j
+          WHERE j.computation_id = self_engine_computations.id
+        )
+      ''');
+    });
     _changes.add(null);
   }
 

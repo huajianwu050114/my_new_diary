@@ -172,6 +172,7 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
       'fingerprint_version': revision.fingerprintVersion,
       'job_type': type.name,
       'status': SelfEngineJobStatusV2.pending.name,
+      'origin': SelfEngineJobOriginV2.historical.name,
       'attempt_count': 0,
       'pipeline_version': pipeline,
       'generation': generation,
@@ -232,6 +233,7 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
   @override
   Future<SelfEngineJobV2?> claimNextJob({
     required DateTime now,
+    SelfEngineJobOriginV2 origin = SelfEngineJobOriginV2.live,
     Duration leaseDuration = const Duration(minutes: 5),
   }) async {
     if (leaseDuration <= Duration.zero) {
@@ -245,7 +247,8 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
         SELECT j.*, r.diary_id
         FROM self_engine_jobs j
         JOIN diary_revisions r ON r.id = j.revision_id
-        WHERE j.attempt_count < ?
+        WHERE j.origin = ?
+          AND j.attempt_count < ?
           AND (
             j.status = 'pending'
             OR (j.status = 'retryable' AND j.next_retry_at <= ?)
@@ -256,7 +259,7 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
           j.created_at
         LIMIT 1
         ''',
-        [_retryPolicy.maxAttempts, timestamp],
+        [origin.name, _retryPolicy.maxAttempts, timestamp],
       );
       if (rows.isEmpty) return null;
       final id = rows.single['id']! as String;
@@ -274,12 +277,12 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
           'lease_expires_at': leaseExpiresAt,
         },
         where: '''
-          id = ? AND attempt_count = ? AND (
+          id = ? AND origin = ? AND attempt_count = ? AND (
             status = 'pending'
             OR (status = 'retryable' AND next_retry_at <= ?)
           )
         ''',
-        whereArgs: [id, rows.single['attempt_count'], timestamp],
+        whereArgs: [id, origin.name, rows.single['attempt_count'], timestamp],
       );
       if (changed != 1) return null;
       final claimed = (await transaction.rawQuery(
@@ -915,6 +918,7 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
         await _outbox.recordSourceChange(
           transaction,
           _diaryMapper.fromRow(row),
+          origin: SelfEngineJobOriginV2.historical,
         );
       }
       return rows.length;
@@ -1016,6 +1020,9 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
     ),
     status: SelfEngineJobStatusV2.values.firstWhere(
       (value) => value.name == row['status'],
+    ),
+    origin: SelfEngineJobOriginV2.values.firstWhere(
+      (value) => value.name == row['origin'],
     ),
     attemptCount: row['attempt_count']! as int,
     pipelineVersion: row['pipeline_version']! as int,

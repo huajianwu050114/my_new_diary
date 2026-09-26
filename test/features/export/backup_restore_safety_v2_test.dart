@@ -25,6 +25,7 @@ import 'package:my_new_diary/features/life_guide/domain/life_fragment_v2.dart';
 import 'package:my_new_diary/features/life_library/data/sqlite_life_document_repository_v2.dart';
 import 'package:my_new_diary/features/life_library/domain/life_document_v2.dart';
 import 'package:my_new_diary/features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
+import 'package:my_new_diary/features/self_engine/domain/entities/self_engine_job_v2.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -164,6 +165,10 @@ void main() {
       expect(report.importedFestivals, 1);
       expect(await target.self.getAllRevisions(), hasLength(1));
       expect(await target.self.getJobs(), hasLength(1));
+      expect(
+        (await target.self.getJobs()).single.origin,
+        SelfEngineJobOriginV2.historical,
+      );
       expect(await BackupRestoreJournalV2().load(), isNull);
     } finally {
       await target.dispose();
@@ -271,6 +276,10 @@ void main() {
       await target.service.importZip(v1);
       expect(await target.diary.getById('entry-1'), isNotNull);
       expect(await target.self.getAllRevisions(), hasLength(1));
+      expect(
+        (await target.self.getJobs()).single.origin,
+        SelfEngineJobOriginV2.historical,
+      );
       expect(await target.self.getJobs(), hasLength(1));
     } finally {
       await target.dispose();

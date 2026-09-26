@@ -28,6 +28,7 @@ import 'package:my_new_diary/features/self_engine/domain/entities/self_engine_de
 import 'package:my_new_diary/features/self_engine/domain/entities/self_engine_job_v2.dart';
 import 'package:my_new_diary/features/self_engine/domain/entities/source_computation_v2.dart';
 import 'package:my_new_diary/features/self_engine/domain/self_engine_retry_policy_v2.dart';
+import 'package:my_new_diary/features/self_engine/domain/self_engine_pipeline_v2.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -56,20 +57,47 @@ void main() {
       expect(validator.validate(revision, _batch(const [])), isEmpty);
     });
 
-    test('drops unknown kinds, trait claims, and hallucinated evidence', () {
+    test('rejects all-invalid kinds, traits, and hallucinated evidence', () {
+      expect(
+        () => validator.validate(
+          revision,
+          _batch([
+            _candidate(
+              kind: 'personalityTrait',
+              statement: '作者很自律',
+              quote: '今天跑了五公里',
+            ),
+            _candidate(kind: 'belief', statement: '作者永远乐观', quote: '文中不存在'),
+          ]),
+        ),
+        throwsA(isA<MemoryExtractionValidationFailureV2>()),
+      );
+    });
+
+    test('accepts the valid subset of a mixed result', () {
       final atoms = validator.validate(
         revision,
         _batch([
           _candidate(
-            kind: 'personalityTrait',
-            statement: '作者很自律',
-            quote: '今天跑了五公里',
+            kind: 'feeling',
+            statement: 'A supported feeling',
+            quote: revision.body,
           ),
-          _candidate(kind: 'belief', statement: '作者永远乐观', quote: '文中不存在'),
+          _candidate(
+            kind: 'unknownKind',
+            statement: 'Bad kind',
+            quote: revision.body,
+          ),
+          _candidate(
+            kind: 'belief',
+            statement: 'Hallucinated',
+            quote: 'missing quote',
+          ),
         ]),
       );
 
-      expect(atoms, isEmpty);
+      expect(atoms, hasLength(1));
+      expect(atoms.single.kind, MemoryAtomKindV2.feeling);
     });
 
     test('drops duplicates and mismatched offsets', () {
@@ -192,6 +220,38 @@ void main() {
     });
 
     test(
+      'all-invalid extraction retries without caching an empty result',
+      () async {
+        extractor.handler = (revision) async => _batch([
+          _candidate(
+            kind: 'event',
+            statement: 'Unsupported evidence',
+            quote: 'not in the revision',
+          ),
+          _candidate(
+            kind: 'invalidKind',
+            statement: 'Invalid kind',
+            quote: revision.body,
+          ),
+        ]);
+        await diaryRepository.save(_entry(body: 'actual evidence'));
+
+        expect(await worker().runOnce(), SelfEngineRunResultV2.retryScheduled);
+        final job = (await selfRepository.getJobs()).single;
+        expect(job.status, SelfEngineJobStatusV2.retryable);
+        expect(job.attemptCount, 1);
+        expect(
+          await selfRepository.getComputationResult(job.computationId),
+          isNull,
+        );
+        expect(
+          await selfRepository.getAtomsForRevision(job.revisionId),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
       'A to B to C to A keeps four histories and reuses three computations',
       () async {
         final run = worker();
@@ -244,6 +304,125 @@ void main() {
       expect(extractor.calls, 0);
     });
 
+    test(
+      'resume reconciliation creates historical work that is not claimed',
+      () async {
+        await diaryRepository.restoreFromBackup(
+          _entry(id: 'legacy', body: 'legacy private text'),
+        );
+        final run = worker();
+
+        await SelfEngineLifecycleMaintenanceV2(
+          recovery: SelfEngineJobRecoveryV2(selfRepository),
+          runner: run,
+        ).afterResume();
+
+        final job = (await selfRepository.getJobs()).single;
+        expect(job.origin, SelfEngineJobOriginV2.historical);
+        expect(job.status, SelfEngineJobStatusV2.pending);
+        expect(job.attemptCount, 0);
+        expect(extractor.calls, 0);
+      },
+    );
+
+    test('cold-start recovery does not upload a legacy diary', () async {
+      await diaryRepository.restoreFromBackup(
+        _entry(id: 'legacy-cold', body: 'cold-start history'),
+      );
+      final recovery = SelfEngineJobRecoveryV2(selfRepository);
+      await recovery.afterColdStart(now: now);
+      await recovery.reconcileLegacyDiaries();
+
+      expect(await worker().runOnce(), SelfEngineRunResultV2.noWork);
+      final job = (await selfRepository.getJobs()).single;
+      expect(job.origin, SelfEngineJobOriginV2.historical);
+      expect(job.status, SelfEngineJobStatusV2.pending);
+      expect(job.attemptCount, 0);
+      expect(extractor.calls, 0);
+    });
+
+    test('live work bypasses historical backlog without burning it', () async {
+      await diaryRepository.restoreFromBackup(
+        _entry(id: 'legacy', body: 'historical backlog'),
+      );
+      await selfRepository.backfillMissingRevisions();
+      await diaryRepository.save(_entry(id: 'live', body: 'new live diary'));
+      final before = await selfRepository.getJobs();
+      expect(
+        before.singleWhere((job) => job.diaryId == 'legacy').origin,
+        SelfEngineJobOriginV2.historical,
+      );
+      expect(
+        before.singleWhere((job) => job.diaryId == 'live').origin,
+        SelfEngineJobOriginV2.live,
+      );
+
+      expect(await worker().runOnce(), SelfEngineRunResultV2.completed);
+
+      final after = await selfRepository.getJobs();
+      final historical = after.singleWhere((job) => job.diaryId == 'legacy');
+      final live = after.singleWhere((job) => job.diaryId == 'live');
+      expect(historical.status, SelfEngineJobStatusV2.pending);
+      expect(historical.attemptCount, 0);
+      expect(live.status, SelfEngineJobStatusV2.completed);
+      expect(extractor.calls, 1);
+    });
+
+    test(
+      'permanent delete prunes private cache only after its last reference',
+      () async {
+        final run = worker();
+        await diaryRepository.save(
+          _entry(id: 'shared-a', body: 'shared quote'),
+        );
+        expect(await run.runOnce(), SelfEngineRunResultV2.completed);
+        await diaryRepository.save(
+          _entry(id: 'shared-b', body: 'shared quote'),
+        );
+        expect(await run.runOnce(), SelfEngineRunResultV2.completed);
+        final database = await databaseOwner.open();
+        expect(await database.query('self_engine_computations'), hasLength(1));
+        expect(
+          await database.query('self_engine_computation_results'),
+          hasLength(1),
+        );
+
+        await diaryRepository.deletePermanently('shared-a');
+
+        expect(await selfRepository.getRevisionsForDiary('shared-a'), isEmpty);
+        expect(
+          (await selfRepository.getJobs()).where(
+            (job) => job.diaryId == 'shared-a',
+          ),
+          isEmpty,
+        );
+        expect(await database.query('memory_atoms'), hasLength(1));
+        expect(await database.query('self_engine_computations'), hasLength(1));
+        expect(
+          await database.query('self_engine_computation_results'),
+          hasLength(1),
+        );
+
+        await diaryRepository.deletePermanently('shared-b');
+
+        expect(await database.query('diary_revisions'), isEmpty);
+        expect(await database.query('self_engine_jobs'), isEmpty);
+        expect(await database.query('memory_atoms'), isEmpty);
+        expect(await database.query('self_engine_computations'), isEmpty);
+        expect(
+          await database.query('self_engine_computation_results'),
+          isEmpty,
+        );
+        expect(
+          await database.rawQuery(
+            "SELECT result_json FROM self_engine_computation_results "
+            "WHERE result_json LIKE '%shared quote%'",
+          ),
+          isEmpty,
+        );
+      },
+    );
+
     test('heartbeat renews the active lease during slow extraction', () async {
       final started = Completer<void>();
       final release = Completer<MemoryExtractionBatchV2>();
@@ -278,6 +457,55 @@ void main() {
       expect(renewedExpiry.isAfter(initialExpiry), isTrue);
       expect(await running, SelfEngineRunResultV2.completed);
     });
+
+    test(
+      'a trigger during extraction gets a single-flight follow-up',
+      () async {
+        final started = Completer<void>();
+        final releaseFirst = Completer<void>();
+        var activeExtractions = 0;
+        var maxConcurrentExtractions = 0;
+        extractor.handler = (revision) async {
+          activeExtractions++;
+          if (activeExtractions > maxConcurrentExtractions) {
+            maxConcurrentExtractions = activeExtractions;
+          }
+          try {
+            if (revision.body == 'first') {
+              if (!started.isCompleted) started.complete();
+              await releaseFirst.future;
+            }
+            return _batch([
+              _candidate(
+                kind: 'event',
+                statement: 'Observed ${revision.body}',
+                quote: revision.body,
+              ),
+            ]);
+          } finally {
+            activeExtractions--;
+          }
+        };
+        await diaryRepository.save(_entry(id: 'first', body: 'first'));
+        final run = worker();
+        final firstRun = run.runOnce();
+        await started.future;
+
+        await diaryRepository.save(_entry(id: 'second', body: 'second'));
+        final coalesced = run.runOnce();
+        releaseFirst.complete();
+
+        expect(await firstRun, SelfEngineRunResultV2.completed);
+        expect(await coalesced, SelfEngineRunResultV2.completed);
+        final jobs = await selfRepository.getJobs();
+        expect(
+          jobs.where((job) => job.status == SelfEngineJobStatusV2.completed),
+          hasLength(2),
+        );
+        expect(extractor.calls, 2);
+        expect(maxConcurrentExtractions, 1);
+      },
+    );
 
     test(
       'malformed result retries, poison job does not block later work, then fails',
@@ -531,6 +759,10 @@ void main() {
         ),
         hasLength(1),
       );
+      final jobColumns = await database.rawQuery(
+        'PRAGMA table_info(self_engine_jobs)',
+      );
+      expect(jobColumns.map((row) => row['name']), contains('origin'));
       expect(
         () => database.insert('self_engine_computation_results', {
           'computation_id': 'missing',
@@ -563,6 +795,8 @@ void main() {
 
       final raw = await databaseFactoryFfi.openDatabase(dbPath);
       await raw.execute('DROP TABLE self_engine_computation_results');
+      await raw.execute('DROP INDEX self_engine_jobs_origin_ready_index');
+      await raw.execute('ALTER TABLE self_engine_jobs DROP COLUMN origin');
       await raw.execute('PRAGMA user_version = 11');
       await raw.close();
 
@@ -575,8 +809,27 @@ void main() {
       expect(await upgraded.query('diary_entries'), hasLength(1));
       expect(await upgraded.query('diary_revisions'), hasLength(1));
       expect(await upgraded.query('self_engine_jobs'), hasLength(1));
+      expect(
+        (await upgraded.query('self_engine_jobs')).single['origin'],
+        SelfEngineJobOriginV2.historical.name,
+      );
       expect(await upgraded.query('self_engine_computation_results'), isEmpty);
     });
+  });
+
+  test('cache identity versions share one explicit semantic contract', () {
+    expect(
+      SelfEnginePipelineV2.pipelineVersion,
+      SelfEnginePipelineV2.semanticVersion,
+    );
+    expect(
+      AiMemoryExtractorV2.extractorVersion,
+      SelfEnginePipelineV2.semanticVersion,
+    );
+    expect(
+      AiMemoryExtractorV2.promptVersion,
+      SelfEnginePipelineV2.semanticVersion,
+    );
   });
 
   test(
@@ -657,8 +910,8 @@ void main() {
 MemoryExtractionBatchV2 _batch(List<MemoryExtractionCandidateV2> candidates) =>
     MemoryExtractionBatchV2(
       candidates: candidates,
-      extractorVersion: 1,
-      promptVersion: 1,
+      extractorVersion: SelfEnginePipelineV2.extractorVersion,
+      promptVersion: SelfEnginePipelineV2.promptVersion,
       modelIdentifier: 'fake:model',
     );
 
