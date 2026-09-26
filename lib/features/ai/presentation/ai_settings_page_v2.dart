@@ -23,6 +23,7 @@ class _AiSettingsPageV2State extends State<AiSettingsPageV2> {
   AiConfigurationV2? _configuration;
   bool _enabled = false;
   bool _automaticReply = false;
+  bool _selfEngineEnabled = false;
   bool _fallbackEnabled = false;
   AiProviderV2 _provider = AiProviderV2.gemini;
   AiModelStrategyV2 _modelStrategy = AiModelStrategyV2.quality;
@@ -51,6 +52,7 @@ class _AiSettingsPageV2State extends State<AiSettingsPageV2> {
       _configuration = configuration;
       _enabled = configuration.enabled;
       _automaticReply = configuration.automaticReply;
+      _selfEngineEnabled = configuration.selfEngineEnabled;
       _fallbackEnabled = configuration.fallbackEnabled;
       _provider = configuration.provider;
       _modelStrategy = configuration.modelStrategy;
@@ -84,6 +86,18 @@ class _AiSettingsPageV2State extends State<AiSettingsPageV2> {
                           ? '已安全保存 API Key'
                           : '尚未配置 API Key',
                     ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  child: SwitchListTile(
+                    value: _selfEngineEnabled,
+                    onChanged: _enabled
+                        ? (value) => setState(() => _selfEngineEnabled = value)
+                        : null,
+                    secondary: const Icon(Icons.account_tree_outlined),
+                    title: const Text('启用 Self Engine'),
+                    subtitle: const Text('允许 AI 从日记中提取有原文证据的 Memory Atom；默认关闭'),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -281,6 +295,7 @@ class _AiSettingsPageV2State extends State<AiSettingsPageV2> {
       provider: _provider,
       model: model,
       automaticReply: _automaticReply,
+      selfEngineEnabled: _selfEngineEnabled,
       fallbackEnabled: _fallbackEnabled,
       modelStrategy: _modelStrategy,
       apiKey: hasNewKey ? _keyController.text : null,
@@ -300,6 +315,7 @@ class _AiSettingsPageV2State extends State<AiSettingsPageV2> {
       provider: _provider,
       model: _modelController.text.trim(),
       automaticReply: false,
+      selfEngineEnabled: false,
       fallbackEnabled: _fallbackEnabled,
       modelStrategy: _modelStrategy,
     );
@@ -332,6 +348,7 @@ class _AiSettingsPageV2State extends State<AiSettingsPageV2> {
         provider: _provider,
         model: model,
         automaticReply: _automaticReply,
+        selfEngineEnabled: _selfEngineEnabled,
         fallbackEnabled: _fallbackEnabled,
         modelStrategy: _modelStrategy,
         apiKey: hasNewKey ? _keyController.text : null,

@@ -1,25 +1,38 @@
 enum MemoryAtomKindV2 {
   event,
-  person,
-  place,
+  feeling,
   preference,
   dislike,
-  fear,
-  hope,
-  goal,
-  regret,
+  desire,
   belief,
-  opinion,
-  valueJudgement,
-  copingStrategy,
-  importantQuote,
-  question,
   decision,
-  lifeChange,
-  other,
+  coping,
+  relationship,
+  quoteOrExpression,
 }
 
-enum MemoryAtomScopeV2 { state, recurring, unknown }
+enum MemoryAtomScopeV2 { state, explicitLongTerm, unknown }
+
+/// A validated extraction result that is independent from a historical
+/// revision. It can therefore be cached by computation identity and later
+/// materialized as a new [MemoryAtomV2] for every matching revision.
+class MemoryAtomDraftV2 {
+  const MemoryAtomDraftV2({
+    required this.kind,
+    required this.statement,
+    required this.sourceQuote,
+    required this.sourceStart,
+    required this.sourceEnd,
+    required this.scope,
+  });
+
+  final MemoryAtomKindV2 kind;
+  final String statement;
+  final String sourceQuote;
+  final int sourceStart;
+  final int sourceEnd;
+  final MemoryAtomScopeV2 scope;
+}
 
 class MemoryAtomV2 {
   const MemoryAtomV2({

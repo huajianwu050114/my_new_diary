@@ -385,12 +385,30 @@ void main() {
       });
       expect(await source.db.query('self_engine_computations'), isNotEmpty);
       expect(await source.db.query('self_engine_jobs'), isNotEmpty);
+      final computation = (await source.db.query(
+        'self_engine_computations',
+        columns: const ['id'],
+        limit: 1,
+      )).single;
+      await source.db.insert('self_engine_computation_results', {
+        'computation_id': computation['id'],
+        'result_json': '[]',
+        'extractor_version': 1,
+        'prompt_version': 1,
+        'model_identifier': 'fake:model',
+        'created_at': now,
+      });
+      expect(
+        await source.db.query('self_engine_computation_results'),
+        isNotEmpty,
+      );
 
       final manifest = _manifest(await source.service.exportZip());
       expect(manifest, isNot(contains('memoryAtoms')));
       expect(manifest, isNot(contains('memoryThreads')));
       expect(manifest, isNot(contains('threadMemberships')));
       expect(manifest, isNot(contains('selfEngineComputations')));
+      expect(manifest, isNot(contains('selfEngineComputationResults')));
       expect(manifest, isNot(contains('selfEngineJobs')));
     } finally {
       await source.dispose();

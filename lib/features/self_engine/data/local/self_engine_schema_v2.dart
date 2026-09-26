@@ -239,6 +239,45 @@ abstract final class SelfEngineSchemaV2 {
     ''');
   }
 
+  static Future<void> createV12(DatabaseExecutor database) async {
+    await database.execute('''
+      CREATE TABLE self_engine_computation_results (
+        computation_id TEXT PRIMARY KEY NOT NULL,
+        result_json TEXT NOT NULL,
+        extractor_version INTEGER NOT NULL CHECK(extractor_version > 0),
+        prompt_version INTEGER NOT NULL CHECK(prompt_version > 0),
+        model_identifier TEXT NOT NULL CHECK(length(model_identifier) > 0),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(computation_id)
+          REFERENCES self_engine_computations(id) ON DELETE CASCADE
+      )
+    ''');
+  }
+
+  static Future<void> validateV12(Database database) async {
+    await validateV11(database);
+    await _validateColumns(database, 'self_engine_computation_results', const {
+      'computation_id',
+      'result_json',
+      'extractor_version',
+      'prompt_version',
+      'model_identifier',
+      'created_at',
+    });
+    await _requireForeignKey(
+      database,
+      'self_engine_computation_results',
+      parent: 'self_engine_computations',
+      from: const ['computation_id'],
+      to: const ['id'],
+      onDelete: 'CASCADE',
+    );
+    final violations = await database.rawQuery('PRAGMA foreign_key_check');
+    if (violations.isNotEmpty) {
+      throw StateError('Database foreign-key validation failed: $violations');
+    }
+  }
+
   static Future<void> validateV11(Database database) async {
     await _validateColumns(database, 'self_engine_state', const {
       'id',

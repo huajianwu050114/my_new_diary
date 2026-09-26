@@ -53,10 +53,17 @@ class GeminiRestClientV2 {
   ) async {
     final apiKey = await configurationStore.readApiKey(configuration.provider);
     if (apiKey == null || apiKey.isEmpty) throw const AiNotConfiguredV2();
+    final model = _selectedModel(configuration, options);
 
     final stopwatch = Stopwatch()..start();
     try {
-      final request = _buildRequest(configuration, apiKey, messages, options);
+      final request = _buildRequest(
+        configuration,
+        apiKey,
+        model,
+        messages,
+        options,
+      );
       final response = await _httpClient
           .post(
             request.uri,
@@ -84,7 +91,12 @@ class GeminiRestClientV2 {
       if (text.trim().isEmpty) {
         throw const AiRequestFailureV2('AI 返回了空内容');
       }
-      return AiResponseV2(text: text.trim(), elapsed: stopwatch.elapsed);
+      return AiResponseV2(
+        text: text.trim(),
+        elapsed: stopwatch.elapsed,
+        provider: configuration.provider.name,
+        model: model,
+      );
     } on AiFailureV2 {
       rethrow;
     } catch (_) {
@@ -97,15 +109,10 @@ class GeminiRestClientV2 {
   _AiHttpRequestV2 _buildRequest(
     AiConfigurationV2 configuration,
     String apiKey,
+    String model,
     List<AiChatMessageV2> messages,
     AiGenerationOptionsV2 options,
   ) {
-    final model = configuration.modelStrategy == AiModelStrategyV2.custom
-        ? configuration.model
-        : configuration.provider.modelFor(
-            configuration.modelStrategy,
-            options.task,
-          );
     final thinkingLevel = options.thinkingLevel.name;
     final deepSeekThinking = switch (options.thinkingLevel) {
       AiThinkingLevelV2.minimal || AiThinkingLevelV2.low => false,
@@ -166,6 +173,16 @@ class GeminiRestClientV2 {
       ),
     };
   }
+
+  String _selectedModel(
+    AiConfigurationV2 configuration,
+    AiGenerationOptionsV2 options,
+  ) => configuration.modelStrategy == AiModelStrategyV2.custom
+      ? configuration.model
+      : configuration.provider.modelFor(
+          configuration.modelStrategy,
+          options.task,
+        );
 
   String _geminiText(Map<String, dynamic> decoded) {
     final candidates = decoded['candidates'];

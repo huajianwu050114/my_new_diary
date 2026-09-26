@@ -34,10 +34,20 @@ class AiGenerationOptionsV2 {
 }
 
 class AiResponseV2 {
-  const AiResponseV2({required this.text, required this.elapsed});
+  const AiResponseV2({
+    required this.text,
+    required this.elapsed,
+    this.provider,
+    this.model,
+  });
 
   final String text;
   final Duration elapsed;
+  final String? provider;
+  final String? model;
+
+  String get modelIdentifier =>
+      provider == null || model == null ? 'unknown' : '$provider:$model';
 }
 
 sealed class AiFailureV2 implements Exception {

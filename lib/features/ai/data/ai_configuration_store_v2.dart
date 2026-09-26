@@ -14,6 +14,7 @@ class AiConfigurationStoreV2 {
   static const _modelName = 'v2_ai_model';
   static const _deepSeekModelName = 'v2_deepseek_model';
   static const _automaticReplyName = 'v2_ai_automatic_reply';
+  static const _selfEngineEnabledName = 'v2_self_engine_enabled';
   static const _fallbackEnabledName = 'v2_ai_fallback_enabled';
   static const _modelStrategyName = 'v2_ai_model_strategy_v3';
 
@@ -45,6 +46,7 @@ class AiConfigurationStoreV2 {
     return AiConfigurationV2(
       enabled: preferences.getBool(_enabledName) ?? false,
       automaticReply: preferences.getBool(_automaticReplyName) ?? false,
+      selfEngineEnabled: preferences.getBool(_selfEngineEnabledName) ?? false,
       fallbackEnabled: preferences.getBool(_fallbackEnabledName) ?? false,
       hasApiKey: (await _secretStore.read(keyName))?.isNotEmpty == true,
       provider: provider,
@@ -63,6 +65,7 @@ class AiConfigurationStoreV2 {
     required AiProviderV2 provider,
     required String model,
     bool? automaticReply,
+    bool? selfEngineEnabled,
     bool? fallbackEnabled,
     AiModelStrategyV2? modelStrategy,
     String? apiKey,
@@ -74,6 +77,9 @@ class AiConfigurationStoreV2 {
     await preferences.setBool(_enabledName, enabled);
     if (automaticReply != null) {
       await preferences.setBool(_automaticReplyName, automaticReply);
+    }
+    if (selfEngineEnabled != null) {
+      await preferences.setBool(_selfEngineEnabledName, selfEngineEnabled);
     }
     if (fallbackEnabled != null) {
       await preferences.setBool(_fallbackEnabledName, fallbackEnabled);
@@ -134,6 +140,7 @@ class AiConfigurationV2 {
     required this.model,
     this.modelStrategy = AiModelStrategyV2.quality,
     this.fallbackEnabled = false,
+    this.selfEngineEnabled = false,
   });
 
   final bool enabled;
@@ -143,6 +150,7 @@ class AiConfigurationV2 {
   final String model;
   final AiModelStrategyV2 modelStrategy;
   final bool fallbackEnabled;
+  final bool selfEngineEnabled;
 
   bool get ready => enabled && hasApiKey;
 }

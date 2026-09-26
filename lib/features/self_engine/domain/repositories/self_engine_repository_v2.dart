@@ -1,9 +1,13 @@
 import '../entities/diary_revision_v2.dart';
 import '../entities/self_engine_derived_result_v2.dart';
 import '../entities/self_engine_job_v2.dart';
+import '../entities/memory_atom_v2.dart';
+import '../entities/source_computation_v2.dart';
 
 abstract interface class SelfEngineRepositoryV2 {
   Future<DiaryRevisionV2?> getLatestRevision(String diaryId);
+
+  Future<DiaryRevisionV2?> getRevisionById(String revisionId);
 
   Future<List<DiaryRevisionV2>> getAllRevisions();
 
@@ -17,6 +21,10 @@ abstract interface class SelfEngineRepositoryV2 {
   );
 
   Future<List<SelfEngineJobV2>> getJobs({SelfEngineJobStatusV2? status});
+
+  Future<SourceComputationResultV2?> getComputationResult(String computationId);
+
+  Future<List<MemoryAtomV2>> getAtomsForRevision(String revisionId);
 
   Future<SelfEngineJobV2?> claimNextJob({
     required DateTime now,

@@ -1,6 +1,6 @@
 import '../../domain/entities/self_engine_job_v2.dart';
 
-/// Phase A boundary only. No implementation invokes AI yet.
+/// Processes one already-claimed job while its lease remains valid.
 abstract interface class SelfEngineProcessorV2 {
   Future<void> process(SelfEngineJobV2 job);
 }

@@ -8,6 +8,8 @@ import '../../domain/diary_source_fingerprint_v2.dart';
 import '../../domain/entities/diary_revision_v2.dart';
 import '../../domain/entities/self_engine_derived_result_v2.dart';
 import '../../domain/entities/self_engine_job_v2.dart';
+import '../../domain/entities/memory_atom_v2.dart';
+import '../../domain/entities/source_computation_v2.dart';
 import '../../domain/repositories/self_engine_repository_v2.dart';
 import '../../domain/self_engine_retry_policy_v2.dart';
 import 'self_engine_outbox_writer_v2.dart';
@@ -36,6 +38,17 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
       where: 'diary_id = ?',
       whereArgs: [diaryId],
       orderBy: 'revision_no DESC',
+      limit: 1,
+    );
+    return rows.isEmpty ? null : _revisionFromRow(rows.single);
+  }
+
+  @override
+  Future<DiaryRevisionV2?> getRevisionById(String revisionId) async {
+    final rows = await _database.query(
+      'diary_revisions',
+      where: 'id = ?',
+      whereArgs: [revisionId],
       limit: 1,
     );
     return rows.isEmpty ? null : _revisionFromRow(rows.single);
@@ -193,6 +206,30 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
   }
 
   @override
+  Future<SourceComputationResultV2?> getComputationResult(
+    String computationId,
+  ) async {
+    final rows = await _database.query(
+      'self_engine_computation_results',
+      where: 'computation_id = ?',
+      whereArgs: [computationId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : _computationResultFromRow(rows.single);
+  }
+
+  @override
+  Future<List<MemoryAtomV2>> getAtomsForRevision(String revisionId) async {
+    final rows = await _database.query(
+      'memory_atoms',
+      where: 'revision_id = ?',
+      whereArgs: [revisionId],
+      orderBy: 'created_at ASC, id ASC',
+    );
+    return rows.map(_atomFromRow).toList(growable: false);
+  }
+
+  @override
   Future<SelfEngineJobV2?> claimNextJob({
     required DateTime now,
     Duration leaseDuration = const Duration(minutes: 5),
@@ -295,7 +332,8 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
       final timestamp = publishedAt.toUtc().toIso8601String();
       final rows = await transaction.rawQuery(
         '''
-        SELECT j.*, s.generation AS current_generation
+        SELECT j.*, r.body AS revision_body,
+               s.generation AS current_generation
         FROM self_engine_jobs j
         JOIN diary_revisions r
           ON r.id = j.revision_id
@@ -337,6 +375,14 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
       if (!ownsLease) return false;
 
       _validatePublishedResult(job, result);
+      final computationResult = result.computationResult;
+      if (computationResult != null) {
+        await _persistComputationResult(
+          transaction,
+          job: job,
+          result: computationResult,
+        );
+      }
       for (final atom in result.atoms) {
         final values = <String, Object?>{
           'revision_id': atom.revisionId,
@@ -493,7 +539,18 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
     final revisionId = job['revision_id']! as String;
     final pipelineVersion = job['pipeline_version']! as int;
     final generation = job['generation']! as int;
+    final revisionBody = job['revision_body']! as String;
+    if (result.atoms.length > 6) {
+      throw StateError(
+        'A Memory Atom result cannot contain more than 6 atoms.',
+      );
+    }
     final atomIds = <String>{};
+    final computationResult = result.computationResult;
+    if (computationResult != null &&
+        computationResult.computationId != job['computation_id']) {
+      throw StateError('Computation result has the wrong identity.');
+    }
     for (final atom in result.atoms) {
       if (!atomIds.add(atom.id)) {
         throw StateError('Duplicate memory atom ${atom.id}.');
@@ -504,6 +561,41 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
         throw StateError(
           'Memory atom ${atom.id} has the wrong source identity.',
         );
+      }
+      _validateAtomEvidence(
+        revisionBody,
+        statement: atom.statement,
+        sourceQuote: atom.sourceQuote,
+        sourceStart: atom.sourceStart,
+        sourceEnd: atom.sourceEnd,
+      );
+    }
+    if (computationResult != null) {
+      if (computationResult.atoms.length != result.atoms.length) {
+        throw StateError(
+          'Computation result does not match materialized atoms.',
+        );
+      }
+      for (var index = 0; index < computationResult.atoms.length; index++) {
+        final draft = computationResult.atoms[index];
+        final atom = result.atoms[index];
+        _validateAtomEvidence(
+          revisionBody,
+          statement: draft.statement,
+          sourceQuote: draft.sourceQuote,
+          sourceStart: draft.sourceStart,
+          sourceEnd: draft.sourceEnd,
+        );
+        if (draft.kind != atom.kind ||
+            draft.statement != atom.statement ||
+            draft.sourceQuote != atom.sourceQuote ||
+            draft.sourceStart != atom.sourceStart ||
+            draft.sourceEnd != atom.sourceEnd ||
+            draft.scope != atom.scope) {
+          throw StateError(
+            'Computation result does not match materialized atom ${atom.id}.',
+          );
+        }
       }
     }
     final threadIds = <String>{};
@@ -529,6 +621,122 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
         throw StateError('Thread membership has the wrong generation.');
       }
     }
+  }
+
+  void _validateAtomEvidence(
+    String revisionBody, {
+    required String statement,
+    required String sourceQuote,
+    required int? sourceStart,
+    required int? sourceEnd,
+  }) {
+    if (statement.trim().isEmpty ||
+        statement.trim().length > 240 ||
+        sourceQuote.isEmpty ||
+        sourceQuote.length > 500 ||
+        !revisionBody.contains(sourceQuote)) {
+      throw StateError('Memory atom evidence is invalid.');
+    }
+    if ((sourceStart == null) != (sourceEnd == null)) {
+      throw StateError('Memory atom offsets must be supplied together.');
+    }
+    if (sourceStart != null &&
+        (sourceStart < 0 ||
+            sourceEnd! < sourceStart ||
+            sourceEnd > revisionBody.length ||
+            revisionBody.substring(sourceStart, sourceEnd) != sourceQuote)) {
+      throw StateError('Memory atom offsets do not match its source quote.');
+    }
+  }
+
+  Future<void> _persistComputationResult(
+    DatabaseExecutor database, {
+    required Map<String, Object?> job,
+    required SourceComputationResultV2 result,
+  }) async {
+    if (result.computationId != job['computation_id'] ||
+        result.extractorVersion <= 0 ||
+        result.promptVersion <= 0 ||
+        result.modelIdentifier.trim().isEmpty) {
+      throw StateError('Computation result metadata is invalid.');
+    }
+    final row = <String, Object?>{
+      'computation_id': result.computationId,
+      'result_json': _computationResultJson(result.atoms),
+      'extractor_version': result.extractorVersion,
+      'prompt_version': result.promptVersion,
+      'model_identifier': result.modelIdentifier,
+      'created_at': result.createdAt.toUtc().toIso8601String(),
+    };
+    final existing = await database.query(
+      'self_engine_computation_results',
+      where: 'computation_id = ?',
+      whereArgs: [result.computationId],
+      limit: 1,
+    );
+    if (existing.isEmpty) {
+      await database.insert('self_engine_computation_results', row);
+      return;
+    }
+    const identityFields = [
+      'result_json',
+      'extractor_version',
+      'prompt_version',
+      'model_identifier',
+    ];
+    if (identityFields.any((field) => existing.single[field] != row[field])) {
+      throw StateError(
+        'Computation ${result.computationId} has a conflicting result.',
+      );
+    }
+  }
+
+  String _computationResultJson(List<MemoryAtomDraftV2> atoms) => jsonEncode(
+    atoms
+        .map(
+          (atom) => {
+            'kind': atom.kind.name,
+            'statement': atom.statement,
+            'sourceQuote': atom.sourceQuote,
+            'sourceStart': atom.sourceStart,
+            'sourceEnd': atom.sourceEnd,
+            'scope': atom.scope.name,
+          },
+        )
+        .toList(growable: false),
+  );
+
+  SourceComputationResultV2 _computationResultFromRow(
+    Map<String, Object?> row,
+  ) {
+    final decoded = jsonDecode(row['result_json']! as String);
+    if (decoded is! List) {
+      throw StateError('Stored computation result is not an atom list.');
+    }
+    final atoms = decoded
+        .map((value) {
+          if (value is! Map) {
+            throw StateError('Stored computation atom is malformed.');
+          }
+          final atom = Map<String, Object?>.from(value);
+          return MemoryAtomDraftV2(
+            kind: MemoryAtomKindV2.values.byName(atom['kind']! as String),
+            statement: atom['statement']! as String,
+            sourceQuote: atom['sourceQuote']! as String,
+            sourceStart: atom['sourceStart']! as int,
+            sourceEnd: atom['sourceEnd']! as int,
+            scope: MemoryAtomScopeV2.values.byName(atom['scope']! as String),
+          );
+        })
+        .toList(growable: false);
+    return SourceComputationResultV2(
+      computationId: row['computation_id']! as String,
+      atoms: atoms,
+      extractorVersion: row['extractor_version']! as int,
+      promptVersion: row['prompt_version']! as int,
+      modelIdentifier: row['model_identifier']! as String,
+      createdAt: DateTime.parse(row['created_at']! as String),
+    );
   }
 
   @override
@@ -818,6 +1026,22 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
     error: row['error'] as String?,
     leaseId: row['lease_id'] as String?,
     leaseExpiresAt: _date(row['lease_expires_at']),
+  );
+
+  MemoryAtomV2 _atomFromRow(Map<String, Object?> row) => MemoryAtomV2(
+    id: row['id']! as String,
+    revisionId: row['revision_id']! as String,
+    kind: MemoryAtomKindV2.values.byName(row['kind']! as String),
+    statement: row['statement']! as String,
+    sourceQuote: row['source_quote']! as String,
+    sourceStart: row['source_start'] as int?,
+    sourceEnd: row['source_end'] as int?,
+    observedAt: _date(row['observed_at']),
+    scope: MemoryAtomScopeV2.values.byName(row['scope']! as String),
+    pipelineVersion: row['pipeline_version']! as int,
+    generation: row['generation']! as int,
+    createdAt: DateTime.parse(row['created_at']! as String),
+    supersededAt: _date(row['superseded_at']),
   );
 
   DateTime? _date(Object? value) =>

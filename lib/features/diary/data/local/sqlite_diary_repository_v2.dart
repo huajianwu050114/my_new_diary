@@ -12,14 +12,17 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
     this._database, {
     DiaryEntryMapperV2 mapper = const DiaryEntryMapperV2(),
     SelfEngineOutboxWriterV2? selfEngineOutbox,
+    void Function()? onSourceSaved,
   }) : _mapper = mapper,
-       _selfEngineOutbox = selfEngineOutbox ?? SelfEngineOutboxWriterV2();
+       _selfEngineOutbox = selfEngineOutbox ?? SelfEngineOutboxWriterV2(),
+       _onSourceSaved = onSourceSaved;
 
   static const _table = 'diary_entries';
 
   final Database _database;
   final DiaryEntryMapperV2 _mapper;
   final SelfEngineOutboxWriterV2 _selfEngineOutbox;
+  final void Function()? _onSourceSaved;
   final _changes = StreamController<void>.broadcast();
 
   @override
@@ -61,6 +64,7 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
       await _selfEngineOutbox.recordSourceChange(transaction, entry);
     });
     _changes.add(null);
+    _onSourceSaved?.call();
   }
 
   @override

@@ -3,16 +3,20 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 
 import '../application/self_engine_job_recovery_v2.dart';
+import '../application/self_engine_lifecycle_maintenance_v2.dart';
+import '../application/ports/self_engine_runner_v2.dart';
 
 class SelfEngineRecoveryScopeV2 extends StatefulWidget {
   const SelfEngineRecoveryScopeV2({
     required this.recovery,
     required this.child,
+    this.runner,
     super.key,
   });
 
   final SelfEngineJobRecoveryV2 recovery;
   final Widget child;
+  final SelfEngineRunnerV2? runner;
 
   @override
   State<SelfEngineRecoveryScopeV2> createState() =>
@@ -46,9 +50,10 @@ class _SelfEngineRecoveryScopeV2State extends State<SelfEngineRecoveryScopeV2>
   }
 
   Future<int> _resumeMaintenance() async {
-    final recovered = await widget.recovery.afterResume();
-    await widget.recovery.reconcileLegacyDiaries();
-    return recovered;
+    return SelfEngineLifecycleMaintenanceV2(
+      recovery: widget.recovery,
+      runner: widget.runner,
+    ).afterResume();
   }
 
   @override

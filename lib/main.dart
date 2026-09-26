@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -9,6 +11,8 @@ import 'features/diary/data/local/local_diary_image_store_v2.dart';
 import 'features/diary/data/local/sqlite_diary_repository_v2.dart';
 import 'features/diary/data/migration/legacy_diary_migrator_v2.dart';
 import 'features/diary/application/legacy_migration_controller_v2.dart';
+import 'features/ai/data/ai_configuration_store_v2.dart';
+import 'features/ai/data/gemini_rest_client_v2.dart';
 import 'features/festival/data/public_holiday_service_v2.dart';
 import 'features/festival/data/sqlite_festival_repository_v2.dart';
 import 'features/export/application/backup_sqlite_snapshot_reader_v2.dart';
@@ -17,6 +21,11 @@ import 'features/settings/application/app_lock_controller_v2.dart';
 import 'features/life_guide/data/sqlite_life_fragment_repository_v2.dart';
 import 'features/life_library/data/sqlite_life_document_repository_v2.dart';
 import 'features/self_engine/application/self_engine_job_recovery_v2.dart';
+import 'features/self_engine/application/configured_self_engine_availability_v2.dart';
+import 'features/self_engine/application/memory_atom_job_processor_v2.dart';
+import 'features/self_engine/application/ports/self_engine_runner_v2.dart';
+import 'features/self_engine/application/self_engine_worker_v2.dart';
+import 'features/self_engine/data/ai/ai_memory_extractor_v2.dart';
 import 'features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
 
 Future<void> main() async {
@@ -32,7 +41,34 @@ Future<void> main() async {
 
   final databaseOwner = DiaryDatabaseV2();
   final database = await databaseOwner.open();
-  final repository = SqliteDiaryRepositoryV2(database);
+  final selfEngineRepository = SqliteSelfEngineRepositoryV2(database);
+  final aiConfigurationStore = AiConfigurationStoreV2();
+  const selfEngineLeaseDuration = Duration(minutes: 5);
+  final selfEngineWorker = SelfEngineWorkerV2(
+    repository: selfEngineRepository,
+    processor: MemoryAtomJobProcessorV2(
+      repository: selfEngineRepository,
+      extractor: AiMemoryExtractorV2(
+        GeminiRestClientV2(configurationStore: aiConfigurationStore),
+      ),
+      leaseDuration: selfEngineLeaseDuration,
+    ),
+    availability: ConfiguredSelfEngineAvailabilityV2(aiConfigurationStore),
+    leaseDuration: selfEngineLeaseDuration,
+  );
+  void scheduleSelfEngineWork() {
+    unawaited(
+      selfEngineWorker.runOnce().catchError((Object error) {
+        debugPrint('Self Engine worker could not run: $error');
+        return SelfEngineRunResultV2.ownershipLost;
+      }),
+    );
+  }
+
+  final repository = SqliteDiaryRepositoryV2(
+    database,
+    onSourceSaved: scheduleSelfEngineWork,
+  );
   final imageStore = LocalDiaryImageStoreV2();
 
   final migrationController = LegacyMigrationControllerV2(
@@ -52,7 +88,6 @@ Future<void> main() async {
   final festivalRepository = SqliteFestivalRepositoryV2(database);
   final lifeFragmentRepository = SqliteLifeFragmentRepositoryV2(database);
   final lifeDocumentRepository = SqliteLifeDocumentRepositoryV2(database);
-  final selfEngineRepository = SqliteSelfEngineRepositoryV2(database);
   final selfEngineRecovery = SelfEngineJobRecoveryV2(selfEngineRepository);
   try {
     await selfEngineRecovery.afterColdStart();
@@ -60,6 +95,7 @@ Future<void> main() async {
   } catch (error) {
     debugPrint('Self Engine job recovery could not run: $error');
   }
+  scheduleSelfEngineWork();
   final themeController = ThemeControllerV2();
   await themeController.load();
   final appLockController = AppLockControllerV2();
@@ -73,6 +109,7 @@ Future<void> main() async {
       lifeDocumentRepository: lifeDocumentRepository,
       selfEngineRepository: selfEngineRepository,
       selfEngineRecovery: selfEngineRecovery,
+      selfEngineRunner: selfEngineWorker,
       backupSnapshotReader: BackupSqliteSnapshotReaderV2(database),
       publicHolidayService: PublicHolidayServiceV2(),
       themeController: themeController,
