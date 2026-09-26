@@ -1,6 +1,8 @@
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
+import '../../../self_engine/data/local/self_engine_schema_v2.dart';
+
 class DiaryDatabaseV2 {
   DiaryDatabaseV2({
     DatabaseFactory? factory,
@@ -9,7 +11,7 @@ class DiaryDatabaseV2 {
        _databasePath = databasePath ?? _defaultDatabasePath;
 
   static const databaseName = 'diary_v2.db';
-  static const schemaVersion = 10;
+  static const schemaVersion = 11;
 
   final DatabaseFactory _databaseFactory;
   final Future<String> Function() _databasePath;
@@ -31,7 +33,7 @@ class DiaryDatabaseV2 {
         },
         onCreate: _createSchema,
         onUpgrade: _upgradeSchema,
-        onOpen: _repairSchema,
+        onOpen: _validateSchema,
       ),
     );
     return _database!;
@@ -80,6 +82,7 @@ class DiaryDatabaseV2 {
     await _createLifeFragmentRevisionsTable(database);
     await _createLifeSpacesTable(database);
     await _createLifeDocumentsTable(database);
+    await SelfEngineSchemaV2.createV11(database);
   }
 
   static Future<void> _upgradeSchema(
@@ -117,10 +120,19 @@ class DiaryDatabaseV2 {
     if (oldVersion < 10) {
       await _ensureContentDeltaColumn(database);
     }
+    if (oldVersion < 11) {
+      await SelfEngineSchemaV2.createV11(database);
+    }
   }
 
-  static Future<void> _repairSchema(Database database) async {
-    await _ensureContentDeltaColumn(database);
+  static Future<void> _validateSchema(Database database) async {
+    final diaryColumns = await database.rawQuery(
+      'PRAGMA table_info(diary_entries)',
+    );
+    if (!diaryColumns.any((column) => column['name'] == 'content_delta')) {
+      throw StateError('Schema drift: diary_entries.content_delta is missing.');
+    }
+    await SelfEngineSchemaV2.validateV11(database);
   }
 
   static Future<void> _ensureContentDeltaColumn(Database database) async {

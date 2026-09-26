@@ -5,17 +5,23 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:my_new_diary/features/analysis/data/stop_words_store_v2.dart';
+import 'package:my_new_diary/features/ai/data/ai_memory_store_v2.dart';
+import 'package:my_new_diary/features/ai/domain/ai_memory_v2.dart';
 import 'package:my_new_diary/features/diary/application/ports/diary_image_store_v2.dart';
 import 'package:my_new_diary/features/diary/data/local/diary_database_v2.dart';
 import 'package:my_new_diary/features/diary/data/local/sqlite_diary_repository_v2.dart';
 import 'package:my_new_diary/features/diary/domain/entities/diary_entry.dart';
 import 'package:my_new_diary/features/export/application/diary_backup_service_v2.dart';
+import 'package:my_new_diary/features/export/application/backup_sqlite_snapshot_reader_v2.dart';
 import 'package:my_new_diary/features/export/application/diary_pdf_service_v2.dart';
 import 'package:my_new_diary/features/festival/data/sqlite_festival_repository_v2.dart';
 import 'package:my_new_diary/features/festival/domain/festival_v2.dart';
 import 'package:my_new_diary/features/life_library/data/sqlite_life_document_repository_v2.dart';
 import 'package:my_new_diary/features/life_library/domain/life_document_v2.dart';
 import 'package:my_new_diary/features/life_library/domain/life_space_v2.dart';
+import 'package:my_new_diary/features/life_guide/data/sqlite_life_fragment_repository_v2.dart';
+import 'package:my_new_diary/features/life_guide/domain/life_fragment_v2.dart';
+import 'package:my_new_diary/features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +44,7 @@ void main() {
   });
 
   test(
-    'round-trips diary metadata, images, festivals, and stop words',
+    'round-trips raw and user-confirmed data without derived Self data',
     () async {
       SharedPreferences.setMockInitialValues({});
       final sourceDatabase = DiaryDatabaseV2(
@@ -51,6 +57,12 @@ void main() {
       );
       final sourceImages = _MemoryImageStore();
       final sourceLife = SqliteLifeDocumentRepositoryV2(
+        await sourceDatabase.open(),
+      );
+      final sourceGuide = SqliteLifeFragmentRepositoryV2(
+        await sourceDatabase.open(),
+      );
+      final sourceSelf = SqliteSelfEngineRepositoryV2(
         await sourceDatabase.open(),
       );
       final imageId = await sourceImages.save(
@@ -103,8 +115,33 @@ void main() {
           updatedAt: timestamp,
         ),
       );
+      await sourceLife.save(
+        LifeDocumentV2(
+          id: 'deleted-note',
+          space: 'reading-space',
+          title: '已删除但仍应备份',
+          markdown: '等待用户决定是否永久删除',
+          type: LifeDocumentTypeV2.note,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          deletedAt: timestamp,
+        ),
+      );
+      final originalFragment = _lifeFragment(timestamp);
+      await sourceGuide.save(originalFragment);
+      await sourceGuide.updateWithRevision(
+        originalFragment.copyWith(
+          title: '更新后的认识',
+          updatedAt: timestamp.add(const Duration(days: 1)),
+        ),
+        previous: originalFragment,
+      );
       final stopWords = StopWordsStoreV2();
       await stopWords.save({'private'});
+      final aiMemories = AiMemoryStoreV2();
+      await aiMemories.save(
+        AiMemoryV2(id: 'memory-1', text: '我更喜欢先被倾听。', createdAt: timestamp),
+      );
 
       final bytes = await DiaryBackupServiceV2(
         diaryRepository: sourceDiary,
@@ -112,7 +149,19 @@ void main() {
         festivalRepository: sourceFestival,
         stopWordsStore: stopWords,
         lifeDocumentRepository: sourceLife,
+        lifeFragmentRepository: sourceGuide,
+        selfEngineRepository: sourceSelf,
+        aiMemoryStore: aiMemories,
+        snapshotReader: BackupSqliteSnapshotReaderV2(
+          await sourceDatabase.open(),
+        ),
       ).exportZip();
+
+      await sourceDiary.dispose();
+      await sourceFestival.dispose();
+      await sourceLife.dispose();
+      await sourceGuide.dispose();
+      await sourceDatabase.close();
 
       SharedPreferences.setMockInitialValues({});
       final targetDatabase = DiaryDatabaseV2(
@@ -127,12 +176,24 @@ void main() {
       final targetLife = SqliteLifeDocumentRepositoryV2(
         await targetDatabase.open(),
       );
+      final targetGuide = SqliteLifeFragmentRepositoryV2(
+        await targetDatabase.open(),
+      );
+      final targetSelf = SqliteSelfEngineRepositoryV2(
+        await targetDatabase.open(),
+      );
       final report = await DiaryBackupServiceV2(
         diaryRepository: targetDiary,
         imageStore: targetImages,
         festivalRepository: targetFestival,
         stopWordsStore: stopWords,
         lifeDocumentRepository: targetLife,
+        lifeFragmentRepository: targetGuide,
+        selfEngineRepository: targetSelf,
+        aiMemoryStore: aiMemories,
+        snapshotReader: BackupSqliteSnapshotReaderV2(
+          await targetDatabase.open(),
+        ),
       ).importZip(bytes);
 
       final restored = await targetDiary.getById('entry-1');
@@ -145,25 +206,47 @@ void main() {
       expect(await targetFestival.watchCustomFestivals().first, hasLength(1));
       expect(await stopWords.load(), {'private'});
       expect(report.importedLifeSpaces, 2);
-      expect(report.importedLifeDocuments, 1);
+      expect(report.importedLifeDocuments, 2);
+      expect(report.importedDiaryRevisions, 1);
+      expect(report.importedLifeFragments, 1);
+      expect(report.importedLifeFragmentRevisions, 1);
+      expect(report.importedAiMemories, 1);
       expect((await targetLife.getSpaceById('reading-space'))?.name, '我的阅读');
       expect(
         (await targetLife.getById('reading-list'))?.markdown,
         contains('第一本书'),
       );
       expect((await targetLife.getById('reading-list'))?.tags, ['阅读']);
+      expect((await targetLife.getById('deleted-note'))?.deletedAt, isNotNull);
+      expect((await targetSelf.getAllRevisions()), hasLength(1));
+      expect((await targetSelf.getJobs()), hasLength(1));
+      expect((await targetGuide.getById('fragment-1'))?.title, '更新后的认识');
+      expect(await targetGuide.getRevisions('fragment-1'), hasLength(1));
+      expect((await aiMemories.load()).single.text, '我更喜欢先被倾听。');
 
-      await sourceDiary.dispose();
-      await sourceFestival.dispose();
-      await sourceLife.dispose();
-      await sourceDatabase.close();
       await targetDiary.dispose();
       await targetFestival.dispose();
       await targetLife.dispose();
+      await targetGuide.dispose();
       await targetDatabase.close();
     },
   );
 }
+
+LifeFragmentV2 _lifeFragment(DateTime timestamp) => LifeFragmentV2(
+  id: 'fragment-1',
+  title: '最初的认识',
+  coreInsight: '允许自己慢一点。',
+  context: '一段真实经历。',
+  evidence: '日记中的原话。',
+  futureUse: '再次着急时。',
+  messageToFutureSelf: '先照顾好自己。',
+  theme: '生活节奏',
+  sourceDiaryIds: const ['entry-1'],
+  status: LifeFragmentStatusV2.confirmed,
+  createdAt: timestamp,
+  updatedAt: timestamp,
+);
 
 class _MemoryImageStore implements DiaryImageStoreV2 {
   final _values = <String, Uint8List>{};

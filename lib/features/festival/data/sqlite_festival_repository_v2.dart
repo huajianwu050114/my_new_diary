@@ -23,13 +23,22 @@ class SqliteFestivalRepositoryV2 implements FestivalRepositoryV2 {
 
   @override
   Future<void> save(CustomFestivalV2 festival) async {
-    await _database.insert('custom_festivals', {
+    final row = {
       'id': festival.id,
       'name': festival.name,
       'month': festival.month,
       'day': festival.day,
       'created_at': festival.createdAt.toUtc().toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    };
+    await _database.transaction((transaction) async {
+      final changed = await transaction.update(
+        'custom_festivals',
+        row,
+        where: 'id = ?',
+        whereArgs: [festival.id],
+      );
+      if (changed == 0) await transaction.insert('custom_festivals', row);
+    });
     _changes.add(null);
   }
 

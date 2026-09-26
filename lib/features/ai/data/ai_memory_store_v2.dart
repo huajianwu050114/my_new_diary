@@ -8,27 +8,37 @@ class AiMemoryStoreV2 {
   static const _key = 'v2_confirmed_ai_memories';
 
   Future<List<AiMemoryV2>> load() async {
-    final preferences = await SharedPreferences.getInstance();
-    final raw = preferences.getString(_key);
-    if (raw == null || raw.isEmpty) return const [];
     try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) return const [];
-      return decoded
-          .whereType<Map>()
-          .map((item) {
-            final map = Map<String, dynamic>.from(item);
-            return AiMemoryV2(
-              id: map['id'] as String,
-              text: map['text'] as String,
-              enabled: map['enabled'] != false,
-              createdAt: DateTime.parse(map['createdAt'] as String),
-            );
-          })
-          .toList(growable: false);
+      return await loadStrict();
     } catch (_) {
       return const [];
     }
+  }
+
+  /// Backup and restore must fail closed instead of treating corrupt user data
+  /// as an empty memory list.
+  Future<List<AiMemoryV2>> loadStrict() async {
+    final preferences = await SharedPreferences.getInstance();
+    final raw = preferences.getString(_key);
+    if (raw == null || raw.isEmpty) return const [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) {
+      throw const FormatException('Invalid confirmed AI memory data.');
+    }
+    return decoded
+        .map((item) {
+          if (item is! Map) {
+            throw const FormatException('Invalid confirmed AI memory record.');
+          }
+          final map = Map<String, dynamic>.from(item);
+          return AiMemoryV2(
+            id: map['id'] as String,
+            text: map['text'] as String,
+            enabled: map['enabled'] != false,
+            createdAt: DateTime.parse(map['createdAt'] as String),
+          );
+        })
+        .toList(growable: false);
   }
 
   Future<void> save(AiMemoryV2 memory) async {
@@ -45,7 +55,7 @@ class AiMemoryStoreV2 {
 
   Future<void> _write(List<AiMemoryV2> values) async {
     final preferences = await SharedPreferences.getInstance();
-    await preferences.setString(
+    final saved = await preferences.setString(
       _key,
       jsonEncode(
         values
@@ -60,5 +70,6 @@ class AiMemoryStoreV2 {
             .toList(growable: false),
       ),
     );
+    if (!saved) throw StateError('Could not persist AI memory.');
   }
 }

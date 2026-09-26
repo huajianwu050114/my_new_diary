@@ -13,6 +13,10 @@ abstract interface class DiaryRepositoryV2 {
 
   Future<void> save(DiaryEntryV2 entry);
 
+  /// Inserts a backup record without creating a synthetic revision.
+  /// Existing IDs are rejected; callers must resolve conflicts first.
+  Future<void> restoreFromBackup(DiaryEntryV2 entry);
+
   Future<void> moveToTrash(String id, {required DateTime deletedAt});
 
   Future<void> restore(String id);

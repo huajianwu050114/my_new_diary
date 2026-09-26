@@ -18,5 +18,7 @@ abstract interface class LifeFragmentRepositoryV2 {
 
   Future<List<LifeFragmentRevisionV2>> getRevisions(String fragmentId);
 
+  Future<void> restoreRevision(LifeFragmentRevisionV2 revision);
+
   Future<void> delete(String id);
 }

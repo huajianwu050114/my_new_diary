@@ -4,18 +4,22 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
+import '../../../self_engine/data/local/self_engine_outbox_writer_v2.dart';
 import 'diary_entry_mapper_v2.dart';
 
 class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
   SqliteDiaryRepositoryV2(
     this._database, {
     DiaryEntryMapperV2 mapper = const DiaryEntryMapperV2(),
-  }) : _mapper = mapper;
+    SelfEngineOutboxWriterV2? selfEngineOutbox,
+  }) : _mapper = mapper,
+       _selfEngineOutbox = selfEngineOutbox ?? SelfEngineOutboxWriterV2();
 
   static const _table = 'diary_entries';
 
   final Database _database;
   final DiaryEntryMapperV2 _mapper;
+  final SelfEngineOutboxWriterV2 _selfEngineOutbox;
   final _changes = StreamController<void>.broadcast();
 
   @override
@@ -31,11 +35,37 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
 
   @override
   Future<void> save(DiaryEntryV2 entry) async {
-    await _database.insert(
-      _table,
-      _mapper.toRow(entry),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _database.transaction((transaction) async {
+      final existingRows = await transaction.query(
+        _table,
+        where: 'id = ?',
+        whereArgs: [entry.id],
+        limit: 1,
+      );
+      if (existingRows.isNotEmpty) {
+        // A database upgraded from v10 has no revision yet. Capture the old
+        // source before applying the first edit so its evidence is not lost.
+        await _selfEngineOutbox.recordSourceChange(
+          transaction,
+          _mapper.fromRow(existingRows.single),
+        );
+        await transaction.update(
+          _table,
+          _mapper.toRow(entry),
+          where: 'id = ?',
+          whereArgs: [entry.id],
+        );
+      } else {
+        await transaction.insert(_table, _mapper.toRow(entry));
+      }
+      await _selfEngineOutbox.recordSourceChange(transaction, entry);
+    });
+    _changes.add(null);
+  }
+
+  @override
+  Future<void> restoreFromBackup(DiaryEntryV2 entry) async {
+    await _database.insert(_table, _mapper.toRow(entry));
     _changes.add(null);
   }
 

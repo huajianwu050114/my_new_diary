@@ -118,6 +118,13 @@ class _MemoryLifeFragmentRepository implements LifeFragmentRepositoryV2 {
       _revisions.where((item) => item.fragmentId == fragmentId).toList();
 
   @override
+  Future<void> restoreRevision(LifeFragmentRevisionV2 revision) async {
+    if (_revisions.every((item) => item.id != revision.id)) {
+      _revisions.add(revision);
+    }
+  }
+
+  @override
   Future<void> save(LifeFragmentV2 fragment) async {
     _fragments[fragment.id] = fragment;
     _changes.add(null);

@@ -240,6 +240,9 @@ class _MemoryDiaryRepository implements DiaryRepositoryV2 {
   }
 
   @override
+  Future<void> restoreFromBackup(DiaryEntryV2 entry) => save(entry);
+
+  @override
   Future<void> deletePermanently(String id) async =>
       entries.removeWhere((entry) => entry.id == id);
 

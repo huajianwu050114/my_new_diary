@@ -744,6 +744,9 @@ class _MemoryDiaryRepository implements DiaryRepositoryV2 {
   }
 
   @override
+  Future<void> restoreFromBackup(DiaryEntryV2 entry) => save(entry);
+
+  @override
   Stream<List<DiaryEntryV2>> watchEntries({
     DiaryQuery query = const DiaryQuery(),
   }) async* {

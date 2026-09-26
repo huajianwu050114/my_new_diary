@@ -24,6 +24,18 @@ class SqliteLifeDocumentRepositoryV2 implements LifeDocumentRepositoryV2 {
   }
 
   @override
+  Future<List<LifeDocumentV2>> getAllDocuments({
+    bool includeDeleted = false,
+  }) async {
+    final rows = await _database.query(
+      tableName,
+      where: includeDeleted ? null : 'deleted_at IS NULL',
+      orderBy: 'is_pinned DESC, updated_at DESC',
+    );
+    return rows.map(_fromRow).toList(growable: false);
+  }
+
+  @override
   Stream<List<LifeSpaceV2>> watchSpaces() async* {
     yield await _findSpaces();
     await for (final _ in _changes.stream) {
@@ -76,21 +88,31 @@ class SqliteLifeDocumentRepositoryV2 implements LifeDocumentRepositoryV2 {
   @override
   Future<void> save(LifeDocumentV2 document) async {
     await _ensureSpace(document.space);
-    await _database.insert(
-      tableName,
-      _toRow(document),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _database.transaction((transaction) async {
+      final changed = await transaction.update(
+        tableName,
+        _toRow(document),
+        where: 'id = ?',
+        whereArgs: [document.id],
+      );
+      if (changed == 0) await transaction.insert(tableName, _toRow(document));
+    });
     _changes.add(null);
   }
 
   @override
   Future<void> saveSpace(LifeSpaceV2 space) async {
-    await _database.insert(
-      spacesTableName,
-      _spaceToRow(space),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _database.transaction((transaction) async {
+      final changed = await transaction.update(
+        spacesTableName,
+        _spaceToRow(space),
+        where: 'id = ?',
+        whereArgs: [space.id],
+      );
+      if (changed == 0) {
+        await transaction.insert(spacesTableName, _spaceToRow(space));
+      }
+    });
     _changes.add(null);
   }
 

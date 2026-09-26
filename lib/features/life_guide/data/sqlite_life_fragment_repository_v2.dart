@@ -34,11 +34,15 @@ class SqliteLifeFragmentRepositoryV2 implements LifeFragmentRepositoryV2 {
 
   @override
   Future<void> save(LifeFragmentV2 fragment) async {
-    await _database.insert(
-      tableName,
-      _toRow(fragment),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    await _database.transaction((transaction) async {
+      final changed = await transaction.update(
+        tableName,
+        _toRow(fragment),
+        where: 'id = ?',
+        whereArgs: [fragment.id],
+      );
+      if (changed == 0) await transaction.insert(tableName, _toRow(fragment));
+    });
     _changes.add(null);
   }
 
@@ -87,6 +91,30 @@ class SqliteLifeFragmentRepositoryV2 implements LifeFragmentRepositoryV2 {
           );
         })
         .toList(growable: false);
+  }
+
+  @override
+  Future<void> restoreRevision(LifeFragmentRevisionV2 revision) async {
+    final row = {
+      'id': revision.id,
+      'fragment_id': revision.fragmentId,
+      'snapshot_json': jsonEncode(_toRow(revision.snapshot)),
+      'created_at': revision.createdAt.toUtc().toIso8601String(),
+    };
+    final existing = await _database.query(
+      'life_fragment_revisions',
+      where: 'id = ?',
+      whereArgs: [revision.id],
+      limit: 1,
+    );
+    if (existing.isEmpty) {
+      await _database.insert('life_fragment_revisions', row);
+    } else if (existing.single['fragment_id'] != row['fragment_id'] ||
+        existing.single['snapshot_json'] != row['snapshot_json'] ||
+        existing.single['created_at'] != row['created_at']) {
+      throw StateError('Life Guide revision ${revision.id} conflicts.');
+    }
+    _changes.add(null);
   }
 
   @override

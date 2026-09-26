@@ -8,11 +8,15 @@ import '../features/diary/domain/repositories/diary_repository_v2.dart';
 import '../features/diary/presentation/pages/diary_home_page_v2.dart';
 import '../features/festival/data/public_holiday_service_v2.dart';
 import '../features/festival/domain/festival_repository_v2.dart';
+import '../features/export/application/backup_sqlite_snapshot_reader_v2.dart';
 import '../features/settings/application/theme_controller_v2.dart';
 import '../features/settings/application/app_lock_controller_v2.dart';
 import '../features/settings/presentation/app_lock_gate_v2.dart';
 import '../features/life_guide/domain/life_fragment_repository_v2.dart';
 import '../features/life_library/domain/life_document_repository_v2.dart';
+import '../features/self_engine/application/self_engine_job_recovery_v2.dart';
+import '../features/self_engine/domain/repositories/self_engine_repository_v2.dart';
+import '../features/self_engine/presentation/self_engine_recovery_scope_v2.dart';
 
 class DiaryAppV2 extends StatelessWidget {
   const DiaryAppV2({
@@ -24,6 +28,9 @@ class DiaryAppV2 extends StatelessWidget {
     required this.appLockController,
     this.lifeFragmentRepository,
     this.lifeDocumentRepository,
+    this.selfEngineRepository,
+    this.selfEngineRecovery,
+    this.backupSnapshotReader,
     this.migrationController,
     super.key,
   });
@@ -36,26 +43,17 @@ class DiaryAppV2 extends StatelessWidget {
   final AppLockControllerV2 appLockController;
   final LifeFragmentRepositoryV2? lifeFragmentRepository;
   final LifeDocumentRepositoryV2? lifeDocumentRepository;
+  final SelfEngineRepositoryV2? selfEngineRepository;
+  final SelfEngineJobRecoveryV2? selfEngineRecovery;
+  final BackupSqliteSnapshotReaderV2? backupSnapshotReader;
   final LegacyMigrationControllerV2? migrationController;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: themeController,
-      builder: (context, _) => MaterialApp(
-        title: '时光日记',
-        debugShowCheckedModeBanner: false,
-        localizationsDelegates: const [
-          GlobalMaterialLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          FlutterQuillLocalizations.delegate,
-        ],
-        supportedLocales: FlutterQuillLocalizations.supportedLocales,
-        themeMode: themeController.mode,
-        theme: _theme(Brightness.light),
-        darkTheme: _theme(Brightness.dark),
-        home: AppLockGateV2(
+      builder: (context, _) {
+        final home = AppLockGateV2(
           controller: appLockController,
           child: DiaryHomePageV2(
             repository: repository,
@@ -66,10 +64,32 @@ class DiaryAppV2 extends StatelessWidget {
             appLockController: appLockController,
             lifeFragmentRepository: lifeFragmentRepository,
             lifeDocumentRepository: lifeDocumentRepository,
+            selfEngineRepository: selfEngineRepository,
+            backupSnapshotReader: backupSnapshotReader,
             migrationController: migrationController,
           ),
-        ),
-      ),
+        );
+        return MaterialApp(
+          title: '时光日记',
+          debugShowCheckedModeBanner: false,
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            FlutterQuillLocalizations.delegate,
+          ],
+          supportedLocales: FlutterQuillLocalizations.supportedLocales,
+          themeMode: themeController.mode,
+          theme: _theme(Brightness.light),
+          darkTheme: _theme(Brightness.dark),
+          home: selfEngineRecovery == null
+              ? home
+              : SelfEngineRecoveryScopeV2(
+                  recovery: selfEngineRecovery!,
+                  child: home,
+                ),
+        );
+      },
     );
   }
 

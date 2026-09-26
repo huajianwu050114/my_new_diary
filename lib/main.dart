@@ -11,10 +11,13 @@ import 'features/diary/data/migration/legacy_diary_migrator_v2.dart';
 import 'features/diary/application/legacy_migration_controller_v2.dart';
 import 'features/festival/data/public_holiday_service_v2.dart';
 import 'features/festival/data/sqlite_festival_repository_v2.dart';
+import 'features/export/application/backup_sqlite_snapshot_reader_v2.dart';
 import 'features/settings/application/theme_controller_v2.dart';
 import 'features/settings/application/app_lock_controller_v2.dart';
 import 'features/life_guide/data/sqlite_life_fragment_repository_v2.dart';
 import 'features/life_library/data/sqlite_life_document_repository_v2.dart';
+import 'features/self_engine/application/self_engine_job_recovery_v2.dart';
+import 'features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,7 +31,8 @@ Future<void> main() async {
   }
 
   final databaseOwner = DiaryDatabaseV2();
-  final repository = SqliteDiaryRepositoryV2(await databaseOwner.open());
+  final database = await databaseOwner.open();
+  final repository = SqliteDiaryRepositoryV2(database);
   final imageStore = LocalDiaryImageStoreV2();
 
   final migrationController = LegacyMigrationControllerV2(
@@ -45,15 +49,17 @@ Future<void> main() async {
     debugPrint('Legacy diary migration could not run: $error');
   }
 
-  final festivalRepository = SqliteFestivalRepositoryV2(
-    await databaseOwner.open(),
-  );
-  final lifeFragmentRepository = SqliteLifeFragmentRepositoryV2(
-    await databaseOwner.open(),
-  );
-  final lifeDocumentRepository = SqliteLifeDocumentRepositoryV2(
-    await databaseOwner.open(),
-  );
+  final festivalRepository = SqliteFestivalRepositoryV2(database);
+  final lifeFragmentRepository = SqliteLifeFragmentRepositoryV2(database);
+  final lifeDocumentRepository = SqliteLifeDocumentRepositoryV2(database);
+  final selfEngineRepository = SqliteSelfEngineRepositoryV2(database);
+  final selfEngineRecovery = SelfEngineJobRecoveryV2(selfEngineRepository);
+  try {
+    await selfEngineRecovery.afterColdStart();
+    await selfEngineRecovery.reconcileLegacyDiaries();
+  } catch (error) {
+    debugPrint('Self Engine job recovery could not run: $error');
+  }
   final themeController = ThemeControllerV2();
   await themeController.load();
   final appLockController = AppLockControllerV2();
@@ -65,6 +71,9 @@ Future<void> main() async {
       festivalRepository: festivalRepository,
       lifeFragmentRepository: lifeFragmentRepository,
       lifeDocumentRepository: lifeDocumentRepository,
+      selfEngineRepository: selfEngineRepository,
+      selfEngineRecovery: selfEngineRecovery,
+      backupSnapshotReader: BackupSqliteSnapshotReaderV2(database),
       publicHolidayService: PublicHolidayServiceV2(),
       themeController: themeController,
       appLockController: appLockController,

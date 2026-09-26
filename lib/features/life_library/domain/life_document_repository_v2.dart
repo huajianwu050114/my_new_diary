@@ -4,6 +4,8 @@ import 'life_space_v2.dart';
 abstract interface class LifeDocumentRepositoryV2 {
   Stream<List<LifeDocumentV2>> watchDocuments({String? space});
 
+  Future<List<LifeDocumentV2>> getAllDocuments({bool includeDeleted = false});
+
   Stream<List<LifeSpaceV2>> watchSpaces();
 
   Future<LifeDocumentV2?> getById(String id);

@@ -8,6 +8,7 @@ import '../../../ai/presentation/guided_journal_page_v2.dart';
 import '../../../ai/domain/guided_journal_v2.dart';
 import '../../../analysis/presentation/analysis_page_v2.dart';
 import '../../../export/presentation/data_tools_page_v2.dart';
+import '../../../export/application/backup_sqlite_snapshot_reader_v2.dart';
 import '../../../festival/data/public_holiday_service_v2.dart';
 import '../../../festival/domain/festival_repository_v2.dart';
 import '../../../festival/domain/festival_v2.dart';
@@ -22,6 +23,7 @@ import '../../../life_guide/domain/life_fragment_repository_v2.dart';
 import '../../../life_guide/presentation/life_guide_page_v2.dart';
 import '../../../life_library/domain/life_document_repository_v2.dart';
 import '../../../life_library/presentation/life_library_page_v2.dart';
+import '../../../self_engine/domain/repositories/self_engine_repository_v2.dart';
 import '../../application/legacy_migration_controller_v2.dart';
 import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
@@ -46,6 +48,8 @@ class DiaryHomePageV2 extends StatefulWidget {
     required this.appLockController,
     this.lifeFragmentRepository,
     this.lifeDocumentRepository,
+    this.selfEngineRepository,
+    this.backupSnapshotReader,
     this.migrationController,
     super.key,
   });
@@ -58,6 +62,8 @@ class DiaryHomePageV2 extends StatefulWidget {
   final AppLockControllerV2 appLockController;
   final LifeFragmentRepositoryV2? lifeFragmentRepository;
   final LifeDocumentRepositoryV2? lifeDocumentRepository;
+  final SelfEngineRepositoryV2? selfEngineRepository;
+  final BackupSqliteSnapshotReaderV2? backupSnapshotReader;
   final LegacyMigrationControllerV2? migrationController;
 
   @override
@@ -310,7 +316,10 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
         diaryRepository: widget.repository,
         imageStore: widget.imageStore,
         festivalRepository: widget.festivalRepository,
+        lifeFragmentRepository: widget.lifeFragmentRepository,
         lifeDocumentRepository: widget.lifeDocumentRepository,
+        selfEngineRepository: widget.selfEngineRepository,
+        snapshotReader: widget.backupSnapshotReader,
       ),
       _HomeSection.settings => SettingsPageV2(
         themeController: widget.themeController,

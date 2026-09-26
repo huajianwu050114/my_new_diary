@@ -11,6 +11,8 @@ class StopWordsStoreV2 {
   Future<void> save(Set<String> words) async {
     final preferences = await SharedPreferences.getInstance();
     final sorted = words.toList()..sort();
-    await preferences.setStringList(_key, sorted);
+    if (!await preferences.setStringList(_key, sorted)) {
+      throw StateError('Could not persist custom stop words.');
+    }
   }
 }

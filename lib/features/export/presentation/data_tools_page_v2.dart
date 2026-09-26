@@ -4,11 +4,15 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../analysis/data/stop_words_store_v2.dart';
+import '../../ai/data/ai_memory_store_v2.dart';
 import '../../diary/application/ports/diary_image_store_v2.dart';
 import '../../diary/domain/repositories/diary_repository_v2.dart';
 import '../../festival/domain/festival_repository_v2.dart';
 import '../../life_library/domain/life_document_repository_v2.dart';
+import '../../life_guide/domain/life_fragment_repository_v2.dart';
+import '../../self_engine/domain/repositories/self_engine_repository_v2.dart';
 import '../application/diary_backup_service_v2.dart';
+import '../application/backup_sqlite_snapshot_reader_v2.dart';
 import '../application/diary_pdf_service_v2.dart';
 
 class DataToolsPageV2 extends StatefulWidget {
@@ -17,6 +21,9 @@ class DataToolsPageV2 extends StatefulWidget {
     required this.imageStore,
     required this.festivalRepository,
     this.lifeDocumentRepository,
+    this.lifeFragmentRepository,
+    this.selfEngineRepository,
+    this.snapshotReader,
     super.key,
   });
 
@@ -24,6 +31,9 @@ class DataToolsPageV2 extends StatefulWidget {
   final DiaryImageStoreV2 imageStore;
   final FestivalRepositoryV2 festivalRepository;
   final LifeDocumentRepositoryV2? lifeDocumentRepository;
+  final LifeFragmentRepositoryV2? lifeFragmentRepository;
+  final SelfEngineRepositoryV2? selfEngineRepository;
+  final BackupSqliteSnapshotReaderV2? snapshotReader;
 
   @override
   State<DataToolsPageV2> createState() => _DataToolsPageV2State();
@@ -37,7 +47,11 @@ class _DataToolsPageV2State extends State<DataToolsPageV2> {
     imageStore: widget.imageStore,
     festivalRepository: widget.festivalRepository,
     stopWordsStore: StopWordsStoreV2(),
-    lifeDocumentRepository: widget.lifeDocumentRepository,
+    lifeDocumentRepository: widget.lifeDocumentRepository!,
+    lifeFragmentRepository: widget.lifeFragmentRepository!,
+    selfEngineRepository: widget.selfEngineRepository!,
+    aiMemoryStore: AiMemoryStoreV2(),
+    snapshotReader: widget.snapshotReader!,
   );
 
   @override
@@ -59,14 +73,14 @@ class _DataToolsPageV2State extends State<DataToolsPageV2> {
           ListTile(
             leading: const Icon(Icons.archive_outlined),
             title: const Text('导出完整 ZIP 备份'),
-            subtitle: const Text('包含日记、照片、生活文档、回收站、纪念日和停用词'),
+            subtitle: const Text('包含日记历史、照片、人生指南、生活文档和纪念日'),
             enabled: !_busy,
             onTap: _exportBackup,
           ),
           ListTile(
             leading: const Icon(Icons.settings_backup_restore),
             title: const Text('从 ZIP 备份导入'),
-            subtitle: const Text('相同日记 ID 会更新，不会生成重复日记'),
+            subtitle: const Text('仅支持恢复到空数据；检测到现有数据时不会覆盖'),
             enabled: !_busy,
             onTap: _importBackup,
           ),
