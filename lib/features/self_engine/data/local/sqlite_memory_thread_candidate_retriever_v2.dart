@@ -157,6 +157,20 @@ class SqliteMemoryThreadCandidateRetrieverV2
           .putIfAbsent(row['thread_id']! as String, () => [])
           .add(_evidenceFromRow(row));
     }
+    final derivationRows = await _database.rawQuery('''
+      SELECT source.thread_id, source.atom_id
+      FROM thread_derivation_atoms source
+      JOIN self_engine_state s ON s.id = 1
+      WHERE source.thread_id IN ($placeholders)
+        AND source.generation = s.generation
+      ORDER BY source.thread_id, source.atom_id
+      ''', ids);
+    final derivationAtomIds = <String, List<String>>{};
+    for (final row in derivationRows) {
+      derivationAtomIds
+          .putIfAbsent(row['thread_id']! as String, () => [])
+          .add(row['atom_id']! as String);
+    }
     final scored = <({double score, MemoryThreadCandidateV2 value})>[];
     final query = _features(
       '${current.atom.statement} ${current.atom.sourceQuote}',
@@ -175,6 +189,9 @@ class SqliteMemoryThreadCandidateRetrieverV2
           value: MemoryThreadCandidateV2(
             thread: thread,
             representativeAtoms: List.unmodifiable(evidence),
+            derivationAtomIds: List.unmodifiable(
+              derivationAtomIds[thread.id] ?? const <String>[],
+            ),
           ),
         ));
       }

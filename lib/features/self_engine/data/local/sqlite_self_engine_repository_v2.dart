@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:sqflite/sqflite.dart';
 import 'package:uuid/uuid.dart';
@@ -1116,29 +1117,12 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
           if (candidates.length != operation.candidateAtomIds.length) {
             throw StateError('Create references unavailable candidate Atoms.');
           }
-          final derivationPlaceholders = List.filled(
-            operation.derivationAtomIds.length,
-            '?',
-          ).join(',');
-          final derivationAtoms = await transaction.rawQuery(
-            '''
-            SELECT a.id
-            FROM memory_atoms a
-            JOIN diary_revisions r ON r.id = a.revision_id
-            JOIN diary_entries d ON d.id = r.diary_id
-            WHERE a.id IN ($derivationPlaceholders)
-              AND a.generation = ?
-              AND a.superseded_at IS NULL
-              AND d.deleted_at IS NULL
-              AND r.revision_no = (
-                SELECT MAX(latest.revision_no)
-                FROM diary_revisions latest
-                WHERE latest.diary_id = r.diary_id
-              )
-            ''',
-            [...operation.derivationAtomIds, generation],
+          final activeDerivationCount = await _countActiveDerivationAtoms(
+            transaction,
+            operation.derivationAtomIds,
+            generation: generation,
           );
-          if (derivationAtoms.length != operation.derivationAtomIds.length) {
+          if (activeDerivationCount != operation.derivationAtomIds.length) {
             throw StateError('Create has inactive derivation evidence.');
           }
           await transaction.insert('memory_threads', {
@@ -1259,6 +1243,41 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
         'removed_at': null,
       });
     }
+  }
+
+  Future<int> _countActiveDerivationAtoms(
+    DatabaseExecutor database,
+    List<String> atomIds, {
+    required int generation,
+  }) async {
+    const chunkSize = 400;
+    var count = 0;
+    for (var start = 0; start < atomIds.length; start += chunkSize) {
+      final end = math.min(start + chunkSize, atomIds.length);
+      final chunk = atomIds.sublist(start, end);
+      final placeholders = List.filled(chunk.length, '?').join(',');
+      count += Sqflite.firstIntValue(
+        await database.rawQuery(
+          '''
+          SELECT COUNT(*)
+          FROM memory_atoms a
+          JOIN diary_revisions r ON r.id = a.revision_id
+          JOIN diary_entries d ON d.id = r.diary_id
+          WHERE a.id IN ($placeholders)
+            AND a.generation = ?
+            AND a.superseded_at IS NULL
+            AND d.deleted_at IS NULL
+            AND r.revision_no = (
+              SELECT MAX(latest.revision_no)
+              FROM diary_revisions latest
+              WHERE latest.diary_id = r.diary_id
+            )
+          ''',
+          [...chunk, generation],
+        ),
+      )!;
+    }
+    return count;
   }
 
   Future<void> _refreshThreadRange(

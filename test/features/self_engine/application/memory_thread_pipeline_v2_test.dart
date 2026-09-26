@@ -96,6 +96,26 @@ void main() {
       expect(await linkWorker.runOnce(), SelfEngineRunResultV2.completed);
     }
 
+    Future<void> saveAndExtractAtoms({
+      required String id,
+      required List<String> atoms,
+      required DateTime date,
+    }) async {
+      now = date.add(const Duration(hours: 12));
+      await diary.save(_entry(id: id, body: atoms.join('\n'), date: date));
+      final worker = SelfEngineWorkerV2(
+        repository: self,
+        processor: MemoryAtomJobProcessorV2(
+          repository: self,
+          extractor: _FixedAtomsExtractor(atoms),
+          clock: () => now,
+        ),
+        availability: const _Availability(true),
+        clock: () => now,
+      );
+      expect(await worker.runOnce(), SelfEngineRunResultV2.completed);
+    }
+
     test('none, create, then attach forms one longitudinal Thread', () async {
       await saveExtractLink(
         id: 'd1',
@@ -166,6 +186,148 @@ void main() {
       );
       expect(await database.query('memory_threads'), isEmpty);
       expect(linker.calls, 0);
+    });
+
+    test(
+      'two current Atoms cannot reuse one candidate and see provisional Thread',
+      () async {
+        await saveExtractLink(
+          id: 'a',
+          body: 'shared running recovery seed',
+          date: DateTime.utc(2026, 1, 1),
+        );
+        await saveAndExtractAtoms(
+          id: 'b',
+          atoms: const [
+            'shared running recovery first',
+            'shared running recovery second',
+          ],
+          date: DateTime.utc(2026, 2, 1),
+        );
+
+        final requests = <MemoryThreadLinkRequestV2>[];
+        linker.handler = (request) async {
+          requests.add(request);
+          if (requests.length == 1) {
+            return MemoryThreadLinkDecisionV2(
+              actions: [
+                MemoryThreadLinkActionV2.create(
+                  title: 'Running recovery',
+                  description: 'Records recurring running recovery moments.',
+                  candidateAtomIds: [request.atomCandidates.single.atom.id],
+                ),
+              ],
+            );
+          }
+          expect(request.atomCandidates, isEmpty);
+          expect(request.threadCandidates, hasLength(1));
+          return MemoryThreadLinkDecisionV2(
+            actions: [
+              MemoryThreadLinkActionV2.attach(
+                threadId: request.threadCandidates.single.thread.id,
+              ),
+            ],
+          );
+        };
+
+        expect(await linkWorker.runOnce(), SelfEngineRunResultV2.completed);
+        expect(requests, hasLength(2));
+        expect(await database.query('memory_threads'), hasLength(1));
+        expect(await database.query('thread_memberships'), hasLength(3));
+        final job = (await self.getThreadLinkJobs()).last;
+        expect(job.status, SelfEngineJobStatusV2.completed);
+        expect(job.attemptCount, 1);
+      },
+    );
+
+    test('three current Atoms preserve provisional graph order', () async {
+      await saveExtractLink(
+        id: 'a',
+        body: 'shared family boundary seed',
+        date: DateTime.utc(2026, 1, 1),
+      );
+      await saveAndExtractAtoms(
+        id: 'b',
+        atoms: const [
+          'shared family boundary first',
+          'shared family boundary second',
+          'shared family boundary third',
+        ],
+        date: DateTime.utc(2026, 2, 1),
+      );
+
+      var call = 0;
+      String? provisionalThreadId;
+      linker.handler = (request) async {
+        call++;
+        if (call == 1) {
+          return MemoryThreadLinkDecisionV2(
+            actions: [
+              MemoryThreadLinkActionV2.create(
+                title: 'Family boundaries',
+                description: 'Records recurring family boundary moments.',
+                candidateAtomIds: [request.atomCandidates.single.atom.id],
+              ),
+            ],
+          );
+        }
+        expect(request.atomCandidates, isEmpty);
+        expect(request.threadCandidates, hasLength(1));
+        final threadId = request.threadCandidates.single.thread.id;
+        provisionalThreadId ??= threadId;
+        expect(threadId, provisionalThreadId);
+        expect(
+          request.threadCandidates.single.representativeAtoms.map(
+            (item) => item.atom.statement,
+          ),
+          contains('shared family boundary first'),
+        );
+        return MemoryThreadLinkDecisionV2(
+          actions: [MemoryThreadLinkActionV2.attach(threadId: threadId)],
+        );
+      };
+
+      expect(await linkWorker.runOnce(), SelfEngineRunResultV2.completed);
+      expect(call, 3);
+      expect(await database.query('memory_threads'), hasLength(1));
+      expect(await database.query('thread_memberships'), hasLength(4));
+    });
+
+    test('multi-Atom atomic retry is idempotent', () async {
+      await saveExtractLink(
+        id: 'a',
+        body: 'shared effort reward seed',
+        date: DateTime.utc(2026, 1, 1),
+      );
+      await saveAndExtractAtoms(
+        id: 'b',
+        atoms: const [
+          'shared effort reward first',
+          'shared effort reward second',
+        ],
+        date: DateTime.utc(2026, 2, 1),
+      );
+      linker.handler = _recurringThemeDecision;
+      await database.execute('''
+        CREATE TRIGGER fail_second_current_membership
+        BEFORE INSERT ON thread_memberships
+        WHEN NEW.atom_id LIKE '%-atom-2'
+        BEGIN
+          SELECT RAISE(ABORT, 'simulated multi-Atom publish failure');
+        END
+      ''');
+
+      expect(await linkWorker.runOnce(), SelfEngineRunResultV2.retryScheduled);
+      expect(await database.query('memory_threads'), isEmpty);
+      expect(await database.query('thread_memberships'), isEmpty);
+
+      await database.execute('DROP TRIGGER fail_second_current_membership');
+      final job = (await self.getThreadLinkJobs()).last;
+      now = job.nextRetryAt!.add(const Duration(milliseconds: 1));
+      expect(await linkWorker.runOnce(), SelfEngineRunResultV2.completed);
+      expect(await database.query('memory_threads'), hasLength(1));
+      expect(await database.query('thread_memberships'), hasLength(3));
+      expect((await self.getThreadLinkJobs()).last.attemptCount, 2);
     });
 
     test('invalid candidate IDs retry and do not publish', () async {
@@ -585,6 +747,103 @@ void main() {
         await diary.deletePermanently(unselected);
 
         expect(await database.query('memory_threads'), isEmpty);
+        expect(await database.query('thread_derivation_atoms'), isEmpty);
+      },
+    );
+
+    test(
+      'derived Thread text propagates provenance through representative churn',
+      () async {
+        linker.handler = (request) async {
+          switch (request.currentAtom.diaryId) {
+            case 'b':
+              return MemoryThreadLinkDecisionV2(
+                actions: [
+                  MemoryThreadLinkActionV2.create(
+                    title: 'Running recovery',
+                    description: 'Records recurring running recovery moments.',
+                    candidateAtomIds: [request.atomCandidates.single.atom.id],
+                  ),
+                ],
+              );
+            case 'c':
+            case 'd':
+            case 'e':
+              return MemoryThreadLinkDecisionV2(
+                actions: [
+                  MemoryThreadLinkActionV2.attach(
+                    threadId: request.threadCandidates.single.thread.id,
+                  ),
+                ],
+              );
+            case 'f':
+              final source = request.threadCandidates.single;
+              expect(
+                source.representativeAtoms.map((item) => item.diaryId),
+                isNot(contains('a')),
+              );
+              expect(source.derivationAtomIds, contains(endsWith('-atom-1')));
+              final seed = request.atomCandidates.singleWhere(
+                (item) => item.diaryId == 'g',
+              );
+              return MemoryThreadLinkDecisionV2(
+                actions: [
+                  MemoryThreadLinkActionV2.create(
+                    title: 'Creative recovery',
+                    description:
+                        'Records recurring links between creativity and recovery.',
+                    candidateAtomIds: [seed.atom.id],
+                  ),
+                ],
+              );
+            default:
+              return const MemoryThreadLinkDecisionV2();
+          }
+        };
+
+        for (final (id, month, body) in [
+          ('a', 1, 'running recovery origin'),
+          ('b', 2, 'running recovery continues'),
+          ('c', 3, 'running recovery routine c'),
+          ('d', 4, 'running recovery routine d'),
+          ('e', 5, 'running recovery routine e'),
+          ('g', 6, 'running creative project seed'),
+          ('f', 7, 'running creative project and recovery'),
+        ]) {
+          await saveExtractLink(
+            id: id,
+            body: body,
+            date: DateTime.utc(2026, month, 1),
+          );
+        }
+
+        final threads = await database.query(
+          'memory_threads',
+          orderBy: 'created_at',
+        );
+        expect(threads, hasLength(2));
+        final secondThreadId = threads.last['id']! as String;
+        final originAtomId =
+            (await database.rawQuery('''
+          SELECT a.id
+          FROM memory_atoms a
+          JOIN diary_revisions r ON r.id = a.revision_id
+          WHERE r.diary_id = 'a'
+          ''')).single['id']!
+                as String;
+        expect(
+          await database.query(
+            'thread_derivation_atoms',
+            where: 'thread_id = ? AND atom_id = ?',
+            whereArgs: [secondThreadId, originAtomId],
+          ),
+          hasLength(1),
+        );
+
+        await diary.deletePermanently('a');
+
+        expect(await database.query('memory_threads'), isEmpty);
+        expect(await database.query('thread_memberships'), isEmpty);
         expect(await database.query('thread_derivation_atoms'), isEmpty);
       },
     );
@@ -1071,6 +1330,42 @@ class _OneAtomExtractor implements MemoryExtractorV2 {
         promptVersion: SelfEnginePipelineV2.promptVersion,
         modelIdentifier: 'fake:model',
       );
+}
+
+class _FixedAtomsExtractor implements MemoryExtractorV2 {
+  const _FixedAtomsExtractor(this.atoms);
+
+  final List<String> atoms;
+
+  @override
+  Future<MemoryExtractionBatchV2> extract(DiaryRevisionV2 revision) async {
+    var searchFrom = 0;
+    final candidates = <MemoryExtractionCandidateV2>[];
+    for (final atom in atoms) {
+      final start = revision.body.indexOf(atom, searchFrom);
+      if (start < 0) {
+        throw StateError('Fixed Atom evidence is absent from the revision.');
+      }
+      final end = start + atom.length;
+      candidates.add(
+        MemoryExtractionCandidateV2(
+          kind: 'event',
+          statement: atom,
+          sourceQuote: atom,
+          sourceStart: start,
+          sourceEnd: end,
+          scope: 'state',
+        ),
+      );
+      searchFrom = end;
+    }
+    return MemoryExtractionBatchV2(
+      candidates: candidates,
+      extractorVersion: SelfEnginePipelineV2.extractorVersion,
+      promptVersion: SelfEnginePipelineV2.promptVersion,
+      modelIdentifier: 'fake:fixed-atoms',
+    );
+  }
 }
 
 class _FakeThreadLinker implements MemoryThreadLinkerV2 {

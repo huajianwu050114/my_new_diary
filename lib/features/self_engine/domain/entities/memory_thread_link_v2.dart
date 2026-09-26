@@ -19,10 +19,12 @@ class MemoryThreadCandidateV2 {
   const MemoryThreadCandidateV2({
     required this.thread,
     required this.representativeAtoms,
+    required this.derivationAtomIds,
   });
 
   final MemoryThreadV2 thread;
   final List<ThreadAtomEvidenceV2> representativeAtoms;
+  final List<String> derivationAtomIds;
 }
 
 class MemoryThreadLinkRequestV2 {
