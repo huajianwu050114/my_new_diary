@@ -32,6 +32,7 @@ import 'features/self_engine/data/ai/ai_memory_extractor_v2.dart';
 import 'features/self_engine/data/ai/ai_memory_thread_linker_v2.dart';
 import 'features/self_engine/data/local/sqlite_memory_thread_candidate_retriever_v2.dart';
 import 'features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
+import 'features/self_engine/data/local/sqlite_self_read_repository_v2.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +48,7 @@ Future<void> main() async {
   final databaseOwner = DiaryDatabaseV2();
   final database = await databaseOwner.open();
   final selfEngineRepository = SqliteSelfEngineRepositoryV2(database);
+  final selfReadRepository = SqliteSelfReadRepositoryV2(database);
   final aiConfigurationStore = AiConfigurationStoreV2();
   final aiClient = GeminiRestClientV2(configurationStore: aiConfigurationStore);
   final selfEngineAvailability = ConfiguredSelfEngineAvailabilityV2(
@@ -131,6 +133,9 @@ Future<void> main() async {
       lifeFragmentRepository: lifeFragmentRepository,
       lifeDocumentRepository: lifeDocumentRepository,
       selfEngineRepository: selfEngineRepository,
+      selfReadRepository: selfReadRepository,
+      loadSelfEngineEnabled: () async =>
+          (await aiConfigurationStore.load()).selfEngineEnabled,
       selfEngineRecovery: selfEngineRecovery,
       selfEngineRunner: selfEngineRunner,
       backupSnapshotReader: BackupSqliteSnapshotReaderV2(database),

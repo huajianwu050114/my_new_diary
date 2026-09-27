@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../ai/presentation/ai_recap_page_v2.dart';
 import '../../../ai/presentation/daily_encouragement_card_v2.dart';
 import '../../../ai/presentation/guided_journal_page_v2.dart';
+import '../../../ai/presentation/ai_settings_page_v2.dart';
 import '../../../ai/domain/guided_journal_v2.dart';
 import '../../../analysis/presentation/analysis_page_v2.dart';
 import '../../../export/presentation/data_tools_page_v2.dart';
@@ -24,6 +25,8 @@ import '../../../life_guide/presentation/life_guide_page_v2.dart';
 import '../../../life_library/domain/life_document_repository_v2.dart';
 import '../../../life_library/presentation/life_library_page_v2.dart';
 import '../../../self_engine/domain/repositories/self_engine_repository_v2.dart';
+import '../../../self_engine/domain/repositories/self_read_repository_v2.dart';
+import '../../../self_engine/presentation/self_page_v2.dart';
 import '../../application/legacy_migration_controller_v2.dart';
 import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
@@ -49,6 +52,8 @@ class DiaryHomePageV2 extends StatefulWidget {
     this.lifeFragmentRepository,
     this.lifeDocumentRepository,
     this.selfEngineRepository,
+    this.selfReadRepository,
+    this.loadSelfEngineEnabled,
     this.backupSnapshotReader,
     this.migrationController,
     super.key,
@@ -63,6 +68,8 @@ class DiaryHomePageV2 extends StatefulWidget {
   final LifeFragmentRepositoryV2? lifeFragmentRepository;
   final LifeDocumentRepositoryV2? lifeDocumentRepository;
   final SelfEngineRepositoryV2? selfEngineRepository;
+  final SelfReadRepositoryV2? selfReadRepository;
+  final Future<bool> Function()? loadSelfEngineEnabled;
   final BackupSqliteSnapshotReaderV2? backupSnapshotReader;
   final LegacyMigrationControllerV2? migrationController;
 
@@ -76,27 +83,31 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(const ['日记', '日历', '生活', '回忆', '我的'][_selectedTab]),
-        toolbarHeight: 58,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(0.6),
-          child: Divider(
-            height: 0.6,
-            color: Theme.of(context).colorScheme.outlineVariant,
-          ),
-        ),
-        actions: _selectedTab == 0
-            ? [
-                IconButton(
-                  tooltip: '搜索',
-                  onPressed: () => _openSearch(context),
-                  icon: const Icon(Icons.search),
+      appBar: _selectedTab == 3
+          ? null
+          : AppBar(
+              title: Text(
+                const ['日记', '日历', '生活', 'Self', '回忆', '我的'][_selectedTab],
+              ),
+              toolbarHeight: 58,
+              bottom: PreferredSize(
+                preferredSize: const Size.fromHeight(0.6),
+                child: Divider(
+                  height: 0.6,
+                  color: Theme.of(context).colorScheme.outlineVariant,
                 ),
-                const SizedBox(width: 4),
-              ]
-            : null,
-      ),
+              ),
+              actions: _selectedTab == 0
+                  ? [
+                      IconButton(
+                        tooltip: '搜索',
+                        onPressed: () => _openSearch(context),
+                        icon: const Icon(Icons.search),
+                      ),
+                      const SizedBox(width: 4),
+                    ]
+                  : null,
+            ),
       body: StreamBuilder<List<DiaryEntryV2>>(
         stream: widget.repository.watchEntries(),
         builder: (context, snapshot) {
@@ -127,7 +138,17 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
                   : LifeLibraryPageV2(
                       repository: widget.lifeDocumentRepository!,
                     ),
-            3 => _MemoriesTab(
+            3 =>
+              widget.selfReadRepository == null
+                  ? const Center(child: Text('Self 尚未准备好'))
+                  : SelfPageV2(
+                      repository: widget.selfReadRepository!,
+                      loadEnabled:
+                          widget.loadSelfEngineEnabled ?? _selfEngineDisabled,
+                      onOpenDiary: _openEntryById,
+                      onOpenSettings: _openAiSettings,
+                    ),
+            4 => _MemoriesTab(
               entries: entries,
               imageStore: widget.imageStore,
               onEntryTap: _openEntry,
@@ -196,6 +217,11 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
               label: '生活',
             ),
             NavigationDestination(
+              icon: Icon(Icons.blur_on_outlined),
+              selectedIcon: Icon(Icons.blur_on),
+              label: 'Self',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.history_outlined),
               selectedIcon: Icon(Icons.history),
               label: '回忆',
@@ -223,6 +249,33 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
       ),
     );
   }
+
+  Future<void> _openEntryById(String diaryId) async {
+    final entry = await widget.repository.getById(diaryId);
+    if (!mounted) return;
+    if (entry == null || entry.isDeleted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('这篇日记已经不在当前记录中。')));
+      return;
+    }
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => DiaryDetailPageV2(
+          repository: widget.repository,
+          imageStore: widget.imageStore,
+          entryId: entry.id,
+          lifeFragmentRepository: widget.lifeFragmentRepository,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAiSettings() => Navigator.of(
+    context,
+  ).push<void>(MaterialPageRoute(builder: (_) => const AiSettingsPageV2()));
+
+  static Future<bool> _selfEngineDisabled() async => false;
 
   Future<void> _openComposer(BuildContext context) async {
     await Navigator.of(context).push<void>(

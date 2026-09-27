@@ -18,6 +18,8 @@ import 'package:my_new_diary/features/festival/data/public_holiday_service_v2.da
 import 'package:my_new_diary/features/festival/domain/festival_repository_v2.dart';
 import 'package:my_new_diary/features/festival/domain/festival_v2.dart';
 import 'package:my_new_diary/features/settings/application/theme_controller_v2.dart';
+import 'package:my_new_diary/features/self_engine/domain/entities/self_read_model_v2.dart';
+import 'package:my_new_diary/features/self_engine/domain/repositories/self_read_repository_v2.dart';
 import 'package:my_new_diary/features/settings/application/app_lock_controller_v2.dart';
 
 Future<void> main() async {
@@ -369,7 +371,7 @@ Future<void> main() async {
   });
 
   testWidgets(
-    'uses journal, calendar, life, memories, and profile navigation',
+    'uses journal, calendar, life, Self, memories, and profile navigation',
     (tester) async {
       final now = DateTime.now();
       final repository = _MemoryDiaryRepository(
@@ -398,6 +400,8 @@ Future<void> main() async {
           publicHolidayService: PublicHolidayServiceV2(),
           themeController: ThemeControllerV2(),
           appLockController: AppLockControllerV2(),
+          selfReadRepository: _EmptySelfReadRepository(),
+          loadSelfEngineEnabled: () async => true,
         ),
       );
       await tester.pumpAndSettle();
@@ -408,8 +412,13 @@ Future<void> main() async {
       expect(find.byTooltip('写日记'), findsOneWidget);
       expect(find.text('日历'), findsOneWidget);
       expect(find.text('生活'), findsOneWidget);
+      expect(find.text('Self'), findsOneWidget);
       expect(find.text('回忆'), findsOneWidget);
       expect(find.text('我的'), findsOneWidget);
+
+      await tester.tap(find.text('Self'));
+      await tester.pumpAndSettle();
+      expect(find.text('一些正在反复出现的人生线索'), findsOneWidget);
 
       await tester.tap(find.text('回忆'));
       await tester.pumpAndSettle();
@@ -695,6 +704,18 @@ class _MemoryFestivalRepository implements FestivalRepositoryV2 {
   Stream<List<CustomFestivalV2>> watchCustomFestivals() async* {
     yield _festivals;
   }
+}
+
+class _EmptySelfReadRepository implements SelfReadRepositoryV2 {
+  @override
+  Future<List<SelfThreadSummaryV2>> getActiveThreads() async => const [];
+
+  @override
+  Future<SelfEngineReadStateV2> getSelfEngineState() async =>
+      const SelfEngineReadStateV2(hasLiveWork: false, hasFailedWork: false);
+
+  @override
+  Future<SelfThreadDetailV2?> getThreadDetail(String threadId) async => null;
 }
 
 class _MemoryDiaryRepository implements DiaryRepositoryV2 {

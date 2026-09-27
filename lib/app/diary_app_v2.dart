@@ -17,6 +17,7 @@ import '../features/life_library/domain/life_document_repository_v2.dart';
 import '../features/self_engine/application/self_engine_job_recovery_v2.dart';
 import '../features/self_engine/application/ports/self_engine_runner_v2.dart';
 import '../features/self_engine/domain/repositories/self_engine_repository_v2.dart';
+import '../features/self_engine/domain/repositories/self_read_repository_v2.dart';
 import '../features/self_engine/presentation/self_engine_recovery_scope_v2.dart';
 
 class DiaryAppV2 extends StatelessWidget {
@@ -30,6 +31,8 @@ class DiaryAppV2 extends StatelessWidget {
     this.lifeFragmentRepository,
     this.lifeDocumentRepository,
     this.selfEngineRepository,
+    this.selfReadRepository,
+    this.loadSelfEngineEnabled,
     this.selfEngineRecovery,
     this.selfEngineRunner,
     this.backupSnapshotReader,
@@ -46,6 +49,8 @@ class DiaryAppV2 extends StatelessWidget {
   final LifeFragmentRepositoryV2? lifeFragmentRepository;
   final LifeDocumentRepositoryV2? lifeDocumentRepository;
   final SelfEngineRepositoryV2? selfEngineRepository;
+  final SelfReadRepositoryV2? selfReadRepository;
+  final Future<bool> Function()? loadSelfEngineEnabled;
   final SelfEngineJobRecoveryV2? selfEngineRecovery;
   final SelfEngineRunnerV2? selfEngineRunner;
   final BackupSqliteSnapshotReaderV2? backupSnapshotReader;
@@ -68,6 +73,8 @@ class DiaryAppV2 extends StatelessWidget {
             lifeFragmentRepository: lifeFragmentRepository,
             lifeDocumentRepository: lifeDocumentRepository,
             selfEngineRepository: selfEngineRepository,
+            selfReadRepository: selfReadRepository,
+            loadSelfEngineEnabled: loadSelfEngineEnabled,
             backupSnapshotReader: backupSnapshotReader,
             migrationController: migrationController,
           ),
