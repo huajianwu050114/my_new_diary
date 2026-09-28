@@ -6,11 +6,14 @@ class SelfEnginePipelineRunnerV2 implements SelfEngineRunnerV2 {
   SelfEnginePipelineRunnerV2({
     required SelfEngineRunnerV2 extractionRunner,
     required SelfEngineRunnerV2 threadLinkRunner,
+    SelfEngineRunnerV2? thesisRunner,
   }) : _extractionRunner = extractionRunner,
-       _threadLinkRunner = threadLinkRunner;
+       _threadLinkRunner = threadLinkRunner,
+       _thesisRunner = thesisRunner ?? const _NoWorkRunnerV2();
 
   final SelfEngineRunnerV2 _extractionRunner;
   final SelfEngineRunnerV2 _threadLinkRunner;
+  final SelfEngineRunnerV2 _thesisRunner;
   Future<SelfEngineRunResultV2>? _activeRun;
   bool _rerunRequested = false;
 
@@ -41,10 +44,25 @@ class SelfEnginePipelineRunnerV2 implements SelfEngineRunnerV2 {
   Future<SelfEngineRunResultV2> _runBounded() async {
     final extraction = await _extractionRunner.runOnce();
     final linking = await _threadLinkRunner.runOnce();
-    if (linking != SelfEngineRunResultV2.noWork &&
-        linking != SelfEngineRunResultV2.unavailable) {
-      return linking;
+    final thesis = await _thesisRunner.runOnce();
+    for (final result in [thesis, linking, extraction]) {
+      if (result != SelfEngineRunResultV2.noWork &&
+          result != SelfEngineRunResultV2.unavailable) {
+        return result;
+      }
     }
-    return extraction == SelfEngineRunResultV2.noWork ? linking : extraction;
+    if (thesis == SelfEngineRunResultV2.unavailable ||
+        linking == SelfEngineRunResultV2.unavailable ||
+        extraction == SelfEngineRunResultV2.unavailable) {
+      return SelfEngineRunResultV2.unavailable;
+    }
+    return SelfEngineRunResultV2.noWork;
   }
+}
+
+class _NoWorkRunnerV2 implements SelfEngineRunnerV2 {
+  const _NoWorkRunnerV2();
+
+  @override
+  Future<SelfEngineRunResultV2> runOnce() async => SelfEngineRunResultV2.noWork;
 }

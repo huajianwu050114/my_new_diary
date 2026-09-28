@@ -409,6 +409,57 @@ void main() {
         'created_at': now,
         'updated_at': now,
       });
+      await source.db.insert('personal_theses', {
+        'id': 'derived-thesis',
+        'source_thread_id': 'derived-thread',
+        'thread_id': 'derived-thread',
+        'status': 'invalidated',
+        'generation': 1,
+        'created_at': now,
+        'updated_at': now,
+      });
+      await source.db.insert('personal_thesis_versions', {
+        'id': 'derived-thesis-v1',
+        'thesis_id': 'derived-thesis',
+        'version_no': 1,
+        'statement': 'PRIVATE DERIVED THESIS',
+        'rationale': 'PRIVATE DERIVED RATIONALE',
+        'maturity': 'candidate',
+        'trend': 'stable',
+        'generation': 1,
+        'created_at': now,
+      });
+      await source.db.insert('personal_thesis_evidence', {
+        'thesis_version_id': 'derived-thesis-v1',
+        'atom_id': 'derived-atom',
+        'role': 'support',
+        'generation': 1,
+        'created_at': now,
+      });
+      await source.db.insert('thesis_derivation_atoms', {
+        'thesis_version_id': 'derived-thesis-v1',
+        'atom_id': 'derived-atom',
+        'generation': 1,
+        'created_at': now,
+      });
+      await source.db.update(
+        'personal_theses',
+        {'status': 'active', 'current_version_id': 'derived-thesis-v1'},
+        where: 'id = ?',
+        whereArgs: ['derived-thesis'],
+      );
+      await source.db.insert('thesis_jobs', {
+        'id': 'derived-thesis-job',
+        'thread_id': 'derived-thread',
+        'trigger_revision_id': revision.id,
+        'origin': 'live',
+        'status': 'completed',
+        'attempt_count': 1,
+        'pipeline_version': 1,
+        'generation': 1,
+        'created_at': now,
+        'updated_at': now,
+      });
       expect(await source.db.query('thread_link_jobs'), isNotEmpty);
       expect(await source.db.query('thread_derivation_atoms'), isNotEmpty);
       expect(await source.db.query('self_engine_computations'), isNotEmpty);
@@ -440,6 +491,12 @@ void main() {
       expect(manifest, isNot(contains('selfEngineJobs')));
       expect(manifest, isNot(contains('threadLinkJobs')));
       expect(manifest, isNot(contains('threadDerivationAtoms')));
+      expect(manifest, isNot(contains('personalTheses')));
+      expect(manifest, isNot(contains('personalThesisVersions')));
+      expect(manifest, isNot(contains('personalThesisEvidence')));
+      expect(manifest, isNot(contains('thesisDerivationAtoms')));
+      expect(manifest, isNot(contains('thesisJobs')));
+      expect(jsonEncode(manifest), isNot(contains('PRIVATE DERIVED')));
     } finally {
       await source.dispose();
     }

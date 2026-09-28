@@ -12,7 +12,10 @@ import '../../domain/entities/self_engine_job_v2.dart';
 import '../../domain/entities/memory_atom_v2.dart';
 import '../../domain/entities/memory_thread_link_v2.dart';
 import '../../domain/entities/memory_thread_v2.dart';
+import '../../domain/entities/personal_thesis_synthesis_v2.dart';
+import '../../domain/entities/personal_thesis_v2.dart';
 import '../../domain/entities/source_computation_v2.dart';
+import '../../domain/entities/thesis_job_v2.dart';
 import '../../domain/entities/thread_link_job_v2.dart';
 import '../../domain/repositories/self_engine_repository_v2.dart';
 import '../../domain/self_engine_pipeline_v2.dart';
@@ -20,6 +23,7 @@ import '../../domain/self_engine_retry_policy_v2.dart';
 import 'self_engine_outbox_writer_v2.dart';
 import 'self_engine_schema_v2.dart';
 import 'thread_link_work_v2.dart';
+import 'thesis_work_v2.dart';
 
 class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
   SqliteSelfEngineRepositoryV2(
@@ -1189,6 +1193,14 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
           generation: generation,
           timestamp: timestamp,
         );
+        await ThesisWorkV2.enqueueIfEligible(
+          transaction,
+          threadId: threadId,
+          triggerRevisionId: job['revision_id']! as String,
+          origin: SelfEngineJobOriginV2.values.byName(job['origin']! as String),
+          generation: generation,
+          now: publishedAt,
+        );
       }
       final changed = await transaction.update(
         'thread_link_jobs',
@@ -1440,8 +1452,534 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
   }
 
   @override
+  Future<List<ThesisJobV2>> getThesisJobs({
+    SelfEngineJobStatusV2? status,
+  }) async {
+    final rows = await _database.query(
+      'thesis_jobs',
+      where: status == null ? null : 'status = ?',
+      whereArgs: status == null ? null : [status.name],
+      orderBy: 'created_at, id',
+    );
+    return rows.map(_thesisJobFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<List<PersonalThesisV2>> getPersonalTheses() async {
+    final rows = await _database.query(
+      'personal_theses',
+      orderBy: 'created_at, id',
+    );
+    return rows.map(_personalThesisFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<List<PersonalThesisVersionV2>> getPersonalThesisVersions(
+    String thesisId,
+  ) async {
+    final rows = await _database.query(
+      'personal_thesis_versions',
+      where: 'thesis_id = ?',
+      whereArgs: [thesisId],
+      orderBy: 'version_no, id',
+    );
+    return rows.map(_personalThesisVersionFromRow).toList(growable: false);
+  }
+
+  @override
+  Future<ThesisJobV2?> claimNextThesisJob({
+    required DateTime now,
+    SelfEngineJobOriginV2 origin = SelfEngineJobOriginV2.live,
+    Duration leaseDuration = const Duration(minutes: 5),
+  }) async {
+    if (leaseDuration <= Duration.zero) {
+      throw ArgumentError.value(leaseDuration, 'leaseDuration');
+    }
+    await recoverExpiredThesisLeases(now: now);
+    return _database.transaction((transaction) async {
+      final timestamp = now.toUtc().toIso8601String();
+      final rows = await transaction.rawQuery(
+        '''
+        SELECT j.*
+        FROM thesis_jobs j
+        JOIN memory_threads t
+          ON t.id = j.thread_id AND t.generation = j.generation
+        WHERE j.origin = ?
+          AND j.generation = (
+            SELECT generation FROM self_engine_state WHERE id = 1
+          )
+          AND t.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1 FROM personal_theses thesis
+            WHERE thesis.thread_id = j.thread_id
+              AND thesis.generation = j.generation
+              AND thesis.status = 'active'
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM thesis_jobs active_job
+            WHERE active_job.thread_id = j.thread_id
+              AND active_job.generation = j.generation
+              AND active_job.status = 'processing'
+          )
+          AND j.attempt_count < ?
+          AND (
+            j.status = 'pending'
+            OR (j.status = 'retryable' AND j.next_retry_at <= ?)
+          )
+        ORDER BY
+          CASE WHEN j.status = 'pending' THEN 0 ELSE 1 END,
+          COALESCE(j.next_retry_at, j.created_at), j.created_at, j.id
+        LIMIT 1
+        ''',
+        [origin.name, _retryPolicy.maxAttempts, timestamp],
+      );
+      if (rows.isEmpty) return null;
+      final row = rows.single;
+      final leaseId = _createId();
+      final changed = await transaction.update(
+        'thesis_jobs',
+        {
+          'status': SelfEngineJobStatusV2.processing.name,
+          'attempt_count': (row['attempt_count']! as int) + 1,
+          'updated_at': timestamp,
+          'next_retry_at': null,
+          'error': null,
+          'lease_id': leaseId,
+          'lease_expires_at': now.toUtc().add(leaseDuration).toIso8601String(),
+        },
+        where: '''
+          id = ? AND origin = ? AND attempt_count = ? AND generation = ? AND (
+            status = 'pending'
+            OR (status = 'retryable' AND next_retry_at <= ?)
+          )
+        ''',
+        whereArgs: [
+          row['id'],
+          origin.name,
+          row['attempt_count'],
+          row['generation'],
+          timestamp,
+        ],
+      );
+      if (changed != 1) return null;
+      return _thesisJobFromRow(
+        (await transaction.query(
+          'thesis_jobs',
+          where: 'id = ?',
+          whereArgs: [row['id']],
+          limit: 1,
+        )).single,
+      );
+    });
+  }
+
+  @override
+  Future<bool> renewThesisLease(
+    String id, {
+    required String leaseId,
+    required DateTime now,
+    Duration leaseDuration = const Duration(minutes: 5),
+  }) async {
+    if (leaseDuration <= Duration.zero) {
+      throw ArgumentError.value(leaseDuration, 'leaseDuration');
+    }
+    final timestamp = now.toUtc().toIso8601String();
+    return await _database.update(
+          'thesis_jobs',
+          {
+            'updated_at': timestamp,
+            'lease_expires_at': now
+                .toUtc()
+                .add(leaseDuration)
+                .toIso8601String(),
+          },
+          where: '''
+            id = ? AND status = 'processing' AND lease_id = ?
+            AND lease_expires_at > ?
+          ''',
+          whereArgs: [id, leaseId, timestamp],
+        ) ==
+        1;
+  }
+
+  @override
+  Future<bool> publishThesis(
+    String jobId, {
+    required String leaseId,
+    required DateTime publishedAt,
+    required PersonalThesisPublishV2 result,
+  }) {
+    return _database.transaction((transaction) async {
+      final timestamp = publishedAt.toUtc().toIso8601String();
+      final rows = await transaction.rawQuery(
+        '''
+        SELECT j.*, t.status AS thread_status,
+               s.generation AS current_generation
+        FROM thesis_jobs j
+        JOIN memory_threads t
+          ON t.id = j.thread_id AND t.generation = j.generation
+        JOIN self_engine_state s ON s.id = 1
+        WHERE j.id = ?
+        ''',
+        [jobId],
+      );
+      if (rows.isEmpty) return false;
+      final job = rows.single;
+      final generation = job['generation']! as int;
+      final ownsLease =
+          job['status'] == SelfEngineJobStatusV2.processing.name &&
+          job['lease_id'] == leaseId &&
+          DateTime.parse(
+            job['lease_expires_at']! as String,
+          ).isAfter(publishedAt.toUtc()) &&
+          generation == job['current_generation'] &&
+          job['thread_status'] == 'active';
+      if (!ownsLease) return false;
+
+      if (result.decision.action == PersonalThesisSynthesisActionV2.create) {
+        await _persistInitialThesis(
+          transaction,
+          job: job,
+          result: result,
+          timestamp: timestamp,
+        );
+        await transaction.update(
+          'thesis_jobs',
+          {
+            'status': SelfEngineJobStatusV2.completed.name,
+            'updated_at': timestamp,
+            'next_retry_at': null,
+            'error': null,
+            'lease_id': null,
+            'lease_expires_at': null,
+          },
+          where: '''
+            id != ? AND thread_id = ? AND generation = ?
+            AND status IN ('pending', 'retryable')
+          ''',
+          whereArgs: [jobId, job['thread_id'], generation],
+        );
+      } else if (result.derivationAtomIds.isNotEmpty ||
+          result.decision.supportAtomIds.isNotEmpty ||
+          result.decision.counterAtomIds.isNotEmpty) {
+        throw StateError('A no-op Thesis result cannot contain evidence.');
+      }
+
+      final changed = await transaction.update(
+        'thesis_jobs',
+        {
+          'status': SelfEngineJobStatusV2.completed.name,
+          'updated_at': timestamp,
+          'next_retry_at': null,
+          'error': null,
+          'lease_id': null,
+          'lease_expires_at': null,
+        },
+        where: '''
+          id = ? AND status = 'processing' AND lease_id = ?
+          AND lease_expires_at > ? AND generation = ?
+          AND generation = (SELECT generation FROM self_engine_state WHERE id = 1)
+        ''',
+        whereArgs: [jobId, leaseId, timestamp, generation],
+      );
+      if (changed != 1) {
+        throw StateError('Thesis job $jobId lost publish ownership.');
+      }
+      return true;
+    });
+  }
+
+  Future<void> _persistInitialThesis(
+    DatabaseExecutor database, {
+    required Map<String, Object?> job,
+    required PersonalThesisPublishV2 result,
+    required String timestamp,
+  }) async {
+    final decision = result.decision;
+    final statement = decision.statement?.trim() ?? '';
+    final rationale = decision.rationale?.trim() ?? '';
+    _validateThesisText(statement, rationale);
+    if (decision.maturity != PersonalThesisMaturityV2.candidate) {
+      throw StateError('C1 may publish only candidate maturity.');
+    }
+    final supportIds = decision.supportAtomIds;
+    final counterIds = decision.counterAtomIds;
+    final selectedIds = [...supportIds, ...counterIds];
+    if (supportIds.length < 2 ||
+        supportIds.toSet().length != supportIds.length ||
+        counterIds.toSet().length != counterIds.length ||
+        selectedIds.toSet().length != selectedIds.length ||
+        result.derivationAtomIds.isEmpty ||
+        result.derivationAtomIds.toSet().length !=
+            result.derivationAtomIds.length ||
+        !result.derivationAtomIds.toSet().containsAll(selectedIds)) {
+      throw StateError('Thesis evidence identity is invalid.');
+    }
+    final generation = job['generation']! as int;
+    final threadId = job['thread_id']! as String;
+    final activeThesis = await database.query(
+      'personal_theses',
+      columns: const ['id'],
+      where: "thread_id = ? AND generation = ? AND status = 'active'",
+      whereArgs: [threadId, generation],
+      limit: 1,
+    );
+    if (activeThesis.isNotEmpty) {
+      throw StateError('Thread already has a current Thesis.');
+    }
+    final placeholders = List.filled(selectedIds.length, '?').join(',');
+    final evidence = await database.rawQuery(
+      '''
+      SELECT a.id, r.diary_id,
+             CASE WHEN EXISTS (
+               SELECT 1 FROM thread_memberships m
+               WHERE m.thread_id = ? AND m.atom_id = a.id
+                 AND m.generation = a.generation AND m.removed_at IS NULL
+             ) THEN 1 ELSE 0 END AS is_support
+      FROM memory_atoms a
+      JOIN diary_revisions r ON r.id = a.revision_id
+      JOIN diary_entries d ON d.id = r.diary_id
+      WHERE a.id IN ($placeholders)
+        AND a.generation = ? AND a.superseded_at IS NULL
+        AND d.deleted_at IS NULL
+        AND r.revision_no = (
+          SELECT MAX(latest.revision_no) FROM diary_revisions latest
+          WHERE latest.diary_id = r.diary_id
+        )
+      ''',
+      [threadId, ...selectedIds, generation],
+    );
+    if (evidence.length != selectedIds.length) {
+      throw StateError('Thesis references inactive evidence.');
+    }
+    final evidenceById = {
+      for (final row in evidence) row['id']! as String: row,
+    };
+    if (supportIds.any((id) => evidenceById[id]!['is_support'] != 1) ||
+        counterIds.any((id) => evidenceById[id]!['is_support'] != 0) ||
+        supportIds
+                .map((id) => evidenceById[id]!['diary_id']! as String)
+                .toSet()
+                .length <
+            2) {
+      throw StateError('Thesis support/counter roles are invalid.');
+    }
+    final threadDerivation = await database.rawQuery(
+      '''
+      SELECT atom_id FROM thread_derivation_atoms
+      WHERE thread_id = ? AND generation = ?
+      UNION
+      SELECT atom_id FROM thread_memberships
+      WHERE thread_id = ? AND generation = ? AND removed_at IS NULL
+      ''',
+      [threadId, generation, threadId, generation],
+    );
+    final requiredDerivation = <String>{
+      ...selectedIds,
+      ...threadDerivation.map((row) => row['atom_id']! as String),
+    };
+    if (!result.derivationAtomIds.toSet().containsAll(requiredDerivation) ||
+        await _countActiveDerivationAtoms(
+              database,
+              result.derivationAtomIds,
+              generation: generation,
+            ) !=
+            result.derivationAtomIds.length) {
+      throw StateError('Thesis derivation provenance is incomplete.');
+    }
+
+    final thesisId = 'thesis-${job['id']}';
+    final versionId = 'thesis-version-${job['id']}-1';
+    await database.insert('personal_theses', {
+      'id': thesisId,
+      'source_thread_id': threadId,
+      'thread_id': threadId,
+      'status': PersonalThesisStatusV2.invalidated.name,
+      'current_version_id': null,
+      'generation': generation,
+      'created_at': timestamp,
+      'updated_at': timestamp,
+    });
+    await database.insert('personal_thesis_versions', {
+      'id': versionId,
+      'thesis_id': thesisId,
+      'version_no': 1,
+      'statement': statement,
+      'rationale': rationale,
+      'maturity': PersonalThesisMaturityV2.candidate.name,
+      'trend': PersonalThesisTrendV2.stable.name,
+      'generation': generation,
+      'created_at': timestamp,
+    });
+    for (final atomId in supportIds) {
+      await _insertThesisEvidence(
+        database,
+        versionId: versionId,
+        atomId: atomId,
+        role: PersonalThesisEvidenceRoleV2.support,
+        generation: generation,
+        timestamp: timestamp,
+      );
+    }
+    for (final atomId in counterIds) {
+      await _insertThesisEvidence(
+        database,
+        versionId: versionId,
+        atomId: atomId,
+        role: PersonalThesisEvidenceRoleV2.counter,
+        generation: generation,
+        timestamp: timestamp,
+      );
+    }
+    for (final atomId in result.derivationAtomIds) {
+      await database.insert('thesis_derivation_atoms', {
+        'thesis_version_id': versionId,
+        'atom_id': atomId,
+        'generation': generation,
+        'created_at': timestamp,
+      });
+    }
+    await database.update(
+      'personal_theses',
+      {
+        'status': PersonalThesisStatusV2.active.name,
+        'current_version_id': versionId,
+        'updated_at': timestamp,
+      },
+      where: "id = ? AND generation = ? AND status = 'invalidated'",
+      whereArgs: [thesisId, generation],
+    );
+  }
+
+  Future<void> _insertThesisEvidence(
+    DatabaseExecutor database, {
+    required String versionId,
+    required String atomId,
+    required PersonalThesisEvidenceRoleV2 role,
+    required int generation,
+    required String timestamp,
+  }) => database.insert('personal_thesis_evidence', {
+    'thesis_version_id': versionId,
+    'atom_id': atomId,
+    'role': role.name,
+    'generation': generation,
+    'created_at': timestamp,
+  });
+
+  void _validateThesisText(String statement, String rationale) {
+    const forbidden = [
+      '你',
+      '本质',
+      '天生',
+      '永远',
+      '注定',
+      '人格障碍',
+      '抑郁症',
+      '焦虑症',
+      '我是一个',
+      '我是那种',
+    ];
+    if (statement.isEmpty ||
+        statement.length > 240 ||
+        rationale.isEmpty ||
+        rationale.length > 300 ||
+        !statement.contains('我') ||
+        forbidden.any(
+          (term) => statement.contains(term) || rationale.contains(term),
+        )) {
+      throw StateError('Thesis wording is not tentative and bounded.');
+    }
+  }
+
+  @override
+  Future<bool> markThesisJobFailed(
+    String id, {
+    required String leaseId,
+    required DateTime failedAt,
+    required String error,
+  }) {
+    return _database.transaction((transaction) async {
+      final timestamp = failedAt.toUtc().toIso8601String();
+      final rows = await transaction.query(
+        'thesis_jobs',
+        columns: const ['attempt_count'],
+        where: '''
+          id = ? AND status = 'processing' AND lease_id = ?
+          AND lease_expires_at > ?
+        ''',
+        whereArgs: [id, leaseId, timestamp],
+        limit: 1,
+      );
+      if (rows.isEmpty) return false;
+      final attempts = rows.single['attempt_count']! as int;
+      final terminal = attempts >= _retryPolicy.maxAttempts;
+      return await transaction.update(
+            'thesis_jobs',
+            {
+              'status': terminal ? 'failed' : 'retryable',
+              'updated_at': timestamp,
+              'next_retry_at': terminal
+                  ? null
+                  : failedAt
+                        .toUtc()
+                        .add(_retryPolicy.delayAfterAttempt(attempts))
+                        .toIso8601String(),
+              'error': error,
+              'lease_id': null,
+              'lease_expires_at': null,
+            },
+            where: '''
+              id = ? AND status = 'processing' AND lease_id = ?
+              AND lease_expires_at > ?
+            ''',
+            whereArgs: [id, leaseId, timestamp],
+          ) ==
+          1;
+    });
+  }
+
+  @override
+  Future<int> recoverExpiredThesisLeases({required DateTime now}) {
+    return _database.transaction((transaction) async {
+      final timestamp = now.toUtc().toIso8601String();
+      final rows = await transaction.query(
+        'thesis_jobs',
+        columns: const ['id', 'attempt_count'],
+        where: "status = 'processing' AND lease_expires_at <= ?",
+        whereArgs: [timestamp],
+      );
+      var changed = 0;
+      for (final row in rows) {
+        final attempts = row['attempt_count']! as int;
+        final terminal = attempts >= _retryPolicy.maxAttempts;
+        changed += await transaction.update(
+          'thesis_jobs',
+          {
+            'status': terminal ? 'failed' : 'retryable',
+            'updated_at': timestamp,
+            'next_retry_at': terminal
+                ? null
+                : now
+                      .toUtc()
+                      .add(_retryPolicy.delayAfterAttempt(attempts))
+                      .toIso8601String(),
+            'error': 'Processing lease expired.',
+            'lease_id': null,
+            'lease_expires_at': null,
+          },
+          where: "id = ? AND status = 'processing' AND lease_expires_at <= ?",
+          whereArgs: [row['id'], timestamp],
+        );
+      }
+      return changed;
+    });
+  }
+
+  @override
   Future<void> clearAllDerivedDataForGlobalRebuild() {
     return _database.transaction((transaction) async {
+      await transaction.delete('personal_theses');
+      await transaction.delete('thesis_jobs');
       final generation = await _generation(transaction) + 1;
       await transaction.update('self_engine_state', {
         'generation': generation,
@@ -1458,6 +1996,11 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
   Future<void> rebuildDerivedDataForDiary(String diaryId) {
     return _database.transaction((transaction) async {
       final generation = await _generation(transaction);
+      await ThesisWorkV2.deleteThesesUsingDiary(
+        transaction,
+        diaryId: diaryId,
+        generation: generation,
+      );
       await ThreadLinkWorkV2.invalidateThreadsUsingDiary(
         transaction,
         diaryId: diaryId,
@@ -1719,6 +2262,51 @@ class SqliteSelfEngineRepositoryV2 implements SelfEngineRepositoryV2 {
         leaseId: row['lease_id'] as String?,
         leaseExpiresAt: _date(row['lease_expires_at']),
       );
+
+  ThesisJobV2 _thesisJobFromRow(Map<String, Object?> row) => ThesisJobV2(
+    id: row['id']! as String,
+    threadId: row['thread_id']! as String,
+    triggerRevisionId: row['trigger_revision_id']! as String,
+    origin: SelfEngineJobOriginV2.values.byName(row['origin']! as String),
+    status: SelfEngineJobStatusV2.values.byName(row['status']! as String),
+    attemptCount: row['attempt_count']! as int,
+    pipelineVersion: row['pipeline_version']! as int,
+    generation: row['generation']! as int,
+    createdAt: DateTime.parse(row['created_at']! as String),
+    updatedAt: DateTime.parse(row['updated_at']! as String),
+    nextRetryAt: _date(row['next_retry_at']),
+    error: row['error'] as String?,
+    leaseId: row['lease_id'] as String?,
+    leaseExpiresAt: _date(row['lease_expires_at']),
+  );
+
+  PersonalThesisV2 _personalThesisFromRow(Map<String, Object?> row) =>
+      PersonalThesisV2(
+        id: row['id']! as String,
+        sourceThreadId: row['source_thread_id']! as String,
+        threadId: row['thread_id'] as String?,
+        status: PersonalThesisStatusV2.values.byName(row['status']! as String),
+        currentVersionId: row['current_version_id'] as String?,
+        generation: row['generation']! as int,
+        createdAt: DateTime.parse(row['created_at']! as String),
+        updatedAt: DateTime.parse(row['updated_at']! as String),
+      );
+
+  PersonalThesisVersionV2 _personalThesisVersionFromRow(
+    Map<String, Object?> row,
+  ) => PersonalThesisVersionV2(
+    id: row['id']! as String,
+    thesisId: row['thesis_id']! as String,
+    versionNo: row['version_no']! as int,
+    statement: row['statement']! as String,
+    rationale: row['rationale']! as String,
+    maturity: PersonalThesisMaturityV2.values.byName(
+      row['maturity']! as String,
+    ),
+    trend: PersonalThesisTrendV2.values.byName(row['trend']! as String),
+    generation: row['generation']! as int,
+    createdAt: DateTime.parse(row['created_at']! as String),
+  );
 
   MemoryAtomV2 _atomFromRow(Map<String, Object?> row) => MemoryAtomV2(
     id: row['id']! as String,

@@ -6,6 +6,7 @@ import '../../domain/entities/diary_entry.dart';
 import '../../domain/repositories/diary_repository_v2.dart';
 import '../../../self_engine/data/local/self_engine_outbox_writer_v2.dart';
 import '../../../self_engine/data/local/thread_link_work_v2.dart';
+import '../../../self_engine/data/local/thesis_work_v2.dart';
 import '../../../self_engine/domain/entities/self_engine_job_v2.dart';
 import 'diary_entry_mapper_v2.dart';
 
@@ -163,6 +164,11 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
   Future<void> deletePermanently(String id) async {
     await _database.transaction((transaction) async {
       final generation = await _generation(transaction);
+      await ThesisWorkV2.deleteThesesUsingDiary(
+        transaction,
+        diaryId: id,
+        generation: generation,
+      );
       await ThreadLinkWorkV2.invalidateThreadsUsingDiary(
         transaction,
         diaryId: id,

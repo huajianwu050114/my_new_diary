@@ -8,13 +8,15 @@ class SelfEngineJobRecoveryV2 {
   Future<int> afterColdStart({DateTime? now}) async {
     final current = (now ?? DateTime.now()).toUtc();
     return await _repository.recoverExpiredLeases(now: current) +
-        await _repository.recoverExpiredThreadLinkLeases(now: current);
+        await _repository.recoverExpiredThreadLinkLeases(now: current) +
+        await _repository.recoverExpiredThesisLeases(now: current);
   }
 
   Future<int> afterResume({DateTime? now}) async {
     final current = (now ?? DateTime.now()).toUtc();
     return await _repository.recoverExpiredLeases(now: current) +
-        await _repository.recoverExpiredThreadLinkLeases(now: current);
+        await _repository.recoverExpiredThreadLinkLeases(now: current) +
+        await _repository.recoverExpiredThesisLeases(now: current);
   }
 
   Future<int> reconcileLegacyDiaries({int limit = 50}) async {

@@ -24,13 +24,17 @@ import 'features/self_engine/application/self_engine_job_recovery_v2.dart';
 import 'features/self_engine/application/configured_self_engine_availability_v2.dart';
 import 'features/self_engine/application/memory_atom_job_processor_v2.dart';
 import 'features/self_engine/application/memory_thread_link_job_processor_v2.dart';
+import 'features/self_engine/application/personal_thesis_job_processor_v2.dart';
 import 'features/self_engine/application/ports/self_engine_runner_v2.dart';
 import 'features/self_engine/application/self_engine_pipeline_runner_v2.dart';
 import 'features/self_engine/application/self_engine_worker_v2.dart';
 import 'features/self_engine/application/thread_link_worker_v2.dart';
+import 'features/self_engine/application/thesis_worker_v2.dart';
 import 'features/self_engine/data/ai/ai_memory_extractor_v2.dart';
 import 'features/self_engine/data/ai/ai_memory_thread_linker_v2.dart';
+import 'features/self_engine/data/ai/ai_personal_thesis_synthesizer_v2.dart';
 import 'features/self_engine/data/local/sqlite_memory_thread_candidate_retriever_v2.dart';
+import 'features/self_engine/data/local/sqlite_personal_thesis_candidate_retriever_v2.dart';
 import 'features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
 import 'features/self_engine/data/local/sqlite_self_read_repository_v2.dart';
 
@@ -76,9 +80,21 @@ Future<void> main() async {
     availability: selfEngineAvailability,
     leaseDuration: selfEngineLeaseDuration,
   );
+  final thesisWorker = ThesisWorkerV2(
+    repository: selfEngineRepository,
+    processor: PersonalThesisJobProcessorV2(
+      repository: selfEngineRepository,
+      candidateRetriever: SqlitePersonalThesisCandidateRetrieverV2(database),
+      synthesizer: AiPersonalThesisSynthesizerV2(aiClient),
+      leaseDuration: selfEngineLeaseDuration,
+    ),
+    availability: selfEngineAvailability,
+    leaseDuration: selfEngineLeaseDuration,
+  );
   final selfEngineRunner = SelfEnginePipelineRunnerV2(
     extractionRunner: extractionWorker,
     threadLinkRunner: threadLinkWorker,
+    thesisRunner: thesisWorker,
   );
   void scheduleSelfEngineWork() {
     unawaited(

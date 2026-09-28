@@ -12,4 +12,8 @@ abstract final class SelfEnginePipelineV2 {
   // Thread decisions depend on the current graph and are never cached by
   // source hash. Bump this for incompatible linker/prompt semantics.
   static const threadPipelineVersion = 1;
+
+  // Thesis decisions depend on the current active Thread/evidence graph and
+  // are never reusable by source fingerprint.
+  static const thesisPipelineVersion = 1;
 }

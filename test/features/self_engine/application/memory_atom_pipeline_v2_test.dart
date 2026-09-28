@@ -794,6 +794,14 @@ void main() {
       await firstOwner.close();
 
       final raw = await databaseFactoryFfi.openDatabase(dbPath);
+      await raw.execute(
+        'DROP TRIGGER memory_threads_invalidate_theses_before_delete',
+      );
+      await raw.execute('DROP TABLE thesis_jobs');
+      await raw.execute('DROP TABLE thesis_derivation_atoms');
+      await raw.execute('DROP TABLE personal_thesis_evidence');
+      await raw.execute('DROP TABLE personal_thesis_versions');
+      await raw.execute('DROP TABLE personal_theses');
       await raw.execute('DROP TABLE thread_derivation_atoms');
       await raw.execute('DROP TABLE thread_link_jobs');
       await raw.execute('DROP INDEX memory_atoms_active_candidate_index');

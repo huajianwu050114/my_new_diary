@@ -5,6 +5,9 @@ import '../entities/memory_atom_v2.dart';
 import '../entities/memory_thread_link_v2.dart';
 import '../entities/source_computation_v2.dart';
 import '../entities/thread_link_job_v2.dart';
+import '../entities/personal_thesis_synthesis_v2.dart';
+import '../entities/personal_thesis_v2.dart';
+import '../entities/thesis_job_v2.dart';
 
 abstract interface class SelfEngineRepositoryV2 {
   Future<DiaryRevisionV2?> getLatestRevision(String diaryId);
@@ -89,6 +92,43 @@ abstract interface class SelfEngineRepositoryV2 {
   });
 
   Future<int> recoverExpiredThreadLinkLeases({required DateTime now});
+
+  Future<List<ThesisJobV2>> getThesisJobs({SelfEngineJobStatusV2? status});
+
+  Future<List<PersonalThesisV2>> getPersonalTheses();
+
+  Future<List<PersonalThesisVersionV2>> getPersonalThesisVersions(
+    String thesisId,
+  );
+
+  Future<ThesisJobV2?> claimNextThesisJob({
+    required DateTime now,
+    SelfEngineJobOriginV2 origin = SelfEngineJobOriginV2.live,
+    Duration leaseDuration = const Duration(minutes: 5),
+  });
+
+  Future<bool> renewThesisLease(
+    String id, {
+    required String leaseId,
+    required DateTime now,
+    Duration leaseDuration = const Duration(minutes: 5),
+  });
+
+  Future<bool> publishThesis(
+    String jobId, {
+    required String leaseId,
+    required DateTime publishedAt,
+    required PersonalThesisPublishV2 result,
+  });
+
+  Future<bool> markThesisJobFailed(
+    String id, {
+    required String leaseId,
+    required DateTime failedAt,
+    required String error,
+  });
+
+  Future<int> recoverExpiredThesisLeases({required DateTime now});
 
   Future<void> clearAllDerivedDataForGlobalRebuild();
 

@@ -461,6 +461,456 @@ abstract final class SelfEngineSchemaV2 {
     }
   }
 
+  static Future<void> createV14(Database database) async {
+    await validateV13(database);
+    await database.execute('''
+      CREATE TABLE personal_theses (
+        id TEXT PRIMARY KEY NOT NULL,
+        source_thread_id TEXT NOT NULL,
+        thread_id TEXT,
+        status TEXT NOT NULL CHECK(status IN ('active', 'invalidated')),
+        current_version_id TEXT,
+        generation INTEGER NOT NULL CHECK(generation > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        CHECK(
+          (status = 'active' AND thread_id IS NOT NULL AND current_version_id IS NOT NULL)
+          OR (status = 'invalidated' AND current_version_id IS NULL)
+        ),
+        FOREIGN KEY(thread_id) REFERENCES memory_threads(id) ON DELETE SET NULL,
+        FOREIGN KEY(current_version_id)
+          REFERENCES personal_thesis_versions(id)
+          ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,
+        UNIQUE(id, generation)
+      )
+    ''');
+    await database.execute('''
+      CREATE UNIQUE INDEX personal_theses_one_active_thread
+      ON personal_theses(thread_id, generation)
+      WHERE status = 'active' AND thread_id IS NOT NULL
+    ''');
+    await database.execute('''
+      CREATE INDEX personal_theses_source_thread_index
+      ON personal_theses(source_thread_id, generation, status)
+    ''');
+
+    await database.execute('''
+      CREATE TABLE personal_thesis_versions (
+        id TEXT PRIMARY KEY NOT NULL,
+        thesis_id TEXT NOT NULL,
+        version_no INTEGER NOT NULL CHECK(version_no > 0),
+        statement TEXT NOT NULL CHECK(length(trim(statement)) > 0),
+        rationale TEXT NOT NULL CHECK(length(trim(rationale)) > 0),
+        maturity TEXT NOT NULL CHECK(
+          maturity IN ('candidate', 'emerging', 'established')
+        ),
+        trend TEXT NOT NULL CHECK(
+          trend IN ('strengthening', 'stable', 'weakening', 'contradicted', 'dormant')
+        ),
+        generation INTEGER NOT NULL CHECK(generation > 0),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY(thesis_id, generation)
+          REFERENCES personal_theses(id, generation) ON DELETE CASCADE,
+        UNIQUE(thesis_id, version_no),
+        UNIQUE(id, generation)
+      )
+    ''');
+
+    await database.execute('''
+      CREATE TABLE personal_thesis_evidence (
+        thesis_version_id TEXT NOT NULL,
+        atom_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('support', 'counter')),
+        generation INTEGER NOT NULL CHECK(generation > 0),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(thesis_version_id, atom_id),
+        FOREIGN KEY(thesis_version_id, generation)
+          REFERENCES personal_thesis_versions(id, generation) ON DELETE CASCADE,
+        FOREIGN KEY(atom_id, generation)
+          REFERENCES memory_atoms(id, generation) ON DELETE CASCADE
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX personal_thesis_evidence_atom_index
+      ON personal_thesis_evidence(atom_id, generation)
+    ''');
+
+    await database.execute('''
+      CREATE TABLE thesis_derivation_atoms (
+        thesis_version_id TEXT NOT NULL,
+        atom_id TEXT NOT NULL,
+        generation INTEGER NOT NULL CHECK(generation > 0),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(thesis_version_id, atom_id),
+        FOREIGN KEY(thesis_version_id, generation)
+          REFERENCES personal_thesis_versions(id, generation) ON DELETE CASCADE,
+        FOREIGN KEY(atom_id, generation)
+          REFERENCES memory_atoms(id, generation) ON DELETE CASCADE
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX thesis_derivation_atoms_atom_index
+      ON thesis_derivation_atoms(atom_id, generation)
+    ''');
+
+    await database.execute('''
+      CREATE TABLE thesis_jobs (
+        id TEXT PRIMARY KEY NOT NULL,
+        thread_id TEXT NOT NULL,
+        trigger_revision_id TEXT NOT NULL,
+        origin TEXT NOT NULL CHECK(origin IN ('live', 'historical')),
+        status TEXT NOT NULL CHECK(
+          status IN ('pending', 'processing', 'completed', 'retryable', 'failed')
+        ),
+        attempt_count INTEGER NOT NULL DEFAULT 0 CHECK(attempt_count >= 0),
+        pipeline_version INTEGER NOT NULL,
+        generation INTEGER NOT NULL CHECK(generation > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        next_retry_at TEXT,
+        error TEXT,
+        lease_id TEXT,
+        lease_expires_at TEXT,
+        CHECK(
+          (status = 'processing' AND lease_id IS NOT NULL AND lease_expires_at IS NOT NULL)
+          OR
+          (status != 'processing' AND lease_id IS NULL AND lease_expires_at IS NULL)
+        ),
+        CHECK(status != 'retryable' OR next_retry_at IS NOT NULL),
+        FOREIGN KEY(thread_id, generation)
+          REFERENCES memory_threads(id, generation) ON DELETE CASCADE,
+        FOREIGN KEY(trigger_revision_id)
+          REFERENCES diary_revisions(id) ON DELETE CASCADE,
+        UNIQUE(thread_id, trigger_revision_id, pipeline_version, generation)
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX thesis_jobs_origin_ready_index
+      ON thesis_jobs(
+        origin, status, next_retry_at, lease_expires_at, created_at
+      )
+    ''');
+
+    for (final table in const [
+      'personal_theses',
+      'personal_thesis_versions',
+      'personal_thesis_evidence',
+      'thesis_derivation_atoms',
+      'thesis_jobs',
+    ]) {
+      await database.execute('''
+        CREATE TRIGGER ${table}_generation_insert_guard
+        BEFORE INSERT ON $table
+        WHEN NEW.generation != (
+          SELECT generation FROM self_engine_state WHERE id = 1
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'stale Self Engine generation');
+        END
+      ''');
+      await database.execute('''
+        CREATE TRIGGER ${table}_generation_update_guard
+        BEFORE UPDATE ON $table
+        WHEN OLD.generation != (
+          SELECT generation FROM self_engine_state WHERE id = 1
+        ) OR NEW.generation != (
+          SELECT generation FROM self_engine_state WHERE id = 1
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'stale Self Engine generation');
+        END
+      ''');
+    }
+    await database.execute('''
+      CREATE TRIGGER personal_theses_current_version_guard
+      BEFORE UPDATE OF status, current_version_id ON personal_theses
+      WHEN NEW.status = 'active' AND NOT EXISTS (
+        SELECT 1 FROM personal_thesis_versions v
+        WHERE v.id = NEW.current_version_id
+          AND v.thesis_id = NEW.id
+          AND v.generation = NEW.generation
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid current Thesis version');
+      END
+    ''');
+    await database.execute('''
+      CREATE TRIGGER personal_theses_thread_generation_insert_guard
+      BEFORE INSERT ON personal_theses
+      WHEN NEW.thread_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM memory_threads t
+        WHERE t.id = NEW.thread_id AND t.generation = NEW.generation
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid Thesis Thread generation');
+      END
+    ''');
+    await database.execute('''
+      CREATE TRIGGER personal_theses_thread_generation_update_guard
+      BEFORE UPDATE OF thread_id, generation ON personal_theses
+      WHEN NEW.thread_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM memory_threads t
+        WHERE t.id = NEW.thread_id AND t.generation = NEW.generation
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid Thesis Thread generation');
+      END
+    ''');
+    await database.execute('''
+      CREATE TRIGGER personal_thesis_evidence_role_guard
+      BEFORE INSERT ON personal_thesis_evidence
+      WHEN (
+        NEW.role = 'support' AND NOT EXISTS (
+          SELECT 1
+          FROM personal_thesis_versions v
+          JOIN personal_theses thesis ON thesis.id = v.thesis_id
+          JOIN thread_memberships m
+            ON m.thread_id = thesis.thread_id
+           AND m.atom_id = NEW.atom_id
+           AND m.generation = NEW.generation
+           AND m.removed_at IS NULL
+          WHERE v.id = NEW.thesis_version_id
+            AND v.generation = NEW.generation
+        )
+      ) OR (
+        NEW.role = 'counter' AND EXISTS (
+          SELECT 1
+          FROM personal_thesis_versions v
+          JOIN personal_theses thesis ON thesis.id = v.thesis_id
+          JOIN thread_memberships m
+            ON m.thread_id = thesis.thread_id
+           AND m.atom_id = NEW.atom_id
+           AND m.generation = NEW.generation
+           AND m.removed_at IS NULL
+          WHERE v.id = NEW.thesis_version_id
+            AND v.generation = NEW.generation
+        )
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid Thesis evidence role');
+      END
+    ''');
+    await database.execute('''
+      CREATE TRIGGER thesis_jobs_source_guard
+      BEFORE INSERT ON thesis_jobs
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM thread_memberships m
+        JOIN memory_atoms a
+          ON a.id = m.atom_id AND a.generation = m.generation
+        WHERE m.thread_id = NEW.thread_id
+          AND m.generation = NEW.generation
+          AND m.removed_at IS NULL
+          AND a.revision_id = NEW.trigger_revision_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'Thesis job source is outside its Thread');
+      END
+    ''');
+    await database.execute('''
+      CREATE TRIGGER memory_threads_invalidate_theses_before_delete
+      BEFORE DELETE ON memory_threads
+      BEGIN
+        UPDATE personal_theses
+        SET status = 'invalidated', current_version_id = NULL,
+            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        WHERE thread_id = OLD.id AND generation = OLD.generation;
+      END
+    ''');
+  }
+
+  static Future<void> validateV14(Database database) async {
+    await validateV13(database);
+    await _validateColumns(database, 'personal_theses', const {
+      'id',
+      'source_thread_id',
+      'thread_id',
+      'status',
+      'current_version_id',
+      'generation',
+      'created_at',
+      'updated_at',
+    });
+    await _validateColumns(database, 'personal_thesis_versions', const {
+      'id',
+      'thesis_id',
+      'version_no',
+      'statement',
+      'rationale',
+      'maturity',
+      'trend',
+      'generation',
+      'created_at',
+    });
+    await _validateColumns(database, 'personal_thesis_evidence', const {
+      'thesis_version_id',
+      'atom_id',
+      'role',
+      'generation',
+      'created_at',
+    });
+    await _validateColumns(database, 'thesis_derivation_atoms', const {
+      'thesis_version_id',
+      'atom_id',
+      'generation',
+      'created_at',
+    });
+    await _validateColumns(database, 'thesis_jobs', const {
+      'id',
+      'thread_id',
+      'trigger_revision_id',
+      'origin',
+      'status',
+      'attempt_count',
+      'pipeline_version',
+      'generation',
+      'created_at',
+      'updated_at',
+      'next_retry_at',
+      'error',
+      'lease_id',
+      'lease_expires_at',
+    });
+    await _requireIndex(database, 'personal_theses', const [
+      'thread_id',
+      'generation',
+    ], unique: true);
+    await _requireIndex(database, 'personal_theses', const [
+      'id',
+      'generation',
+    ], unique: true);
+    await _requirePartialIndex(
+      database,
+      'personal_theses_one_active_thread',
+      whereFragment: "status = 'active' AND thread_id IS NOT NULL",
+    );
+    await _requireIndex(database, 'personal_theses', const [
+      'source_thread_id',
+      'generation',
+      'status',
+    ], unique: false);
+    await _requireIndex(database, 'personal_thesis_versions', const [
+      'thesis_id',
+      'version_no',
+    ], unique: true);
+    await _requireIndex(database, 'personal_thesis_versions', const [
+      'id',
+      'generation',
+    ], unique: true);
+    await _requireIndex(database, 'personal_thesis_evidence', const [
+      'thesis_version_id',
+      'atom_id',
+    ], unique: true);
+    await _requireIndex(database, 'personal_thesis_evidence', const [
+      'atom_id',
+      'generation',
+    ], unique: false);
+    await _requireIndex(database, 'thesis_derivation_atoms', const [
+      'atom_id',
+      'generation',
+    ], unique: false);
+    await _requireIndex(database, 'thesis_derivation_atoms', const [
+      'thesis_version_id',
+      'atom_id',
+    ], unique: true);
+    await _requireIndex(database, 'thesis_jobs', const [
+      'thread_id',
+      'trigger_revision_id',
+      'pipeline_version',
+      'generation',
+    ], unique: true);
+    await _requireIndex(database, 'thesis_jobs', const [
+      'origin',
+      'status',
+      'next_retry_at',
+      'lease_expires_at',
+      'created_at',
+    ], unique: false);
+    await _requireForeignKey(
+      database,
+      'personal_theses',
+      parent: 'memory_threads',
+      from: const ['thread_id'],
+      to: const ['id'],
+      onDelete: 'SET NULL',
+    );
+    await _requireForeignKey(
+      database,
+      'personal_theses',
+      parent: 'personal_thesis_versions',
+      from: const ['current_version_id'],
+      to: const ['id'],
+      onDelete: 'SET NULL',
+    );
+    await _requireForeignKey(
+      database,
+      'personal_thesis_versions',
+      parent: 'personal_theses',
+      from: const ['thesis_id', 'generation'],
+      to: const ['id', 'generation'],
+      onDelete: 'CASCADE',
+    );
+    for (final table in const [
+      'personal_thesis_evidence',
+      'thesis_derivation_atoms',
+    ]) {
+      await _requireForeignKey(
+        database,
+        table,
+        parent: 'personal_thesis_versions',
+        from: const ['thesis_version_id', 'generation'],
+        to: const ['id', 'generation'],
+        onDelete: 'CASCADE',
+      );
+      await _requireForeignKey(
+        database,
+        table,
+        parent: 'memory_atoms',
+        from: const ['atom_id', 'generation'],
+        to: const ['id', 'generation'],
+        onDelete: 'CASCADE',
+      );
+    }
+    await _requireForeignKey(
+      database,
+      'thesis_jobs',
+      parent: 'memory_threads',
+      from: const ['thread_id', 'generation'],
+      to: const ['id', 'generation'],
+      onDelete: 'CASCADE',
+    );
+    await _requireForeignKey(
+      database,
+      'thesis_jobs',
+      parent: 'diary_revisions',
+      from: const ['trigger_revision_id'],
+      to: const ['id'],
+      onDelete: 'CASCADE',
+    );
+    await _requireTriggers(database, const {
+      'personal_theses_generation_insert_guard',
+      'personal_theses_generation_update_guard',
+      'personal_thesis_versions_generation_insert_guard',
+      'personal_thesis_versions_generation_update_guard',
+      'personal_thesis_evidence_generation_insert_guard',
+      'personal_thesis_evidence_generation_update_guard',
+      'thesis_derivation_atoms_generation_insert_guard',
+      'thesis_derivation_atoms_generation_update_guard',
+      'thesis_jobs_generation_insert_guard',
+      'thesis_jobs_generation_update_guard',
+      'personal_theses_current_version_guard',
+      'personal_theses_thread_generation_insert_guard',
+      'personal_theses_thread_generation_update_guard',
+      'personal_thesis_evidence_role_guard',
+      'thesis_jobs_source_guard',
+      'memory_threads_invalidate_theses_before_delete',
+    });
+    final violations = await database.rawQuery('PRAGMA foreign_key_check');
+    if (violations.isNotEmpty) {
+      throw StateError('Database foreign-key validation failed: $violations');
+    }
+  }
+
   static Future<void> validateV11(
     Database database, {
     bool hasJobOrigin = false,
@@ -671,6 +1121,27 @@ abstract final class SelfEngineSchemaV2 {
       'Schema drift in $table: missing ${unique ? 'unique ' : ''}'
       'index on $columns.',
     );
+  }
+
+  static Future<void> _requirePartialIndex(
+    Database database,
+    String name, {
+    required String whereFragment,
+  }) async {
+    final rows = await database.query(
+      'sqlite_master',
+      columns: const ['sql'],
+      where: "type = 'index' AND name = ?",
+      whereArgs: [name],
+      limit: 1,
+    );
+    final sql = rows.isEmpty ? null : rows.single['sql'] as String?;
+    String normalize(String value) =>
+        value.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
+    if (sql == null ||
+        !normalize(sql).contains('where ${normalize(whereFragment)}')) {
+      throw StateError('Schema drift: invalid partial index $name.');
+    }
   }
 
   static Future<void> _requireForeignKey(
