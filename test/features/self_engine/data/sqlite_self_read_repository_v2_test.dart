@@ -172,6 +172,56 @@ void main() {
       expect(result.last.distinctDiaryCount, 1);
     });
 
+    test('overview pagination is bounded, stable, and complete', () async {
+      const total = 53;
+      final expected = <({String id, DateTime lastSeen})>[];
+      for (var index = 0; index < total; index++) {
+        final suffix = index.toString().padLeft(2, '0');
+        final diaryId = 'page-diary-$suffix';
+        final atomId = 'page-atom-$suffix';
+        final threadId = 'page-thread-$suffix';
+        final occurredAt = DateTime.utc(
+          2026,
+          1,
+          1,
+        ).add(Duration(days: index ~/ 2));
+        await _insertDiary(database, id: diaryId, entryDate: occurredAt);
+        await _insertAtom(
+          database,
+          id: atomId,
+          revisionId: '$diaryId-r1',
+          observedAt: occurredAt,
+          generation: 1,
+        );
+        await _insertThread(
+          database,
+          id: threadId,
+          title: 'Thread $suffix',
+          generation: 1,
+        );
+        await _insertMembership(
+          database,
+          threadId: threadId,
+          atomId: atomId,
+          generation: 1,
+        );
+        expected.add((id: threadId, lastSeen: occurredAt));
+      }
+      expected.sort((left, right) {
+        final time = right.lastSeen.compareTo(left.lastSeen);
+        return time != 0 ? time : left.id.compareTo(right.id);
+      });
+
+      final first = await repository.getActiveThreads();
+      final second = await repository.getActiveThreads(offset: first.length);
+      final ids = [...first, ...second].map((thread) => thread.id).toList();
+
+      expect(first, hasLength(50));
+      expect(second, hasLength(3));
+      expect(ids, expected.map((item) => item.id));
+      expect(ids.toSet(), hasLength(total));
+    });
+
     test('detail is newest-first and keeps Diary traceability', () async {
       await _insertDiary(database, id: 'a', entryDate: _date(2026, 1));
       await _insertDiary(database, id: 'b', entryDate: _date(2026, 2));

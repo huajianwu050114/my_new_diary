@@ -26,6 +26,7 @@ import '../../../life_library/domain/life_document_repository_v2.dart';
 import '../../../life_library/presentation/life_library_page_v2.dart';
 import '../../../self_engine/domain/repositories/self_engine_repository_v2.dart';
 import '../../../self_engine/domain/repositories/self_read_repository_v2.dart';
+import '../../../self_engine/application/ports/self_engine_availability_v2.dart';
 import '../../../self_engine/presentation/self_page_v2.dart';
 import '../../application/legacy_migration_controller_v2.dart';
 import '../../application/ports/diary_image_store_v2.dart';
@@ -53,7 +54,8 @@ class DiaryHomePageV2 extends StatefulWidget {
     this.lifeDocumentRepository,
     this.selfEngineRepository,
     this.selfReadRepository,
-    this.loadSelfEngineEnabled,
+    this.loadSelfEngineAvailability,
+    this.onSelfEngineBecameAvailable,
     this.backupSnapshotReader,
     this.migrationController,
     super.key,
@@ -69,7 +71,9 @@ class DiaryHomePageV2 extends StatefulWidget {
   final LifeDocumentRepositoryV2? lifeDocumentRepository;
   final SelfEngineRepositoryV2? selfEngineRepository;
   final SelfReadRepositoryV2? selfReadRepository;
-  final Future<bool> Function()? loadSelfEngineEnabled;
+  final Future<SelfEngineAvailabilityStatusV2> Function()?
+  loadSelfEngineAvailability;
+  final Future<void> Function()? onSelfEngineBecameAvailable;
   final BackupSqliteSnapshotReaderV2? backupSnapshotReader;
   final LegacyMigrationControllerV2? migrationController;
 
@@ -143,10 +147,13 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
                   ? const Center(child: Text('Self 尚未准备好'))
                   : SelfPageV2(
                       repository: widget.selfReadRepository!,
-                      loadEnabled:
-                          widget.loadSelfEngineEnabled ?? _selfEngineDisabled,
+                      loadAvailability:
+                          widget.loadSelfEngineAvailability ??
+                          _selfEngineDisabled,
                       onOpenDiary: _openEntryById,
                       onOpenSettings: _openAiSettings,
+                      onSelfEngineBecameAvailable:
+                          widget.onSelfEngineBecameAvailable,
                     ),
             4 => _MemoriesTab(
               entries: entries,
@@ -275,7 +282,8 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
     context,
   ).push<void>(MaterialPageRoute(builder: (_) => const AiSettingsPageV2()));
 
-  static Future<bool> _selfEngineDisabled() async => false;
+  static Future<SelfEngineAvailabilityStatusV2> _selfEngineDisabled() async =>
+      SelfEngineAvailabilityStatusV2.disabled;
 
   Future<void> _openComposer(BuildContext context) async {
     await Navigator.of(context).push<void>(

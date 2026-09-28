@@ -30,8 +30,18 @@ class SqliteSelfReadRepositoryV2 implements SelfReadRepositoryV2 {
   ''';
 
   @override
-  Future<List<SelfThreadSummaryV2>> getActiveThreads() async {
-    final rows = await _database.rawQuery('''
+  Future<List<SelfThreadSummaryV2>> getActiveThreads({
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    if (limit <= 0) {
+      throw ArgumentError.value(limit, 'limit', 'must be greater than zero');
+    }
+    if (offset < 0) {
+      throw ArgumentError.value(offset, 'offset', 'must not be negative');
+    }
+    final rows = await _database.rawQuery(
+      '''
       SELECT t.id, t.title, t.description,
              MIN(COALESCE(a.observed_at, r.entry_date)) AS first_seen,
              MAX(COALESCE(a.observed_at, r.entry_date)) AS last_seen,
@@ -40,7 +50,10 @@ class SqliteSelfReadRepositoryV2 implements SelfReadRepositoryV2 {
       $_activeThreadProjection
       GROUP BY t.id, t.title, t.description
       ORDER BY last_seen DESC, t.id
-    ''');
+      LIMIT ? OFFSET ?
+      ''',
+      [limit, offset],
+    );
     return rows.map(_summaryFromRow).toList(growable: false);
   }
 

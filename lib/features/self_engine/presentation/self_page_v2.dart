@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../application/ports/self_engine_availability_v2.dart';
 import '../domain/entities/self_read_model_v2.dart';
 import '../domain/repositories/self_read_repository_v2.dart';
 import 'self_page_controller_v2.dart';
@@ -9,16 +10,18 @@ typedef OpenDiaryFromSelfV2 = Future<void> Function(String diaryId);
 class SelfPageV2 extends StatefulWidget {
   const SelfPageV2({
     required this.repository,
-    required this.loadEnabled,
+    required this.loadAvailability,
     required this.onOpenDiary,
     required this.onOpenSettings,
+    this.onSelfEngineBecameAvailable,
     super.key,
   });
 
   final SelfReadRepositoryV2 repository;
-  final Future<bool> Function() loadEnabled;
+  final Future<SelfEngineAvailabilityStatusV2> Function() loadAvailability;
   final OpenDiaryFromSelfV2 onOpenDiary;
   final Future<void> Function() onOpenSettings;
+  final Future<void> Function()? onSelfEngineBecameAvailable;
 
   @override
   State<SelfPageV2> createState() => _SelfPageV2State();
@@ -38,7 +41,7 @@ class _SelfPageV2State extends State<SelfPageV2> with WidgetsBindingObserver {
   void didUpdateWidget(covariant SelfPageV2 oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.repository != widget.repository ||
-        oldWidget.loadEnabled != widget.loadEnabled) {
+        oldWidget.loadAvailability != widget.loadAvailability) {
       _controller.dispose();
       _createController();
     }
@@ -54,7 +57,7 @@ class _SelfPageV2State extends State<SelfPageV2> with WidgetsBindingObserver {
   void _createController() {
     _controller = SelfPageControllerV2(
       repository: widget.repository,
-      loadEnabled: widget.loadEnabled,
+      loadAvailability: widget.loadAvailability,
     )..addListener(_changed);
     _controller.refresh();
   }
@@ -104,15 +107,25 @@ class _SelfPageV2State extends State<SelfPageV2> with WidgetsBindingObserver {
                 onAction: _controller.refresh,
               )
             else ...[
-              if (!_controller.enabled)
+              if (_controller.availability ==
+                  SelfEngineAvailabilityStatusV2.disabled)
                 _QuietStatusV2(
                   icon: Icons.pause_circle_outline,
-                  text: 'Self Engine 尚未启用',
+                  text: _controller.threads.isEmpty
+                      ? 'Self Engine 尚未启用'
+                      : 'Self Engine 当前已暂停，已有线索仍可查看。',
                   actionLabel: '前往设置',
-                  onAction: () async {
-                    await widget.onOpenSettings();
-                    await _controller.refresh();
-                  },
+                  onAction: _openSettings,
+                )
+              else if (_controller.availability ==
+                  SelfEngineAvailabilityStatusV2.unavailable)
+                _QuietStatusV2(
+                  icon: Icons.pause_circle_outline,
+                  text: _controller.threads.isEmpty
+                      ? 'Self Engine 当前无法整理新记录'
+                      : 'Self Engine 当前无法整理新记录，已有线索仍可查看。',
+                  actionLabel: '前往设置',
+                  onAction: _openSettings,
                 )
               else if (_controller.engineState.hasLiveWork)
                 const _QuietStatusV2(icon: Icons.more_horiz, text: '正在整理最近的记录…')
@@ -122,7 +135,7 @@ class _SelfPageV2State extends State<SelfPageV2> with WidgetsBindingObserver {
                   text: '有些记录暂时还没整理完成。',
                 ),
               if (_controller.threads.isEmpty)
-                _EmptySelfV2(enabled: _controller.enabled)
+                _EmptySelfV2(availability: _controller.availability)
               else ...[
                 const SizedBox(height: 26),
                 Text('正在形成的线索', style: Theme.of(context).textTheme.titleMedium),
@@ -138,12 +151,42 @@ class _SelfPageV2State extends State<SelfPageV2> with WidgetsBindingObserver {
                   ),
                   if (index != _controller.threads.length - 1) const Divider(),
                 ],
+                if (_controller.hasMore) ...[
+                  const SizedBox(height: 12),
+                  Center(
+                    child: TextButton(
+                      onPressed: _controller.loadingMore
+                          ? null
+                          : _controller.loadMore,
+                      child: Text(_controller.loadingMore ? '正在加载…' : '查看更多'),
+                    ),
+                  ),
+                ],
               ],
             ],
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _openSettings() async {
+    final wasAvailable =
+        _controller.availability == SelfEngineAvailabilityStatusV2.available;
+    await widget.onOpenSettings();
+    if (!mounted) return;
+    final current = await _controller.refresh();
+    if (wasAvailable ||
+        current != SelfEngineAvailabilityStatusV2.available ||
+        widget.onSelfEngineBecameAvailable == null) {
+      return;
+    }
+    try {
+      await widget.onSelfEngineBecameAvailable!();
+    } catch (_) {
+      // The durable worker owns retry/error state; the Self page stays quiet.
+    }
+    if (mounted) await _controller.refresh();
   }
 
   Future<void> _openThread(SelfThreadSummaryV2 summary) async {
@@ -423,9 +466,9 @@ class _QuietStatusV2 extends StatelessWidget {
 }
 
 class _EmptySelfV2 extends StatelessWidget {
-  const _EmptySelfV2({required this.enabled});
+  const _EmptySelfV2({required this.availability});
 
-  final bool enabled;
+  final SelfEngineAvailabilityStatusV2 availability;
 
   @override
   Widget build(BuildContext context) {
@@ -440,15 +483,22 @@ class _EmptySelfV2 extends StatelessWidget {
           ),
           const SizedBox(height: 18),
           Text(
-            enabled ? '还没有形成明显的长期线索。' : '这里还没有可以展示的线索。',
+            availability == SelfEngineAvailabilityStatusV2.available
+                ? '还没有形成明显的长期线索。'
+                : '这里还没有可以展示的线索。',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 10),
           Text(
-            enabled
-                ? '继续记录就好。随着不同日子的经历相互照应，\n这里会慢慢出现一些主题。'
-                : '启用后，来自不同日子的经历会在这里慢慢相互照应。',
+            switch (availability) {
+              SelfEngineAvailabilityStatusV2.available =>
+                '继续记录就好。随着不同日子的经历相互照应，\n这里会慢慢出现一些主题。',
+              SelfEngineAvailabilityStatusV2.disabled =>
+                '启用后，来自不同日子的经历会在这里慢慢相互照应。',
+              SelfEngineAvailabilityStatusV2.unavailable =>
+                'AI 设置可用后，新的记录会继续在这里慢慢相互照应。',
+            },
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,

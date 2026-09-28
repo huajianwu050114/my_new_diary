@@ -843,6 +843,10 @@ void main() {
       final store = AiConfigurationStoreV2(secretStore: secrets);
       final availability = ConfiguredSelfEngineAvailabilityV2(store);
       expect(await availability.canProcess(), isFalse);
+      expect(
+        await availability.loadStatus(),
+        SelfEngineAvailabilityStatusV2.disabled,
+      );
 
       await store.save(
         enabled: true,
@@ -851,6 +855,10 @@ void main() {
         model: 'test-model',
       );
       expect(await availability.canProcess(), isFalse);
+      expect(
+        await availability.loadStatus(),
+        SelfEngineAvailabilityStatusV2.unavailable,
+      );
 
       await store.save(
         enabled: true,
@@ -860,6 +868,10 @@ void main() {
         apiKey: 'secret',
       );
       expect(await availability.canProcess(), isTrue);
+      expect(
+        await availability.loadStatus(),
+        SelfEngineAvailabilityStatusV2.available,
+      );
     },
   );
 

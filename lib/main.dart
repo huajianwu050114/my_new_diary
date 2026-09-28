@@ -134,8 +134,7 @@ Future<void> main() async {
       lifeDocumentRepository: lifeDocumentRepository,
       selfEngineRepository: selfEngineRepository,
       selfReadRepository: selfReadRepository,
-      loadSelfEngineEnabled: () async =>
-          (await aiConfigurationStore.load()).selfEngineEnabled,
+      loadSelfEngineAvailability: selfEngineAvailability.loadStatus,
       selfEngineRecovery: selfEngineRecovery,
       selfEngineRunner: selfEngineRunner,
       backupSnapshotReader: BackupSqliteSnapshotReaderV2(database),

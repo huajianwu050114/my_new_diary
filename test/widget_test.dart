@@ -18,6 +18,7 @@ import 'package:my_new_diary/features/festival/data/public_holiday_service_v2.da
 import 'package:my_new_diary/features/festival/domain/festival_repository_v2.dart';
 import 'package:my_new_diary/features/festival/domain/festival_v2.dart';
 import 'package:my_new_diary/features/settings/application/theme_controller_v2.dart';
+import 'package:my_new_diary/features/self_engine/application/ports/self_engine_availability_v2.dart';
 import 'package:my_new_diary/features/self_engine/domain/entities/self_read_model_v2.dart';
 import 'package:my_new_diary/features/self_engine/domain/repositories/self_read_repository_v2.dart';
 import 'package:my_new_diary/features/settings/application/app_lock_controller_v2.dart';
@@ -401,7 +402,8 @@ Future<void> main() async {
           themeController: ThemeControllerV2(),
           appLockController: AppLockControllerV2(),
           selfReadRepository: _EmptySelfReadRepository(),
-          loadSelfEngineEnabled: () async => true,
+          loadSelfEngineAvailability: () async =>
+              SelfEngineAvailabilityStatusV2.available,
         ),
       );
       await tester.pumpAndSettle();
@@ -708,7 +710,10 @@ class _MemoryFestivalRepository implements FestivalRepositoryV2 {
 
 class _EmptySelfReadRepository implements SelfReadRepositoryV2 {
   @override
-  Future<List<SelfThreadSummaryV2>> getActiveThreads() async => const [];
+  Future<List<SelfThreadSummaryV2>> getActiveThreads({
+    int limit = 50,
+    int offset = 0,
+  }) async => const [];
 
   @override
   Future<SelfEngineReadStateV2> getSelfEngineState() async =>

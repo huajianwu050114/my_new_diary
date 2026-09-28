@@ -6,9 +6,18 @@ class ConfiguredSelfEngineAvailabilityV2 implements SelfEngineAvailabilityV2 {
 
   final AiConfigurationStoreV2 _configurationStore;
 
-  @override
-  Future<bool> canProcess() async {
+  Future<SelfEngineAvailabilityStatusV2> loadStatus() async {
     final configuration = await _configurationStore.load();
-    return configuration.selfEngineEnabled && configuration.ready;
+    if (!configuration.selfEngineEnabled) {
+      return SelfEngineAvailabilityStatusV2.disabled;
+    }
+    if (!configuration.ready) {
+      return SelfEngineAvailabilityStatusV2.unavailable;
+    }
+    return SelfEngineAvailabilityStatusV2.available;
   }
+
+  @override
+  Future<bool> canProcess() async =>
+      await loadStatus() == SelfEngineAvailabilityStatusV2.available;
 }
