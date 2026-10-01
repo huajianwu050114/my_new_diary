@@ -9,6 +9,7 @@ import 'package:my_new_diary/features/ai/data/ai_configuration_store_v2.dart';
 import 'package:my_new_diary/features/ai/data/gemini_rest_client_v2.dart';
 import 'package:my_new_diary/features/diary/data/local/diary_database_v2.dart';
 import 'package:my_new_diary/features/diary/data/local/sqlite_diary_repository_v2.dart';
+import 'package:my_new_diary/features/diary/domain/entities/diary_entry.dart';
 import 'package:my_new_diary/features/self_engine/application/personal_thesis_job_processor_v2.dart';
 import 'package:my_new_diary/features/self_engine/application/ports/personal_thesis_synthesizer_v2.dart';
 import 'package:my_new_diary/features/self_engine/application/ports/self_engine_availability_v2.dart';
@@ -20,6 +21,7 @@ import 'package:my_new_diary/features/self_engine/data/local/sqlite_personal_the
 import 'package:my_new_diary/features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
 import 'package:my_new_diary/features/self_engine/data/local/thesis_work_v2.dart';
 import 'package:my_new_diary/features/self_engine/data/local/thread_link_work_v2.dart';
+import 'package:my_new_diary/features/self_engine/domain/diary_source_fingerprint_v2.dart';
 import 'package:my_new_diary/features/self_engine/domain/entities/memory_thread_link_v2.dart';
 import 'package:my_new_diary/features/self_engine/domain/entities/personal_thesis_synthesis_v2.dart';
 import 'package:my_new_diary/features/self_engine/domain/entities/personal_thesis_v2.dart';
@@ -727,6 +729,323 @@ void main() {
       },
     );
 
+    test(
+      'editing an external selected counter invalidates only the current Thesis',
+      () async {
+        final fixture = await _publishWithExternalProvenance(
+          repository,
+          database,
+          now,
+          selectCounter: true,
+        );
+        final beforeEvidence = await database.query('personal_thesis_evidence');
+        final beforeDerivation = await database.query(
+          'thesis_derivation_atoms',
+        );
+        expect(
+          beforeEvidence,
+          contains(
+            predicate<Map<String, Object?>>(
+              (row) =>
+                  row['atom_id'] == fixture.externalAtomId &&
+                  row['role'] == 'counter',
+            ),
+          ),
+        );
+
+        final original = await diaryRepository.getById(fixture.externalDiaryId);
+        await diaryRepository.save(
+          original!.copyWith(
+            body: '修改后的外部反证记录',
+            updatedAt: now.add(const Duration(minutes: 1)),
+          ),
+        );
+
+        await _expectCurrentThesisInvalidated(
+          database,
+          fixture,
+          evidenceCount: beforeEvidence.length,
+          derivationCount: beforeDerivation.length,
+        );
+      },
+    );
+
+    test(
+      'editing external prompt-only provenance invalidates the current Thesis',
+      () async {
+        final fixture = await _publishWithExternalProvenance(
+          repository,
+          database,
+          now,
+        );
+        expect(
+          await database.query(
+            'personal_thesis_evidence',
+            where: 'atom_id = ?',
+            whereArgs: [fixture.externalAtomId],
+          ),
+          isEmpty,
+        );
+        expect(
+          await database.query(
+            'thesis_derivation_atoms',
+            where: 'atom_id = ?',
+            whereArgs: [fixture.externalAtomId],
+          ),
+          hasLength(1),
+        );
+        final evidenceCount = (await database.query(
+          'personal_thesis_evidence',
+        )).length;
+        final derivationCount = (await database.query(
+          'thesis_derivation_atoms',
+        )).length;
+
+        final original = await diaryRepository.getById(fixture.externalDiaryId);
+        await diaryRepository.save(
+          original!.copyWith(
+            body: '修改后的 prompt-only 记录',
+            updatedAt: now.add(const Duration(minutes: 1)),
+          ),
+        );
+
+        await _expectCurrentThesisInvalidated(
+          database,
+          fixture,
+          evidenceCount: evidenceCount,
+          derivationCount: derivationCount,
+        );
+      },
+    );
+
+    test(
+      'soft-deleting external provenance invalidates the current Thesis',
+      () async {
+        final fixture = await _publishWithExternalProvenance(
+          repository,
+          database,
+          now,
+        );
+        final evidenceCount = (await database.query(
+          'personal_thesis_evidence',
+        )).length;
+        final derivationCount = (await database.query(
+          'thesis_derivation_atoms',
+        )).length;
+
+        await diaryRepository.moveToTrash(
+          fixture.externalDiaryId,
+          deletedAt: now.add(const Duration(minutes: 1)),
+        );
+
+        await _expectCurrentThesisInvalidated(
+          database,
+          fixture,
+          evidenceCount: evidenceCount,
+          derivationCount: derivationCount,
+        );
+        expect(
+          (await diaryRepository.getById(fixture.externalDiaryId))!.isDeleted,
+          isTrue,
+        );
+      },
+    );
+
+    test('same-content save does not invalidate the current Thesis', () async {
+      final fixture = await _publishWithExternalProvenance(
+        repository,
+        database,
+        now,
+      );
+      final original = await diaryRepository.getById(fixture.externalDiaryId);
+
+      await diaryRepository.save(
+        original!.copyWith(
+          updatedAt: now.add(const Duration(minutes: 1)),
+          isFavorite: true,
+        ),
+      );
+
+      final thesis = (await database.query(
+        'personal_theses',
+        where: 'id = ?',
+        whereArgs: [fixture.thesisId],
+      )).single;
+      expect(thesis['status'], 'active');
+      expect(thesis['current_version_id'], fixture.versionId);
+      expect(thesis['thread_id'], fixture.threadId);
+      expect(
+        await database.query(
+          'diary_revisions',
+          where: 'diary_id = ?',
+          whereArgs: [fixture.externalDiaryId],
+        ),
+        hasLength(1),
+      );
+    });
+
+    test(
+      'Thesis invalidation failure rolls back the Diary source change',
+      () async {
+        final fixture = await _publishWithExternalProvenance(
+          repository,
+          database,
+          now,
+        );
+        final original = await diaryRepository.getById(fixture.externalDiaryId);
+        await database.execute('''
+          CREATE TRIGGER fail_current_thesis_invalidation
+          BEFORE UPDATE OF status ON personal_theses
+          WHEN OLD.id = '${fixture.thesisId}'
+          BEGIN
+            SELECT RAISE(ABORT, 'injected Thesis invalidation failure');
+          END
+        ''');
+
+        await expectLater(
+          diaryRepository.save(
+            original!.copyWith(
+              body: '这次修改必须完整回滚',
+              updatedAt: now.add(const Duration(minutes: 1)),
+            ),
+          ),
+          throwsA(anything),
+        );
+
+        expect(
+          (await diaryRepository.getById(fixture.externalDiaryId))!.body,
+          original.body,
+        );
+        expect(
+          await database.query(
+            'diary_revisions',
+            where: 'diary_id = ?',
+            whereArgs: [fixture.externalDiaryId],
+          ),
+          hasLength(1),
+        );
+        final thesis = (await database.query(
+          'personal_theses',
+          where: 'id = ?',
+          whereArgs: [fixture.thesisId],
+        )).single;
+        expect(thesis['status'], 'active');
+        expect(thesis['current_version_id'], fixture.versionId);
+        expect(thesis['thread_id'], fixture.threadId);
+      },
+    );
+
+    test(
+      'permanent delete still removes a Thesis using external prompt provenance',
+      () async {
+        final fixture = await _publishWithExternalProvenance(
+          repository,
+          database,
+          now,
+        );
+        final version = (await database.query(
+          'personal_thesis_versions',
+          where: 'id = ?',
+          whereArgs: [fixture.versionId],
+        )).single;
+        expect(version['statement'], isNotEmpty);
+        expect(version['rationale'], isNotEmpty);
+
+        await diaryRepository.deletePermanently(fixture.externalDiaryId);
+
+        expect(await database.query('personal_theses'), isEmpty);
+        expect(await database.query('personal_thesis_versions'), isEmpty);
+        expect(await database.query('personal_thesis_evidence'), isEmpty);
+        expect(await database.query('thesis_derivation_atoms'), isEmpty);
+        expect(
+          (await database.query(
+            'memory_threads',
+            where: 'id = ?',
+            whereArgs: [fixture.threadId],
+          )).single['status'],
+          'active',
+        );
+      },
+    );
+
+    test(
+      'normal edit ignores historical provenance outside current Thesis version',
+      () async {
+        final historical = await _seedAtom(
+          database,
+          'historical-provenance',
+          DateTime.utc(2025, 12, 1),
+        );
+        final current = await _seedAtom(
+          database,
+          'current-provenance',
+          DateTime.utc(2026, 1, 1),
+        );
+        await _seedThread(database, 'future-version-thread', [current]);
+        final stamp = now.toIso8601String();
+        await database.insert('personal_theses', {
+          'id': 'future-version-thesis',
+          'source_thread_id': 'future-version-thread',
+          'status': 'invalidated',
+          'generation': 1,
+          'created_at': stamp,
+          'updated_at': stamp,
+        });
+        for (final versionNo in [1, 2]) {
+          await database.insert('personal_thesis_versions', {
+            'id': 'future-version-v$versionNo',
+            'thesis_id': 'future-version-thesis',
+            'version_no': versionNo,
+            'statement': '受控测试版本 $versionNo',
+            'rationale': '仅用于验证 current-version provenance 查询。',
+            'maturity': 'candidate',
+            'trend': 'stable',
+            'generation': 1,
+            'created_at': stamp,
+          });
+        }
+        await database.insert('thesis_derivation_atoms', {
+          'thesis_version_id': 'future-version-v1',
+          'atom_id': historical.atomId,
+          'generation': 1,
+          'created_at': stamp,
+        });
+        await database.insert('thesis_derivation_atoms', {
+          'thesis_version_id': 'future-version-v2',
+          'atom_id': current.atomId,
+          'generation': 1,
+          'created_at': stamp,
+        });
+        await database.update(
+          'personal_theses',
+          {
+            'thread_id': 'future-version-thread',
+            'status': 'active',
+            'current_version_id': 'future-version-v2',
+          },
+          where: 'id = ?',
+          whereArgs: ['future-version-thesis'],
+        );
+
+        final original = await diaryRepository.getById(historical.diaryId);
+        await diaryRepository.save(
+          original!.copyWith(
+            body: '历史版本依赖的 Diary 已修改',
+            updatedAt: now.add(const Duration(minutes: 1)),
+          ),
+        );
+
+        final thesis = (await database.query(
+          'personal_theses',
+          where: 'id = ?',
+          whereArgs: ['future-version-thesis'],
+        )).single;
+        expect(thesis['status'], 'active');
+        expect(thesis['current_version_id'], 'future-version-v2');
+        expect(thesis['thread_id'], 'future-version-thread');
+      },
+    );
+
     test('prompt-only provenance causes permanent privacy deletion', () async {
       final fixture = await _eligibleFixture(database, now: now);
       await _publishValid(repository, database, now);
@@ -1038,6 +1357,87 @@ Future<void> _dropV14(Database database) async {
   await database.execute('DROP TABLE personal_theses');
 }
 
+Future<_ExternalProvenanceFixture> _publishWithExternalProvenance(
+  SqliteSelfEngineRepositoryV2 repository,
+  Database database,
+  DateTime now, {
+  bool selectCounter = false,
+}) async {
+  final fixture = await _eligibleFixture(database, now: now, withCounter: true);
+  String? externalDiaryId;
+  String? externalAtomId;
+  final synth = _FakeSynthesizer((request) async {
+    final external = request.counterCandidates.firstWhere(
+      (candidate) => !fixture.diaryIds.contains(candidate.diaryId),
+    );
+    externalDiaryId = external.diaryId;
+    externalAtomId = external.atom.id;
+    return PersonalThesisSynthesisDecisionV2.create(
+      statement: '我可能在规律运动后更容易恢复平静',
+      rationale: '多次记录支持这个可修正的暂定解释。',
+      maturity: PersonalThesisMaturityV2.candidate,
+      supportAtomIds: request.supportCandidates
+          .take(2)
+          .map((item) => item.atom.id)
+          .toList(),
+      counterAtomIds: selectCounter ? [external.atom.id] : const [],
+    );
+  });
+  expect(
+    await _worker(repository, database, synth, () => now).runOnce(),
+    SelfEngineRunResultV2.completed,
+  );
+  final thesis = (await repository.getPersonalTheses()).single;
+  final version = (await repository.getPersonalThesisVersions(
+    thesis.id,
+  )).single;
+  return _ExternalProvenanceFixture(
+    threadId: fixture.threadId,
+    thesisId: thesis.id,
+    versionId: version.id,
+    externalDiaryId: externalDiaryId!,
+    externalAtomId: externalAtomId!,
+  );
+}
+
+Future<void> _expectCurrentThesisInvalidated(
+  Database database,
+  _ExternalProvenanceFixture fixture, {
+  required int evidenceCount,
+  required int derivationCount,
+}) async {
+  final thread = (await database.query(
+    'memory_threads',
+    where: 'id = ?',
+    whereArgs: [fixture.threadId],
+  )).single;
+  expect(thread['status'], 'active');
+  final thesis = (await database.query(
+    'personal_theses',
+    where: 'id = ?',
+    whereArgs: [fixture.thesisId],
+  )).single;
+  expect(thesis['status'], 'invalidated');
+  expect(thesis['current_version_id'], isNull);
+  expect(thesis['thread_id'], isNull);
+  expect(
+    await database.query(
+      'personal_thesis_versions',
+      where: 'id = ?',
+      whereArgs: [fixture.versionId],
+    ),
+    hasLength(1),
+  );
+  expect(
+    await database.query('personal_thesis_evidence'),
+    hasLength(evidenceCount),
+  );
+  expect(
+    await database.query('thesis_derivation_atoms'),
+    hasLength(derivationCount),
+  );
+}
+
 ThesisWorkerV2 _worker(
   SqliteSelfEngineRepositoryV2 repository,
   Database database,
@@ -1143,6 +1543,13 @@ Future<_SeededAtom> _seedAtom(
   final stamp = date.toUtc().toIso8601String();
   final revisionId = '$diaryId-r1';
   final atomId = '$diaryId-a1';
+  final entry = DiaryEntryV2(
+    id: diaryId,
+    body: statement,
+    entryDate: date,
+    createdAt: date,
+    updatedAt: date,
+  );
   await database.insert('diary_entries', {
     'id': diaryId,
     'body': statement,
@@ -1159,7 +1566,7 @@ Future<_SeededAtom> _seedAtom(
     'diary_id': diaryId,
     'revision_no': 1,
     'body': statement,
-    'source_hash': 'hash-$diaryId',
+    'source_hash': DiarySourceFingerprintV2.calculate(entry),
     'fingerprint_version': 1,
     'entry_date': stamp,
     'tags': '[]',
@@ -1263,6 +1670,22 @@ class _Fixture {
   const _Fixture({required this.threadId, required this.diaryIds});
   final String threadId;
   final List<String> diaryIds;
+}
+
+class _ExternalProvenanceFixture {
+  const _ExternalProvenanceFixture({
+    required this.threadId,
+    required this.thesisId,
+    required this.versionId,
+    required this.externalDiaryId,
+    required this.externalAtomId,
+  });
+
+  final String threadId;
+  final String thesisId;
+  final String versionId;
+  final String externalDiaryId;
+  final String externalAtomId;
 }
 
 class _SeededAtom {

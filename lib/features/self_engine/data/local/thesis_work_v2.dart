@@ -72,6 +72,51 @@ abstract final class ThesisWorkV2 {
     return changed != 0;
   }
 
+  static Future<int> invalidateCurrentThesesUsingDiary(
+    DatabaseExecutor database, {
+    required String diaryId,
+    required int generation,
+    required DateTime now,
+  }) {
+    return database.rawUpdate(
+      '''
+      UPDATE personal_theses
+      SET status = 'invalidated',
+          current_version_id = NULL,
+          thread_id = NULL,
+          updated_at = ?
+      WHERE generation = ?
+        AND status = 'active'
+        AND current_version_id IS NOT NULL
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM personal_thesis_evidence evidence
+            JOIN memory_atoms atom
+              ON atom.id = evidence.atom_id
+             AND atom.generation = evidence.generation
+            JOIN diary_revisions revision ON revision.id = atom.revision_id
+            WHERE evidence.thesis_version_id = personal_theses.current_version_id
+              AND evidence.generation = personal_theses.generation
+              AND revision.diary_id = ?
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM thesis_derivation_atoms derivation
+            JOIN memory_atoms atom
+              ON atom.id = derivation.atom_id
+             AND atom.generation = derivation.generation
+            JOIN diary_revisions revision ON revision.id = atom.revision_id
+            WHERE derivation.thesis_version_id = personal_theses.current_version_id
+              AND derivation.generation = personal_theses.generation
+              AND revision.diary_id = ?
+          )
+        )
+      ''',
+      [now.toUtc().toIso8601String(), generation, diaryId, diaryId],
+    );
+  }
+
   static Future<void> deleteThesesUsingDiary(
     DatabaseExecutor database, {
     required String diaryId,

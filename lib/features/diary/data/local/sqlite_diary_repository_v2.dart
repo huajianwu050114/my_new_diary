@@ -65,7 +65,18 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
       } else {
         await transaction.insert(_table, _mapper.toRow(entry));
       }
-      await _selfEngineOutbox.recordSourceChange(transaction, entry);
+      final sourceChanged = await _selfEngineOutbox.recordSourceChange(
+        transaction,
+        entry,
+      );
+      if (existingRows.isNotEmpty && sourceChanged) {
+        await ThesisWorkV2.invalidateCurrentThesesUsingDiary(
+          transaction,
+          diaryId: entry.id,
+          generation: await _generation(transaction),
+          now: entry.updatedAt,
+        );
+      }
     });
     _changes.add(null);
     _onSourceSaved?.call();
@@ -81,6 +92,12 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
   Future<void> moveToTrash(String id, {required DateTime deletedAt}) async {
     await _database.transaction((transaction) async {
       final generation = await _generation(transaction);
+      await ThesisWorkV2.invalidateCurrentThesesUsingDiary(
+        transaction,
+        diaryId: id,
+        generation: generation,
+        now: deletedAt,
+      );
       await ThreadLinkWorkV2.invalidateThreadsUsingDiary(
         transaction,
         diaryId: id,
