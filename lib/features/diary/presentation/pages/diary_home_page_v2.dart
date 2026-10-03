@@ -28,6 +28,7 @@ import '../../../self_engine/domain/repositories/self_engine_repository_v2.dart'
 import '../../../self_engine/domain/repositories/self_read_repository_v2.dart';
 import '../../../self_engine/application/ports/self_engine_availability_v2.dart';
 import '../../../self_engine/presentation/self_page_v2.dart';
+import '../../../sync/application/diary_sync_controller_v2.dart';
 import '../../application/legacy_migration_controller_v2.dart';
 import '../../application/ports/diary_image_store_v2.dart';
 import '../../domain/entities/diary_entry.dart';
@@ -58,6 +59,7 @@ class DiaryHomePageV2 extends StatefulWidget {
     this.onSelfEngineBecameAvailable,
     this.backupSnapshotReader,
     this.migrationController,
+    this.syncController,
     super.key,
   });
 
@@ -76,6 +78,7 @@ class DiaryHomePageV2 extends StatefulWidget {
   final Future<void> Function()? onSelfEngineBecameAvailable;
   final BackupSqliteSnapshotReaderV2? backupSnapshotReader;
   final LegacyMigrationControllerV2? migrationController;
+  final DiarySyncControllerV2? syncController;
 
   @override
   State<DiaryHomePageV2> createState() => _DiaryHomePageV2State();
@@ -389,6 +392,7 @@ class _DiaryHomePageV2State extends State<DiaryHomePageV2> {
         reminderService: ReminderServiceV2(),
         appLockController: widget.appLockController,
         migrationController: widget.migrationController,
+        syncController: widget.syncController,
       ),
       _HomeSection.recycleBin => RecycleBinPageV2(
         repository: widget.repository,

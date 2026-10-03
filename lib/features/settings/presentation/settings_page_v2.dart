@@ -2,10 +2,12 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 
 import '../../ai/presentation/ai_settings_page_v2.dart';
 import '../../diary/application/legacy_migration_controller_v2.dart';
 import '../../diary/presentation/pages/legacy_migration_page_v2.dart';
+import '../../sync/application/diary_sync_controller_v2.dart';
 import '../application/theme_controller_v2.dart';
 import '../application/app_lock_controller_v2.dart';
 import '../application/reminder_service_v2.dart';
@@ -20,6 +22,7 @@ class SettingsPageV2 extends StatefulWidget {
     required this.reminderService,
     required this.appLockController,
     this.migrationController,
+    this.syncController,
     super.key,
   });
 
@@ -29,6 +32,7 @@ class SettingsPageV2 extends StatefulWidget {
   final ReminderServiceV2 reminderService;
   final AppLockControllerV2 appLockController;
   final LegacyMigrationControllerV2? migrationController;
+  final DiarySyncControllerV2? syncController;
 
   @override
   State<SettingsPageV2> createState() => _SettingsPageV2State();
@@ -185,6 +189,12 @@ class _SettingsPageV2State extends State<SettingsPageV2> {
                   ),
                 ),
                 const SizedBox(height: 24),
+                if (widget.syncController != null) ...[
+                  Text('设备同步', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  _SyncSettingsCard(controller: widget.syncController!),
+                  const SizedBox(height: 24),
+                ],
                 Text('关于数据', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
                 Card(
@@ -398,6 +408,124 @@ class _SettingsPageV2State extends State<SettingsPageV2> {
     ThemeMode.light => Icons.light_mode_outlined,
     ThemeMode.dark => Icons.dark_mode_outlined,
   };
+}
+
+class _SyncSettingsCard extends StatelessWidget {
+  const _SyncSettingsCard({required this.controller});
+
+  final DiarySyncControllerV2 controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final settings = controller.settings;
+        final result = controller.lastResult;
+        final lastSync = settings.lastSuccessfulSync;
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '此功能通过你自行安装的 Syncthing 在设备间同步日记文件。'
+                  'App 本身不会上传到云服务器。',
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  settings.enabled
+                      ? '同步文件夹：\n${settings.displayName}'
+                      : 'Syncthing 文件夹\n当前：未设置',
+                ),
+                if (controller.requiresReauthorization) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '同步文件夹需要重新授权',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                if (lastSync != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '上次同步：${DateFormat('yyyy-MM-dd HH:mm').format(lastSync)}',
+                  ),
+                ],
+                if (result != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '结果：导入 ${result.imported}，导出 ${result.exported}，'
+                    '更新 ${result.updated}，图片 ${result.imageCount}，'
+                    '错误 ${result.errors.length}',
+                  ),
+                ],
+                if (controller.lastError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '同步失败：${controller.lastError.runtimeType}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: controller.running
+                          ? null
+                          : () => _selectFolder(context),
+                      icon: const Icon(Icons.folder_open_outlined),
+                      label: const Text('选择文件夹'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: !settings.enabled || controller.running
+                          ? null
+                          : () => _sync(context),
+                      icon: controller.running
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.sync),
+                      label: Text(controller.running ? '同步中…' : '立即同步'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _selectFolder(BuildContext context) async {
+    try {
+      await controller.selectFolder();
+    } catch (error) {
+      if (context.mounted) _showError(context, error);
+    }
+  }
+
+  Future<void> _sync(BuildContext context) async {
+    try {
+      await controller.synchronize();
+    } catch (error) {
+      if (context.mounted) _showError(context, error);
+    }
+  }
+
+  void _showError(BuildContext context, Object error) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('同步失败：${error.runtimeType}')));
+  }
 }
 
 class _Avatar extends StatelessWidget {

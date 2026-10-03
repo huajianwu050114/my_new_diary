@@ -7,7 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../application/ports/diary_image_store_v2.dart';
 
-class LocalDiaryImageStoreV2 implements DiaryImageStoreV2 {
+class LocalDiaryImageStoreV2
+    implements DiaryImageStoreV2, DiaryImageImportStoreV2 {
   LocalDiaryImageStoreV2({Future<Directory> Function()? rootDirectory})
     : _rootDirectory = rootDirectory ?? _defaultRootDirectory;
 
@@ -27,6 +28,27 @@ class LocalDiaryImageStoreV2 implements DiaryImageStoreV2 {
     await temporary.writeAsBytes(bytes, flush: true);
     await temporary.rename(destination.path);
     return imageId;
+  }
+
+  @override
+  Future<void> import({
+    required String imageId,
+    required Uint8List bytes,
+  }) async {
+    final destination = await _safeFile(imageId);
+    if (await destination.exists()) {
+      final existing = await destination.readAsBytes();
+      if (_sameBytes(existing, bytes)) return;
+    }
+    final temporary = File('${destination.path}.tmp');
+    if (await temporary.exists()) await temporary.delete();
+    await temporary.writeAsBytes(bytes, flush: true);
+    try {
+      await temporary.rename(destination.path);
+    } on FileSystemException {
+      if (await destination.exists()) await destination.delete();
+      await temporary.rename(destination.path);
+    }
   }
 
   @override
@@ -63,6 +85,14 @@ class LocalDiaryImageStoreV2 implements DiaryImageStoreV2 {
     final value = extension.toLowerCase().replaceFirst('.', '');
     const supported = {'jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'};
     return supported.contains(value) ? value : 'jpg';
+  }
+
+  bool _sameBytes(Uint8List left, Uint8List right) {
+    if (left.length != right.length) return false;
+    for (var index = 0; index < left.length; index++) {
+      if (left[index] != right[index]) return false;
+    }
+    return true;
   }
 
   static Future<Directory> _defaultRootDirectory() async {

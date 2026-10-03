@@ -120,10 +120,11 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
 
   @override
   Future<void> restore(String id) async {
+    final restoredAt = DateTime.now().toUtc();
     await _database.transaction((transaction) async {
       await transaction.update(
         _table,
-        {'deleted_at': null},
+        {'deleted_at': null, 'updated_at': restoredAt.toIso8601String()},
         where: 'id = ?',
         whereArgs: [id],
       );
@@ -168,9 +169,13 @@ class SqliteDiaryRepositoryV2 implements DiaryRepositoryV2 {
 
   @override
   Future<void> setFavorite(String id, {required bool isFavorite}) async {
+    final updatedAt = DateTime.now().toUtc();
     await _database.update(
       _table,
-      {'is_favorite': isFavorite ? 1 : 0},
+      {
+        'is_favorite': isFavorite ? 1 : 0,
+        'updated_at': updatedAt.toIso8601String(),
+      },
       where: 'id = ?',
       whereArgs: [id],
     );

@@ -37,6 +37,10 @@ import 'features/self_engine/data/local/sqlite_memory_thread_candidate_retriever
 import 'features/self_engine/data/local/sqlite_personal_thesis_candidate_retriever_v2.dart';
 import 'features/self_engine/data/local/sqlite_self_engine_repository_v2.dart';
 import 'features/self_engine/data/local/sqlite_self_read_repository_v2.dart';
+import 'features/sync/application/diary_sync_controller_v2.dart';
+import 'features/sync/application/diary_sync_service_v2.dart';
+import 'features/sync/application/syncing_diary_repository_v2.dart';
+import 'features/sync/data/sync_directory_provider_v2.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -105,11 +109,26 @@ Future<void> main() async {
     );
   }
 
-  final repository = SqliteDiaryRepositoryV2(
+  final localRepository = SqliteDiaryRepositoryV2(
     database,
     onSourceSaved: scheduleSelfEngineWork,
   );
   final imageStore = LocalDiaryImageStoreV2();
+  final syncDirectoryProvider = SyncDirectoryProviderV2();
+  final syncService = DiarySyncServiceV2(
+    repository: localRepository,
+    imageStore: imageStore,
+  );
+  final syncController = DiarySyncControllerV2(
+    service: syncService,
+    directoryProvider: syncDirectoryProvider,
+  );
+  await syncController.load();
+  final repository = SyncingDiaryRepositoryV2(
+    local: localRepository,
+    syncService: syncService,
+    directoryProvider: syncDirectoryProvider,
+  );
 
   final migrationController = LegacyMigrationControllerV2(
     LegacyDiaryMigratorV2(
@@ -158,6 +177,7 @@ Future<void> main() async {
       themeController: themeController,
       appLockController: appLockController,
       migrationController: migrationController,
+      syncController: syncController,
     ),
   );
 }

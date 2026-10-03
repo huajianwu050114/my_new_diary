@@ -20,6 +20,8 @@ import '../features/self_engine/application/ports/self_engine_runner_v2.dart';
 import '../features/self_engine/domain/repositories/self_engine_repository_v2.dart';
 import '../features/self_engine/domain/repositories/self_read_repository_v2.dart';
 import '../features/self_engine/presentation/self_engine_recovery_scope_v2.dart';
+import '../features/sync/application/diary_sync_controller_v2.dart';
+import '../features/sync/presentation/diary_sync_lifecycle_v2.dart';
 
 class DiaryAppV2 extends StatelessWidget {
   const DiaryAppV2({
@@ -38,6 +40,7 @@ class DiaryAppV2 extends StatelessWidget {
     this.selfEngineRunner,
     this.backupSnapshotReader,
     this.migrationController,
+    this.syncController,
     super.key,
   });
 
@@ -57,13 +60,14 @@ class DiaryAppV2 extends StatelessWidget {
   final SelfEngineRunnerV2? selfEngineRunner;
   final BackupSqliteSnapshotReaderV2? backupSnapshotReader;
   final LegacyMigrationControllerV2? migrationController;
+  final DiarySyncControllerV2? syncController;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: themeController,
       builder: (context, _) {
-        final home = AppLockGateV2(
+        Widget home = AppLockGateV2(
           controller: appLockController,
           child: DiaryHomePageV2(
             repository: repository,
@@ -84,8 +88,12 @@ class DiaryAppV2 extends StatelessWidget {
                   },
             backupSnapshotReader: backupSnapshotReader,
             migrationController: migrationController,
+            syncController: syncController,
           ),
         );
+        if (syncController != null) {
+          home = DiarySyncLifecycleV2(controller: syncController!, child: home);
+        }
         return MaterialApp(
           title: '时光日记',
           debugShowCheckedModeBanner: false,
